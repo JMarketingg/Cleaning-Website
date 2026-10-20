@@ -144,8 +144,32 @@ nav a:hover { color: var(--blue); }
   font-weight: 600;
 }
 
+/* FAQ */
+.faq { padding: 70px 0; }
+.faq-list {
+  max-width: 700px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.faq-list details {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+.faq-list summary {
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--blue-dark);
+}
+.faq-list details p {
+  margin: 12px 0 0;
+  color: #444;
+}
+
 /* Contact */
-.contact { padding: 70px 0; }
+.contact { padding: 70px 0; background: var(--bg); }
 .contact form {
   max-width: 500px;
   margin: 0 auto;
