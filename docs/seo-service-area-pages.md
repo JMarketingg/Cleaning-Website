@@ -1,10 +1,10 @@
 # Service Area Landing Pages — Reference Notes
 
 Source: Whitespark, "Guide to the Perfect Service Area Landing Page"
-Saved for NeatNest House Cleaning (Makati & BGC service area business).
+Saved for TidyHaus Cleaning Services Manila (Makati & BGC service area business).
 
 ## What it is
-A unique page per city/neighborhood we serve (vs. a location page, which is for physical storefronts). Since NeatNest comes to customers, every service area (Makati, BGC, and later expansions) should eventually get its own landing page.
+A unique page per city/neighborhood we serve (vs. a location page, which is for physical storefronts). Since TidyHaus comes to customers, every service area (Makati, BGC, and later expansions) should eventually get its own landing page.
 
 ## Why it matters for us
 - Google Business Profile (GBP) guidelines require hiding our address if we're a service-area business (home-based or non-public office) — this often hurts local pack rankings.
@@ -99,9 +99,9 @@ Not a set-and-forget asset — revisit when:
 
 Source: BrightLocal, "How to craft unique and helpful location pages" (June 2026)
 
-## Key distinction (important for NeatNest)
+## Key distinction (important for TidyHaus)
 - **Location pages** = tied to an actual physical/brick-and-mortar address.
-- **Geo pages / service area pages** = describe services offered in a region where the business has NO physical office there. **This is what NeatNest needs** (we're a service-area business, not a storefront).
+- **Geo pages / service area pages** = describe services offered in a region where the business has NO physical office there. **This is what TidyHaus needs** (we're a service-area business, not a storefront).
 - Geo pages are harder to rank because it's difficult to prove relevance to a whole area without a physical presence there. They also risk being flagged as "doorway pages" (thin, near-duplicate pages targeting slight city-name variations) if not done carefully — avoid mass-producing near-identical pages.
 
 ## The core test before publishing ANY location/service page
@@ -115,7 +115,7 @@ If no → don't publish it yet. A thin page creates cleanup work later.
 ## The 50% rule
 Aim for **40-60% (ideally >50%) of a location/service-area page's content to be unique** to that specific area — not copy-pasted boilerplate with the city name swapped. Shared content (service list, pricing, brand mission) is fine as the minority, not the majority.
 
-## What makes NeatNest's Makati vs. BGC pages genuinely different (not just city-swapped)
+## What makes TidyHaus's Makati vs. BGC pages genuinely different (not just city-swapped)
 Since both areas are close together and we're one brand, differentiate using:
 - Local reviews/testimonials specific to that area
 - Staff notes on area-specific logistics (e.g. building/condo access rules, traffic patterns, common unit types)
@@ -136,7 +136,7 @@ AI Overviews / AI-assisted search doesn't require rewriting pages for AI — it 
 
 ## Search intent — two types that matter for us
 1. **Service-intent searches** (e.g. "cleaning services Makati") → prioritize informational content: what we do, where, how to book.
-2. **Branded searches** (e.g. "NeatNest Makati") → prioritize trust/conversion content: reviews, USP, what makes us different from competitors in that area.
+2. **Branded searches** (e.g. "TidyHaus Makati") → prioritize trust/conversion content: reviews, USP, what makes us different from competitors in that area.
 
 ## What a strong area page should include (condensed from BrightLocal's checklist, adapted for a service-area business)
 - Business name + the area name together
@@ -150,7 +150,7 @@ AI Overviews / AI-assisted search doesn't require rewriting pages for AI — it 
 - Internal links to the other service-area page and to service description pages
 - One clear CTA (book, call, get a quote)
 
-## Action items for NeatNest (future build-out)
+## Action items for TidyHaus (future build-out)
 - [ ] Build `/makati` and `/bgc` (or `/fort-bonifacio`) as separate landing pages once site grows past the single-page MVP
 - [ ] Cross-link them to each other and to a "Service Areas" overview
 - [ ] Add a dedicated map embed showing both areas
