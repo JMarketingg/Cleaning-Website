@@ -78,7 +78,9 @@ a:hover { color: var(--sage-deep); }
   padding-block: 12px;
   flex-wrap: wrap;
 }
-.brand { text-decoration: none; display: flex; flex-direction: column; line-height: 1.15; }
+.brand { text-decoration: none; display: flex; align-items: center; gap: 10px; border-radius: 10px; }
+.brand-mark { width: 40px; height: 40px; flex: none; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; }
 .brand-name { font-size: 1.4rem; font-weight: 700; color: var(--charcoal); letter-spacing: -0.01em; }
 .brand-sub { font-size: 0.8rem; color: var(--muted); letter-spacing: 0.04em; text-transform: uppercase; }
 
@@ -140,7 +142,14 @@ a:hover { color: var(--sage-deep); }
     var(--warm-white);
   padding-block: 72px 64px;
 }
-.hero-inner { max-width: 760px; }
+.hero-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+  align-items: center;
+  gap: 48px;
+}
+.hero-inner { max-width: 640px; min-width: 0; }
+.hero-art { width: 100%; max-width: 380px; height: auto; justify-self: end; }
 .eyebrow {
   display: inline-block;
   background: var(--sage-tint);
@@ -281,11 +290,15 @@ a:hover { color: var(--sage-deep); }
   color: #E9ECEA;
   padding-block: 40px;
 }
-.site-footer a { color: #CFE3D6; }
+.site-footer a { color: #CFE3D6; display: inline-block; padding-block: 10px; }
 .site-footer a:hover { color: var(--white); }
 .footer-inner p { margin: 0 0 6px; }
 
 /* Mobile */
+@media (max-width: 900px) {
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-art { display: none; }
+}
 @media (max-width: 760px) {
   h1 { font-size: 1.8rem; }
   .hero { padding-block: 48px; }
@@ -301,6 +314,14 @@ a:hover { color: var(--sage-deep); }
   }
   .js .site-nav.is-open { display: flex; }
   .js .site-nav .btn { margin-top: 6px; }
+}
+@media (max-width: 420px) {
+  .nav-wrap { gap: 10px; }
+  .brand { gap: 8px; }
+  .brand-mark { width: 34px; height: 34px; }
+  .brand-name { font-size: 1.25rem; }
+  .brand-sub { font-size: 0.68rem; letter-spacing: 0.02em; }
+  .menu-toggle { padding: 0 14px; }
 }
 @media (min-width: 761px) {
   .menu-toggle { display: none; }
