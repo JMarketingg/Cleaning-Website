@@ -285,15 +285,41 @@ a:hover { color: var(--sage-deep); }
 .faq-list details {
   background: var(--white);
   border-radius: 10px;
-  padding: 0 20px;
 }
 .faq-list summary {
   font-weight: 600;
   cursor: pointer;
-  padding-block: 14px;
+  padding: 14px 20px;
   min-height: 44px;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-radius: 10px;
 }
-.faq-list details p { color: var(--muted); padding-bottom: 6px; }
+.faq-list summary::-webkit-details-marker { display: none; }
+.faq-list summary::after {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-right: 4px;
+  border-right: 2px solid var(--sage);
+  border-bottom: 2px solid var(--sage);
+  transform: translateY(-2px) rotate(45deg);
+  transition: transform 0.2s ease;
+}
+.faq-list details[open] summary::after { transform: translateY(2px) rotate(-135deg); }
+.faq-list summary:focus-visible { outline-offset: -3px; }
+.faq-list details[open] summary {
+  border-bottom: 1px solid var(--border);
+  border-radius: 10px 10px 0 0;
+}
+.faq-list details p { color: var(--muted); margin: 0; padding: 12px 20px 16px; }
+@media (prefers-reduced-motion: reduce) {
+  .faq-list summary::after { transition: none; }
+}
 
 /* Quote form */
 .notice {
