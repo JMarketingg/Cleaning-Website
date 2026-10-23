@@ -505,7 +505,7 @@ a:hover { color: var(--sage-deep); }
   font-size: 0.95rem;
   color: #B9C4BC;
 }
-@media (max-width: 760px) {
+@media (max-width: 1000px) {
   .footer-grid { grid-template-columns: 1fr; gap: 16px; }
   .footer-nav { justify-content: flex-start; gap: 0 20px; }
 }
