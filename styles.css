@@ -169,6 +169,7 @@ a:hover { color: var(--sage-deep); }
 .section { padding-block: 64px; }
 .section-tint { background: var(--sage-tint); }
 .section-note { color: var(--muted); margin-top: 20px; }
+.section-intro { color: var(--muted); max-width: 62ch; margin-bottom: 24px; }
 
 /* Service cards */
 .cards {
@@ -265,6 +266,30 @@ a:hover { color: var(--sage-deep); }
   gap: 18px;
 }
 .form-hint { color: var(--muted); margin: 0; }
+.preview-fieldset {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.preview-fieldset .field input,
+.preview-fieldset .field select,
+.preview-fieldset .field textarea {
+  background: var(--warm-white);
+  border-style: dashed;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+.preview-fieldset .btn {
+  background: var(--sage-tint);
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+  align-self: flex-start;
+}
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field label { font-weight: 600; }
 .field input,
