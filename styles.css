@@ -200,6 +200,21 @@ a:hover { color: var(--sage-deep); }
 .card-label { font-weight: 600; color: var(--charcoal) !important; margin-bottom: 4px; }
 .card ul { margin: 0 0 20px; padding-left: 20px; }
 .card li { margin-bottom: 4px; }
+.card ul:last-child { margin-bottom: 0; }
+.card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.card-tag {
+  background: var(--sage-tint);
+  color: var(--sage-deep);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.card-best { font-size: 0.95rem; }
+.card-best strong { color: var(--charcoal); font-weight: 600; }
+.section-link { margin: 16px 0 0; }
 .card-link { margin-top: auto; font-weight: 600; min-height: 44px; display: inline-flex; align-items: center; }
 
 /* Steps */
