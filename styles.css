@@ -224,8 +224,11 @@ a:hover { color: var(--sage-deep); }
   padding: 0;
   margin: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+}
+@media (max-width: 1000px) {
+  .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .steps li {
   counter-increment: step;
@@ -247,6 +250,35 @@ a:hover { color: var(--sage-deep); }
   margin-bottom: 12px;
 }
 .steps p { color: var(--muted); margin: 0; }
+
+@media (max-width: 760px) {
+  .steps { grid-template-columns: 1fr; gap: 0; }
+  .steps li {
+    position: relative;
+    background: transparent;
+    border-radius: 0;
+    padding: 4px 0 24px 52px;
+  }
+  .steps li:last-child { padding-bottom: 0; }
+  .steps li::before {
+    position: absolute;
+    left: 0;
+    top: 0;
+    margin: 0;
+  }
+  .steps li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    left: 15px;
+    top: 36px;
+    bottom: 4px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--sage);
+    opacity: 0.35;
+  }
+  .steps h3 { margin-bottom: 4px; }
+}
 
 /* FAQ */
 .faq-list { display: flex; flex-direction: column; gap: 10px; }
