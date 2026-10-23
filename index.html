@@ -4,36 +4,52 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>TidyHaus House Cleaning Manila — Home &amp; Condo Cleaning</title>
-<meta name="description" content="TidyHaus House Cleaning Manila is a new home and condo cleaning service preparing to launch in Makati and Taguig (BGC). This website is an early design preview; inquiries and bookings are not open yet.">
+<meta name="description" content="TidyHaus House Cleaning Manila is a new home and condo cleaning service preparing to launch in Makati and Taguig (BGC). Bookings are not open yet.">
 <meta property="og:title" content="TidyHaus House Cleaning Manila">
-<meta property="og:description" content="A new home and condo cleaning service preparing to launch in Makati and Taguig (BGC). This website is an early design preview; inquiries and bookings are not open yet.">
+<meta property="og:description" content="A new home and condo cleaning service preparing to launch in Makati and Taguig (BGC). Bookings are not open yet.">
 <meta property="og:type" content="website">
+<meta property="og:image" content="images/hero.jpg">
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preload" as="image" href="images/hero.jpg">
 <link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
 <a class="skip-link" href="#top">Skip to main content</a>
 
+<div class="topbar">
+  <div class="container topbar-inner">
+    <p class="topbar-msg"><span class="pulse" aria-hidden="true"></span> Launching soon in Makati &amp; Taguig (BGC)</p>
+    <a class="topbar-link" href="https://www.facebook.com/profile.php?id=61565598907795" target="_blank" rel="noopener noreferrer">
+      <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z"/></svg>
+      Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span>
+    </a>
+  </div>
+</div>
+
 <header class="site-header">
   <div class="container nav-wrap">
     <a class="brand" href="#top" aria-label="TidyHaus House Cleaning Manila, home">
       <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-        <rect width="40" height="40" rx="11" fill="#3F6B55"/>
-        <path d="M8.5 19 20 9l11.5 10v12a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 31z" fill="#FAF7F2"/>
-        <path d="M20 19.5l1.25 3.25 3.25 1.25-3.25 1.25L20 28.5l-1.25-3.25-3.25-1.25 3.25-1.25z" fill="#3F6B55"/>
+        <rect width="40" height="40" rx="11" fill="#16865A"/>
+        <path d="M8.5 19 20 9l11.5 10v12a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 31z" fill="#FFFFFF"/>
+        <path d="M20 19.5l1.25 3.25 3.25 1.25-3.25 1.25L20 28.5l-1.25-3.25-3.25-1.25 3.25-1.25z" fill="#16865A"/>
       </svg>
       <span class="brand-text">
         <span class="brand-name">Tidy<span class="brand-haus">Haus</span></span>
         <span class="brand-sub">House Cleaning Manila</span>
       </span>
     </a>
-    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>Menu</button>
+    <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav" hidden>
+      <span class="menu-bars" aria-hidden="true"></span>Menu
+    </button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
       <a href="#services">Services</a>
+      <a href="#checklist">Checklist</a>
       <a href="#how">How It Works</a>
+      <a href="#areas">Areas</a>
       <a href="#faq">FAQ</a>
-      <a href="#services" class="btn btn-primary btn-small">Explore Services</a>
+      <a href="#area-check" class="btn btn-primary btn-small">Check Your Area</a>
     </nav>
   </div>
 </header>
@@ -41,123 +57,244 @@
 <main id="top">
 
 <section class="hero">
-  <div class="container hero-grid">
-    <div class="hero-inner">
-      <p class="eyebrow">Preparing to launch</p>
-      <h1>A cleaner home. More time for you.</h1>
-      <p class="lead">TidyHaus House Cleaning Manila is a new home and condo cleaning service in the works, planned for Makati and Taguig (BGC). We plan to start with standard home cleaning and condo cleaning, to give busy households a little more breathing room.</p>
-      <div class="hero-actions">
-        <a href="#services" class="btn btn-primary">Explore Our Services</a>
-      </div>
-      <p class="note">TidyHaus is preparing to launch. Inquiries and bookings are not open yet.</p>
+  <div class="container hero-inner">
+    <div class="hero-copy">
+      <p class="eyebrow">Home &amp; condo cleaning · Coming soon</p>
+      <h1>A cleaner home.<br>More time for you.</h1>
+      <p class="lead">TidyHaus is a new home and condo cleaning service getting ready to launch in Makati and Taguig (BGC), built around a clear checklist and a quality check on every visit.</p>
+      <form id="area-check" class="area-check" action="#areas">
+        <label for="area-select" class="area-check-label">Is TidyHaus coming to your area?</label>
+        <div class="area-check-row">
+          <select id="area-select" name="area">
+            <option value="">Choose your city</option>
+            <option value="makati">Makati</option>
+            <option value="bgc">Taguig (BGC)</option>
+            <option value="other">Another Metro Manila city</option>
+          </select>
+          <button type="submit" class="btn btn-primary">Check</button>
+        </div>
+        <p id="area-result" class="area-result" role="status" aria-live="polite"></p>
+      </form>
     </div>
-    <svg class="hero-art" viewBox="0 0 360 300" aria-hidden="true" focusable="false">
-      <rect x="10" y="10" width="340" height="280" rx="24" fill="#FFFFFF" stroke="#D9DED9"/>
-      <rect x="40" y="40" width="110" height="100" rx="8" fill="#E6EEE8" stroke="#3F6B55" stroke-width="2"/>
-      <path d="M95 40v100M40 90h110" stroke="#3F6B55" stroke-width="2"/>
-      <path d="M200 70h120" stroke="#D9DED9" stroke-width="2" stroke-linecap="round"/>
-      <rect x="215" y="52" width="22" height="18" rx="3" fill="none" stroke="#5C635E" stroke-width="2"/>
-      <rect x="250" y="46" width="16" height="24" rx="3" fill="none" stroke="#5C635E" stroke-width="2"/>
-      <path d="M30 236h300" stroke="#2B2F2C" stroke-width="2" stroke-linecap="round"/>
-      <path d="M70 236v-46a10 10 0 0 1 10-10h120a10 10 0 0 1 10 10v46" fill="#E6EEE8" stroke="#3F6B55" stroke-width="2.4" stroke-linejoin="round"/>
-      <path d="M60 236v-30a8 8 0 0 1 16 0M220 236v-30a8 8 0 0 0-16 0M76 214h128" fill="none" stroke="#3F6B55" stroke-width="2.4" stroke-linecap="round"/>
-      <rect x="244" y="200" width="44" height="36" rx="4" fill="none" stroke="#2B2F2C" stroke-width="2"/>
-      <path d="M296 236v-30h22v30" fill="none" stroke="#5C635E" stroke-width="2"/>
-      <path d="M307 206c-14-8-16-26-6-36M307 206c12-10 10-28 0-38M307 206c-2-14 4-28 14-32" fill="none" stroke="#3F6B55" stroke-width="2.4" stroke-linecap="round"/>
-      <path d="M262 182l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="#3F6B55"/>
-      <path d="M180 160l1.5 4 4 1.5-4 1.5-1.5 4-1.5-4-4-1.5 4-1.5z" fill="#3F6B55" opacity=".7"/>
-    </svg>
+  </div>
+</section>
+
+<section class="trust" aria-label="What to expect">
+  <div class="container trust-grid">
+    <div class="trust-card">
+      <svg class="trust-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4h6M9 4a2 2 0 0 0-2 2H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-1a2 2 0 0 0-2-2M9 4a2 2 0 0 1 2-1h2a2 2 0 0 1 2 1M8.5 12.5l2 2 4-4M8.5 17.5h7"/></svg>
+      <div>
+        <h2>Checklist-based cleaning</h2>
+        <p>Every visit follows the same room-by-room checklist, so you know what's covered.</p>
+      </div>
+    </div>
+    <div class="trust-card">
+      <svg class="trust-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l7 3v5c0 4.5-3 8.3-7 10-4-1.7-7-5.5-7-10V6z"/><path d="M9 12l2 2 4-4"/></svg>
+      <div>
+        <h2>Quality check, every time</h2>
+        <p>Each clean is checked against the list, and we'll ask for your feedback after.</p>
+      </div>
+    </div>
+    <div class="trust-card">
+      <svg class="trust-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
+      <div>
+        <h2>Local to Makati &amp; BGC</h2>
+        <p>Starting small and focused, with homes and condos in two cities.</p>
+      </div>
+    </div>
   </div>
 </section>
 
 <section id="services" class="section">
   <div class="container">
-    <h2>Planned services</h2>
-    <p class="section-intro">Two cleaning services we plan to offer when TidyHaus launches. They are not available yet.</p>
-    <div class="cards">
-      <article class="card">
-        <div class="card-top">
-          <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>
-          <span class="card-tag">Planned</span>
+    <div class="section-head">
+      <p class="kicker">Our services</p>
+      <h2>Cleaning made for Manila homes</h2>
+      <p class="section-intro">Two services we're launching with. Bookings aren't open yet. Exact tasks will be finalized before launch.</p>
+    </div>
+    <div class="services">
+      <article class="service-card">
+        <div class="service-media">
+          <img src="images/home-cleaning.jpg" width="900" height="600" alt="A cleaner mopping the floor of a bright living room" loading="lazy">
+          <span class="badge">Coming soon</span>
         </div>
-        <h3>Standard Home Cleaning</h3>
-        <p>Regular upkeep for houses and apartments.</p>
-        <p class="card-best"><strong>Best for:</strong> Houses, townhouses and apartments</p>
-        <p class="card-label">Planned to include:</p>
-        <ul>
-          <li>Dusting reachable surfaces</li>
-          <li>Sweeping and mopping floors</li>
-          <li>Bathroom and kitchen surfaces</li>
-        </ul>
+        <div class="service-body">
+          <h3>Standard Home Cleaning</h3>
+          <p>Regular upkeep for houses, townhouses and apartments.</p>
+          <ul class="check-list">
+            <li>Dusting reachable surfaces</li>
+            <li>Sweeping and mopping floors</li>
+            <li>Bathroom and kitchen surfaces</li>
+          </ul>
+        </div>
       </article>
-      <article class="card">
-        <div class="card-top">
-          <svg class="card-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 21V4a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v17M3 21h18M9 7h2M13 7h2M9 11h2M13 11h2M9 15h2M13 15h2"/></svg>
-          <span class="card-tag">Planned</span>
+      <article class="service-card">
+        <div class="service-media">
+          <img src="images/condo-cleaning.jpg" width="900" height="600" alt="A cleaner vacuuming a modern condo living room" loading="lazy">
+          <span class="badge">Coming soon</span>
         </div>
-        <h3>Condo Cleaning</h3>
-        <p>Upkeep cleaning sized for studio to multi-bedroom condo units.</p>
-        <p class="card-best"><strong>Best for:</strong> Studio to 3-bedroom units</p>
-        <p class="card-label">Planned to include:</p>
-        <ul>
-          <li>Wiping surfaces and fixtures</li>
-          <li>Floors in compact layouts</li>
-          <li>Bathroom and kitchenette</li>
-        </ul>
+        <div class="service-body">
+          <h3>Condo Cleaning</h3>
+          <p>Upkeep cleaning sized for studio to 3-bedroom condo units.</p>
+          <ul class="check-list">
+            <li>Wiping surfaces and fixtures</li>
+            <li>Floors in compact layouts</li>
+            <li>Bathroom and kitchenette</li>
+          </ul>
+        </div>
       </article>
     </div>
-    <p class="section-note">Exact cleaning tasks will be finalized before launch.</p>
-    <p class="section-link"><a href="#how" class="card-link">See how it will work</a></p>
   </div>
 </section>
 
-<section id="how" class="section section-tint">
+<section class="section section-tint approach">
+  <div class="container approach-grid">
+    <div class="approach-media">
+      <img src="images/approach.jpg" width="900" height="1050" alt="A cleaner carrying a caddy of supplies and a broom up a staircase" loading="lazy">
+    </div>
+    <div class="approach-copy">
+      <p class="kicker">The TidyHaus way</p>
+      <h2>Simple, consistent, and easy to plan around</h2>
+      <p>We're building TidyHaus for busy households who want a reliable clean without the back-and-forth.</p>
+      <ul class="feature-list">
+        <li>
+          <strong>Clear estimates up front</strong>
+          <span>Tell us your area, property size and date, and we'll prepare an estimate before anything is booked.</span>
+        </li>
+        <li>
+          <strong>The same checklist every visit</strong>
+          <span>No guessing what's included. The agreed tasks are listed and confirmed with you.</span>
+        </li>
+        <li>
+          <strong>Your feedback shapes the next clean</strong>
+          <span>After each visit we'll ask how it went so we can keep improving.</span>
+        </li>
+      </ul>
+      <a href="#how" class="btn btn-primary">See how it works</a>
+    </div>
+  </div>
+</section>
+
+<section id="checklist" class="section">
   <div class="container">
-    <h2>How it will work</h2>
-    <p class="section-intro">Once TidyHaus launches, we plan for the process to work like this. None of these steps are available yet.</p>
+    <div class="section-head">
+      <p class="kicker">Our cleaning checklist</p>
+      <h2>Room by room, nothing skipped</h2>
+      <p class="section-intro">A draft of what we plan to cover. The final checklist will be confirmed before launch and in each estimate.</p>
+    </div>
+    <div class="checklist">
+      <div class="tabs" role="tablist" aria-label="Rooms">
+        <button class="tab" role="tab" id="tab-living" aria-controls="panel-living" aria-selected="true">Living areas</button>
+        <button class="tab" role="tab" id="tab-kitchen" aria-controls="panel-kitchen" aria-selected="false" tabindex="-1">Kitchen</button>
+        <button class="tab" role="tab" id="tab-bedrooms" aria-controls="panel-bedrooms" aria-selected="false" tabindex="-1">Bedrooms</button>
+        <button class="tab" role="tab" id="tab-bathrooms" aria-controls="panel-bathrooms" aria-selected="false" tabindex="-1">Bathrooms</button>
+      </div>
+      <div class="checklist-body">
+        <div class="checklist-panels">
+          <div class="panel" role="tabpanel" id="panel-living" aria-labelledby="tab-living" tabindex="0">
+            <h3 class="panel-title">Living areas</h3>
+            <ul class="check-list">
+              <li>Dust reachable surfaces and shelves</li>
+              <li>Wipe tables and fixtures</li>
+              <li>Sweep and mop floors</li>
+              <li>Tidy and straighten up</li>
+              <li>Empty bins</li>
+            </ul>
+          </div>
+          <div class="panel" role="tabpanel" id="panel-kitchen" aria-labelledby="tab-kitchen" tabindex="0">
+            <h3 class="panel-title">Kitchen</h3>
+            <ul class="check-list">
+              <li>Wipe countertops and backsplash</li>
+              <li>Clean the sink and faucet</li>
+              <li>Wipe appliance exteriors</li>
+              <li>Sweep and mop floors</li>
+              <li>Empty bins</li>
+            </ul>
+          </div>
+          <div class="panel" role="tabpanel" id="panel-bedrooms" aria-labelledby="tab-bedrooms" tabindex="0">
+            <h3 class="panel-title">Bedrooms</h3>
+            <ul class="check-list">
+              <li>Dust reachable surfaces</li>
+              <li>Make beds</li>
+              <li>Wipe mirrors and fixtures</li>
+              <li>Sweep and mop floors</li>
+              <li>Empty bins</li>
+            </ul>
+          </div>
+          <div class="panel" role="tabpanel" id="panel-bathrooms" aria-labelledby="tab-bathrooms" tabindex="0">
+            <h3 class="panel-title">Bathrooms</h3>
+            <ul class="check-list">
+              <li>Clean the toilet, sink and shower</li>
+              <li>Wipe mirrors and fixtures</li>
+              <li>Wipe counters</li>
+              <li>Sweep and mop floors</li>
+              <li>Empty bins</li>
+            </ul>
+          </div>
+        </div>
+        <img class="checklist-img" src="images/checklist.jpg" width="900" height="700" alt="A cleaner in yellow gloves wiping down a table" loading="lazy">
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="section section-navy">
+  <div class="container">
+    <div class="section-head">
+      <p class="kicker">How it works</p>
+      <h2>From request to clean home in six steps</h2>
+      <p class="section-intro">How booking will work once we launch.</p>
+    </div>
     <ol class="steps" role="list">
       <li>
         <h3>Share your requirements</h3>
-        <p>You'll tell us your area, property type and size, and preferred date.</p>
+        <p>Tell us your area, property type and size, and preferred date.</p>
       </li>
       <li>
-        <h3>Review your service estimate</h3>
-        <p>We'll review the details and prepare an estimate for you.</p>
+        <h3>Get your estimate</h3>
+        <p>We review the details and prepare an estimate for you.</p>
       </li>
       <li>
         <h3>Confirm your booking</h3>
-        <p>If you accept the estimate, we'll confirm the date and what's included.</p>
+        <p>Accept the estimate and we'll confirm the date and what's included.</p>
       </li>
       <li>
-        <h3>Receive your appointment details</h3>
-        <p>We plan to assign a cleaner and send you the appointment details.</p>
+        <h3>Receive appointment details</h3>
+        <p>We assign a cleaner and send you the appointment details.</p>
       </li>
       <li>
         <h3>Cleaning and quality check</h3>
-        <p>The agreed tasks are completed, then checked against our cleaning checklist.</p>
+        <p>The agreed tasks are completed, then checked against our checklist.</p>
       </li>
       <li>
         <h3>Share your feedback</h3>
-        <p>We'll ask how the cleaning went so we can keep improving.</p>
+        <p>Tell us how it went so we can keep improving.</p>
       </li>
     </ol>
   </div>
 </section>
 
 <section id="areas" class="section">
-  <div class="container narrow">
-    <h2>Where we plan to serve</h2>
-    <p class="section-intro">We plan to start in Makati and Taguig (BGC). Coverage will depend on cleaner availability and hasn't been confirmed yet.</p>
+  <div class="container">
+    <div class="section-head">
+      <p class="kicker">Service areas</p>
+      <h2>Where we're launching</h2>
+      <p class="section-intro">We plan to start in Makati and Taguig (BGC). Coverage will depend on cleaner availability and hasn't been confirmed yet.</p>
+    </div>
     <ul class="area-cards" role="list">
       <li class="area-card">
         <svg class="area-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-        <span class="area-name">Makati</span><span class="visually-hidden">, </span>
-        <span class="card-tag">Planned</span>
+        <div>
+          <span class="area-name">Makati</span>
+          <span class="area-status">Launching soon</span>
+        </div>
       </li>
       <li class="area-card">
         <svg class="area-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>
-        <span class="area-name">Taguig (BGC)</span><span class="visually-hidden">, </span>
-        <span class="card-tag">Planned</span>
+        <div>
+          <span class="area-name">Taguig (BGC)</span>
+          <span class="area-status">Launching soon</span>
+        </div>
       </li>
     </ul>
   </div>
@@ -165,7 +302,10 @@
 
 <section id="faq" class="section section-tint">
   <div class="container narrow">
-    <h2>Frequently asked questions</h2>
+    <div class="section-head center">
+      <p class="kicker">FAQ</p>
+      <h2>Frequently asked questions</h2>
+    </div>
     <div class="faq-list">
       <details>
         <summary>Are you taking bookings now?</summary>
@@ -196,6 +336,10 @@
         <p>Payment methods haven't been finalized yet. Any payment options will be confirmed before a booking is made.</p>
       </details>
       <details>
+        <summary>What will you ask for when I request an estimate?</summary>
+        <p>Your area, property type and approximate size, the service you're interested in, your preferred date, and how you'd like us to contact you. Please don't share door codes or building access details through the website.</p>
+      </details>
+      <details>
         <summary>How do you handle my information?</summary>
         <p>This website doesn't collect any personal information. A draft <a href="privacy.html">Privacy Notice</a> is a placeholder until inquiries open.</p>
       </details>
@@ -203,20 +347,13 @@
   </div>
 </section>
 
-<section id="quote" class="section">
-  <div class="container narrow">
-    <h2>Planned estimate request</h2>
-    <div class="summary-card">
-      <p>When TidyHaus launches, we plan to ask for a few details to prepare your estimate. Inquiries are not open yet.</p>
-      <ul class="summary-list" role="list">
-        <li>Your area</li>
-        <li>Property type and approximate size</li>
-        <li>The service you're interested in</li>
-        <li>Your preferred date</li>
-        <li>How you'd like us to contact you</li>
-      </ul>
-      <p class="summary-note">Please don't share door codes or building access details through the website.</p>
+<section class="cta-band">
+  <div class="container cta-inner">
+    <div>
+      <h2>Want to know when we launch?</h2>
+      <p>Follow along or send us a question on Facebook. Bookings aren't open yet.</p>
     </div>
+    <a class="btn btn-white" href="https://www.facebook.com/profile.php?id=61565598907795" target="_blank" rel="noopener noreferrer">Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span></a>
   </div>
 </section>
 
@@ -227,34 +364,43 @@
     <div class="footer-brand">
       <p class="footer-logo">
         <svg class="brand-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false">
-          <rect width="40" height="40" rx="11" fill="#3F6B55"/>
-          <path d="M8.5 19 20 9l11.5 10v12a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 31z" fill="#FAF7F2"/>
-          <path d="M20 19.5l1.25 3.25 3.25 1.25-3.25 1.25L20 28.5l-1.25-3.25-3.25-1.25 3.25-1.25z" fill="#3F6B55"/>
+          <rect width="40" height="40" rx="11" fill="#16865A"/>
+          <path d="M8.5 19 20 9l11.5 10v12a1.5 1.5 0 0 1-1.5 1.5H10A1.5 1.5 0 0 1 8.5 31z" fill="#FFFFFF"/>
+          <path d="M20 19.5l1.25 3.25 3.25 1.25-3.25 1.25L20 28.5l-1.25-3.25-3.25-1.25 3.25-1.25z" fill="#16865A"/>
         </svg>
         <span class="brand-text">
           <span class="brand-name">Tidy<span class="brand-haus">Haus</span></span>
           <span class="brand-sub">House Cleaning Manila</span>
         </span>
       </p>
-      <p>Questions? <a href="https://www.facebook.com/profile.php?id=61565598907795" target="_blank" rel="noopener noreferrer">Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span></a></p>
+      <p>Home and condo cleaning, launching soon in Makati and Taguig (BGC).</p>
     </div>
-    <nav class="footer-nav" aria-label="Footer">
-      <a href="#services">Services</a>
-      <a href="#how">How it works</a>
-      <a href="#areas">Where we serve</a>
-      <a href="#faq">FAQ</a>
-      <a href="privacy.html">Privacy Notice</a>
-    </nav>
+    <div class="footer-col">
+      <h2 class="footer-title">Explore</h2>
+      <nav class="footer-nav" aria-label="Footer">
+        <a href="#services">Services</a>
+        <a href="#checklist">Checklist</a>
+        <a href="#how">How it works</a>
+        <a href="#areas">Where we serve</a>
+        <a href="#faq">FAQ</a>
+      </nav>
+    </div>
+    <div class="footer-col">
+      <h2 class="footer-title">Contact</h2>
+      <p><a href="https://www.facebook.com/profile.php?id=61565598907795" target="_blank" rel="noopener noreferrer">Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span></a></p>
+      <p><a href="privacy.html">Privacy Notice</a></p>
+    </div>
     <p class="footer-copy">&copy; 2026 TidyHaus</p>
   </div>
 </footer>
 
 <script>
   (function () {
+    document.documentElement.classList.add('js');
+
     var btn = document.querySelector('.menu-toggle');
     var nav = document.getElementById('site-nav');
     btn.hidden = false;
-    document.documentElement.classList.add('js');
     btn.addEventListener('click', function () {
       var open = btn.getAttribute('aria-expanded') === 'true';
       btn.setAttribute('aria-expanded', String(!open));
@@ -266,6 +412,41 @@
         nav.classList.remove('is-open');
       }
     });
+
+    var form = document.getElementById('area-check');
+    var select = document.getElementById('area-select');
+    var result = document.getElementById('area-result');
+    var messages = {
+      '': 'Choose your city to check.',
+      makati: 'Yes! Makati is one of our launch areas. Bookings open soon.',
+      bgc: 'Yes! Taguig (BGC) is one of our launch areas. Bookings open soon.',
+      other: "We're starting with Makati and Taguig (BGC). Message us on Facebook so we know you're interested."
+    };
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      result.textContent = messages[select.value];
+      result.classList.toggle('is-yes', select.value === 'makati' || select.value === 'bgc');
+    });
+
+    var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
+    function selectTab(tab) {
+      tabs.forEach(function (t) {
+        var on = t === tab;
+        t.setAttribute('aria-selected', String(on));
+        t.tabIndex = on ? 0 : -1;
+        document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+      });
+    }
+    tabs.forEach(function (tab, i) {
+      tab.addEventListener('click', function () { selectTab(tab); });
+      tab.addEventListener('keydown', function (e) {
+        var next = null;
+        if (e.key === 'ArrowRight') next = tabs[(i + 1) % tabs.length];
+        if (e.key === 'ArrowLeft') next = tabs[(i - 1 + tabs.length) % tabs.length];
+        if (next) { e.preventDefault(); selectTab(next); next.focus(); }
+      });
+    });
+    selectTab(tabs[0]);
   })();
 </script>
 </body>
