@@ -321,6 +321,46 @@ a:hover { color: var(--sage-deep); }
   .faq-list summary::after { transition: none; }
 }
 
+/* Planned estimate request */
+.summary-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 28px;
+}
+.summary-card > p:first-child { color: var(--muted); }
+.summary-list {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+.summary-list li {
+  position: relative;
+  padding-left: 28px;
+}
+.summary-list li::before {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.5em;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--sage);
+}
+.summary-note {
+  margin: 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+@media (max-width: 760px) {
+  .summary-card { padding: 20px; }
+}
+
 /* Quote form */
 .notice {
   background: #FFF6E5;

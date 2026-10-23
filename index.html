@@ -193,101 +193,18 @@
 
 <section id="quote" class="section">
   <div class="container narrow">
-    <h2>Quote form preview</h2>
-
-    <div class="notice" role="note">
-      <strong>Design preview only.</strong>
-      Inquiries are not open yet. This form shows the planned design: it is switched off, not connected to anything, and cannot receive or send information.
+    <h2>Planned estimate request</h2>
+    <div class="summary-card">
+      <p>When TidyHaus launches, we plan to ask for a few details to prepare your estimate. Inquiries are not open yet.</p>
+      <ul class="summary-list" role="list">
+        <li>Your area</li>
+        <li>Property type and approximate size</li>
+        <li>The service you're interested in</li>
+        <li>Your preferred date</li>
+        <li>How you'd like us to contact you</li>
+      </ul>
+      <p class="summary-note">Please don't share door codes or building access details through the website.</p>
     </div>
-
-    <form id="quote-form" class="quote-form" aria-label="Quote form preview, disabled" novalidate>
-      <p class="form-hint">Preview only. These fields are disabled.</p>
-      <fieldset class="preview-fieldset" disabled>
-
-      <div class="field">
-        <label for="name">Name (required)</label>
-        <input id="name" name="name" type="text" autocomplete="name" required>
-      </div>
-
-      <div class="field">
-        <label for="contact_method">How should we contact you? (required)</label>
-        <select id="contact_method" name="contact_method" required>
-          <option value="">Choose one</option>
-          <option>Email</option>
-          <option>Phone call or SMS</option>
-          <option>Viber</option>
-          <option>Facebook Messenger</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="contact_details">Contact details (required)</label>
-        <input id="contact_details" name="contact_details" type="text" aria-describedby="contact_details-hint" required>
-        <p id="contact_details-hint" class="hint">Your email, phone number, or Messenger name.</p>
-      </div>
-
-      <div class="field">
-        <label for="area">Area (required)</label>
-        <select id="area" name="area" required>
-          <option value="">Choose one</option>
-          <option>Makati</option>
-          <option>Taguig (BGC)</option>
-          <option>Other</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="area_other">If "Other", which area?</label>
-        <input id="area_other" name="area_other" type="text">
-      </div>
-
-      <div class="field">
-        <label for="property_type">Property type (required)</label>
-        <select id="property_type" name="property_type" required>
-          <option value="">Choose one</option>
-          <option>Condo unit</option>
-          <option>House</option>
-          <option>Apartment</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="size">Approximate size</label>
-        <select id="size" name="size">
-          <option value="">Choose one</option>
-          <option>Studio</option>
-          <option>1 bedroom</option>
-          <option>2 bedrooms</option>
-          <option>3+ bedrooms</option>
-          <option>I'm not sure</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="service">Service (required)</label>
-        <select id="service" name="service" required>
-          <option value="">Choose one</option>
-          <option>Standard Home Cleaning</option>
-          <option>Condo Cleaning</option>
-        </select>
-      </div>
-
-      <div class="field">
-        <label for="preferred_date">Preferred date and time</label>
-        <input id="preferred_date" name="preferred_date" type="text" aria-describedby="preferred_date-hint">
-        <p id="preferred_date-hint" class="hint">For example: weekday mornings in December.</p>
-      </div>
-
-      <div class="field">
-        <label for="notes">Anything we should know?</label>
-        <textarea id="notes" name="notes" rows="4" aria-describedby="notes-hint"></textarea>
-        <p id="notes-hint" class="hint">Please don't include door codes, building access details, or other sensitive information.</p>
-      </div>
-
-      <button type="submit" class="btn btn-primary" aria-describedby="form-status">Request Quote</button>
-      </fieldset>
-      <p id="form-status" class="form-status">Inquiries are not open yet, so this form can't be used.</p>
-    </form>
   </div>
 </section>
 
@@ -318,9 +235,6 @@
         btn.setAttribute('aria-expanded', 'false');
         nav.classList.remove('is-open');
       }
-    });
-    document.getElementById('quote-form').addEventListener('submit', function (e) {
-      e.preventDefault();
     });
   })();
 </script>
