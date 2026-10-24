@@ -60,9 +60,17 @@
 <section class="hero">
   <div class="container hero-inner">
     <div class="hero-copy">
-      <p class="eyebrow">Makati · BGC · Opening soon</p>
-      <h1>Come home to a clean place.</h1>
-      <p class="lead">We clean houses and condos in Makati and BGC. We're not taking bookings just yet, but we're close.</p>
+      <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Opening soon · Makati &amp; BGC</p>
+      <h1>Come home to a <span class="hero-accent">spotless</span> place.</h1>
+      <p class="lead">Careful, checklist-based cleaning for houses and condos. We're getting ready to open. Message us and we'll let you know when bookings start.</p>
+      <div class="hero-ctas">
+        <a class="btn btn-primary btn-lg" href="https://www.facebook.com/profile.php?id=61565598907795" target="_blank" rel="noopener noreferrer">
+          <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z"/></svg>
+          Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span>
+        </a>
+        <a class="btn btn-ghost btn-lg" href="#checklist">See what we'll clean</a>
+      </div>
+      <p class="hero-note">No booking or payment needed. Just say hi.</p>
       <form id="area-check" class="area-check" action="#areas">
         <label for="area-select" class="area-check-label">Do we clean in your area?</label>
         <div class="area-check-row">
@@ -76,6 +84,11 @@
         </div>
         <p id="area-result" class="area-result" role="status" aria-live="polite"></p>
       </form>
+    </div>
+    <div class="hero-media">
+      <img src="images/hero.jpg" alt="A person vacuuming the wooden floor of a bright, tidy apartment" width="1920" height="1080" fetchpriority="high">
+      <p class="hero-badge hero-badge-top"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Makati &amp; BGC first</p>
+      <p class="hero-badge hero-badge-bottom"><svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M9 4h6M9 4a2 2 0 0 0-2 2H6a1 1 0 0 0-1 1v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7a1 1 0 0 0-1-1h-1a2 2 0 0 0-2-2M8.5 12.5l2 2 4-4"/></svg>Same checklist every visit</p>
     </div>
   </div>
 </section>
@@ -419,8 +432,8 @@
     var result = document.getElementById('area-result');
     var messages = {
       '': 'Pick your city to check.',
-      makati: 'Yes, we'll be cleaning in Makati.',
-      bgc: 'Yes, we'll be cleaning in BGC.',
+      makati: "Yes, we'll be cleaning in Makati.",
+      bgc: "Yes, we'll be cleaning in BGC.",
       other: "Not yet. Message us on Facebook so we know you want us there."
     };
     form.addEventListener('submit', function (e) {
