@@ -624,6 +624,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   max-width: 40ch;
   font-style: normal;
 }
+.footer-phone { margin-top: 10px; }
 .footer-address svg {
   flex: none;
   width: 18px;
