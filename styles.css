@@ -636,6 +636,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 }
 .footer-brand p { margin: 0; max-width: 40ch; }
 .footer-logo { display: flex; align-items: center; gap: 10px; margin-bottom: 14px !important; }
+.site-footer .brand-mark { border-radius: 27.5%; box-shadow: 0 0 0 1.5px rgba(230, 227, 213, 0.4); }
 .site-footer .brand-name { color: var(--white); }
 .site-footer .brand-haus { color: var(--beige); }
 .site-footer .brand-sub { color: var(--beige); }
