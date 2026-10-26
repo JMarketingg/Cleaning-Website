@@ -41,10 +41,25 @@
       <span class="menu-bars" aria-hidden="true"></span>Menu
     </button>
     <nav id="site-nav" class="site-nav" aria-label="Main">
-      <a href="#services">Services</a>
-      <a href="#checklist">Checklist</a>
+      <div class="nav-item">
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="menu-services">Services<svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+        <ul class="nav-menu" id="menu-services">
+          <li><a href="#svc-standard"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></svg><span>Standard Home Cleaning</span></a></li>
+          <li><a href="#svc-condo"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="5" y="3" width="14" height="18" rx="1"/><path d="M9 7h2M13 7h2M9 11h2M13 11h2M10 21v-4h4v4"/></svg><span>Condo Cleaning</span></a></li>
+          <li><a href="#svc-deep"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/></svg><span>Deep Cleaning</span></a></li>
+          <li><a href="#svc-move"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="18" r="1.5"/><circle cx="17" cy="18" r="1.5"/></svg><span>Move-in / Move-out</span></a></li>
+          <li><a href="#svc-airbnb"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3"/></svg><span>Airbnb &amp; Rental</span></a></li>
+          <li><a href="#svc-office"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg><span>Office Cleaning</span></a></li>
+        </ul>
+      </div>
+      <div class="nav-item">
+        <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="menu-locations">Locations<svg class="nav-chevron" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M6 9l6 6 6-6"/></svg></button>
+        <ul class="nav-menu" id="menu-locations">
+          <li><a href="/" aria-current="page"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span>Makati</span></a></li>
+          <li><a href="/bgc"><svg class="nav-menu-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg><span>BGC (Taguig)</span></a></li>
+        </ul>
+      </div>
       <a href="#how">How It Works</a>
-      <a href="#areas">Areas</a>
       <a href="#faq">FAQ</a>
       <a href="#area-check" class="btn btn-primary btn-small">Check Your Area</a>
     </nav>
@@ -120,7 +135,7 @@
       <p class="section-intro">Regular cleaning for houses and condos, plus deep, move-in/move-out, Airbnb and rental, and office cleaning. Message us for details on any of them.</p>
     </div>
     <div class="services">
-      <article class="service-card">
+      <article class="service-card" id="svc-standard">
         <div class="service-media">
           <img src="images/home-cleaning.jpg" width="900" height="600" alt="A cleaner mopping the floor of a bright living room" loading="lazy">
         </div>
@@ -134,7 +149,7 @@
           </ul>
         </div>
       </article>
-      <article class="service-card">
+      <article class="service-card" id="svc-condo">
         <div class="service-media">
           <img src="images/condo-cleaning.jpg" width="900" height="600" alt="A cleaner vacuuming a modern condo living room" loading="lazy">
         </div>
@@ -150,22 +165,22 @@
       </article>
     </div>
     <div class="services-more">
-      <article class="service-card service-card-simple">
+      <article class="service-card service-card-simple" id="svc-deep">
         <svg class="service-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8z"/><path d="M18.5 15.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z"/></svg>
         <h3>Deep Cleaning</h3>
         <p>A more thorough top-to-bottom clean, for homes that need extra attention.</p>
       </article>
-      <article class="service-card service-card-simple">
+      <article class="service-card service-card-simple" id="svc-move">
         <svg class="service-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/><path d="M9 21v-6h6v6"/></svg>
         <h3>Move&#8209;in / Move&#8209;out Cleaning</h3>
         <p>For empty houses and condos, before you move in or after you move out.</p>
       </article>
-      <article class="service-card service-card-simple">
+      <article class="service-card service-card-simple" id="svc-airbnb">
         <svg class="service-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="8" cy="15" r="4"/><path d="M11 12l9-9M17 6l3 3M15 8l2 2"/></svg>
         <h3>Airbnb &amp; Rental Cleaning</h3>
         <p>Turnover cleaning for Airbnb, short-stay and rental units, between guests or tenants.</p>
       </article>
-      <article class="service-card service-card-simple">
+      <article class="service-card service-card-simple" id="svc-office">
         <svg class="service-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3" width="16" height="18" rx="1"/><path d="M8 7h2M14 7h2M8 11h2M14 11h2M8 15h2M14 15h2"/></svg>
         <h3>Office Cleaning</h3>
         <p>For small offices and workplaces in Makati.</p>
@@ -451,8 +466,28 @@
       btn.setAttribute('aria-expanded', String(!open));
       nav.classList.toggle('is-open', !open);
     });
+    var navToggles = Array.prototype.slice.call(nav.querySelectorAll('.nav-toggle'));
+    function closeMenus(except) {
+      navToggles.forEach(function (t) {
+        if (t !== except) t.setAttribute('aria-expanded', 'false');
+      });
+    }
+    navToggles.forEach(function (t) {
+      t.addEventListener('click', function () {
+        var open = t.getAttribute('aria-expanded') === 'true';
+        closeMenus(t);
+        t.setAttribute('aria-expanded', String(!open));
+      });
+    });
+    document.addEventListener('click', function (e) {
+      if (!e.target.closest('.nav-item')) closeMenus();
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeMenus();
+    });
     nav.addEventListener('click', function (e) {
-      if (e.target.tagName === 'A') {
+      if (e.target.closest('a')) {
+        closeMenus();
         btn.setAttribute('aria-expanded', 'false');
         nav.classList.remove('is-open');
       }

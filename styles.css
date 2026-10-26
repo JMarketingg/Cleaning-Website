@@ -154,6 +154,49 @@ a:hover { color: var(--evergreen); }
 .site-nav a:not(.btn):hover { color: var(--forest); background: var(--beige); }
 .site-nav .btn { margin-left: 8px; }
 
+/* Nav dropdowns */
+.nav-item { position: relative; }
+.nav-toggle {
+  font: inherit;
+  font-weight: 600;
+  color: var(--evergreen);
+  background: none;
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 14px;
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+.nav-toggle:hover, .nav-toggle[aria-expanded="true"] { color: var(--forest); background: var(--beige); }
+.nav-chevron { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.15s ease; }
+.nav-toggle[aria-expanded="true"] .nav-chevron { transform: rotate(180deg); }
+.nav-menu {
+  display: none;
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  min-width: 280px;
+  background: var(--white);
+  border: 1px solid var(--beige);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+}
+.nav-toggle[aria-expanded="true"] + .nav-menu { display: block; }
+.site-nav .nav-menu a { display: flex; gap: 12px; width: 100%; font-weight: 600; white-space: nowrap; }
+.nav-menu a[aria-current="page"] { color: var(--forest); background: var(--cream); }
+.nav-menu-icon { width: 20px; height: 20px; flex: none; fill: none; stroke: var(--sage); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+@media (min-width: 861px) {
+  .nav-menu { position: absolute; top: calc(100% + 6px); left: 0; z-index: 30; }
+  .nav-item:hover > .nav-menu { display: block; }
+  .nav-item:hover > .nav-menu::before { content: ""; position: absolute; left: 0; right: 0; top: -8px; height: 8px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nav-chevron { transition: none; }
+}
+
 .menu-toggle {
   font: inherit;
   font-weight: 700;
@@ -747,6 +790,8 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   }
   .js .site-nav.is-open { display: flex; }
   .js .site-nav .btn { margin: 8px 0 0; }
+  .nav-toggle { width: 100%; justify-content: space-between; }
+  .nav-menu { min-width: 0; padding: 4px 0 4px 12px; border: 0; box-shadow: none; }
 }
 @media (min-width: 861px) {
   .menu-toggle { display: none; }
