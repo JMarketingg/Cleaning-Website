@@ -674,6 +674,17 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .footer-col a, .footer-nav a { min-height: 40px; display: inline-flex; align-items: center; }
 .footer-nav { display: flex; flex-direction: column; align-items: flex-start; }
 .footer-nav a[aria-current="page"] { font-weight: 700; color: var(--beige); }
+.area-map {
+  margin-top: 28px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--beige);
+  box-shadow: var(--shadow);
+}
+.area-map iframe { display: block; width: 100%; height: 320px; border: 0; }
+@media (max-width: 760px) {
+  .area-map iframe { height: 240px; }
+}
 .footer-map {
   grid-column: 1 / -1;
   border-radius: var(--radius);
