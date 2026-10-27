@@ -785,7 +785,6 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .approach-grid { grid-template-columns: 1fr; }
   .approach-media img { aspect-ratio: 4 / 5; max-height: 560px; }
   .checklist-body { grid-template-columns: 1fr; padding: 28px; }
-  .checklist-img { display: none; }
 }
 @media (max-width: 860px) {
   .js .site-nav {
