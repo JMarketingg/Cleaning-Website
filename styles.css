@@ -957,15 +957,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .cta-band .btn-lg { width: 100%; }
 }
 
-/* Phones, before the fold: header shows only the logo and quote button */
-@media (max-width: 860px) {
-  .site-header.menu-hidden .site-nav > :not(.btn),
-  .site-header.menu-hidden .menu-toggle { display: none; }
-  .js .site-header.menu-hidden .site-nav {
-    display: flex;
-    width: auto;
-    flex-direction: row;
-    padding-bottom: 0;
-  }
-  .js .site-header.menu-hidden .site-nav .btn { margin: 0; }
-}
+/* Long-form text pages */
+.prose h2 { font-size: 1.35rem; margin-top: 36px; }
+.prose ul { padding-left: 22px; }
+.prose li { margin-bottom: 6px; }
