@@ -414,7 +414,7 @@ a:hover { color: var(--evergreen); }
 /* Services */
 .services {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 28px;
 }
 .service-card {
@@ -453,7 +453,8 @@ a:hover { color: var(--evergreen); }
 }
 .service-card-simple { padding: 28px; }
 .service-card-simple h3 { font-size: 1.2rem; margin-bottom: 6px; }
-.service-card-simple p { color: var(--muted); margin: 0; }
+.service-card-simple > p { color: var(--muted); margin: 0 0 18px; }
+.service-card-simple .check-list { margin: auto 0 0; }
 .service-icon {
   width: 52px;
   height: 52px;
@@ -758,6 +759,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 
 /* Responsive */
 @media (max-width: 1000px) {
+  .services { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .area-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .services-more { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .steps { grid-template-columns: repeat(2, minmax(0, 1fr)); }
