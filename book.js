@@ -71,6 +71,7 @@
     nextBtn.hidden = last;
     errorBox.textContent = '';
     if (last) buildSummary();
+    if (window.thTrack) window.thTrack('quote_step', pos + '. ' + steps[i].dataset.key);
     var heading = steps[i].querySelector('.bk-question');
     if (heading) heading.focus();
   }

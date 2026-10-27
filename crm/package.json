@@ -1,0 +1,18 @@
+{
+  "name": "tidyhaus-crm",
+  "version": "1.0.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "import:zenbooker": "node --env-file=.env scripts/import-zenbooker.mjs",
+    "import:zenbooker:dry": "node --env-file=.env scripts/import-zenbooker.mjs --dry-run",
+    "import:doms": "node --env-file=.env scripts/import-zenbooker.mjs --business=doms --until=2026-06-19",
+    "import:doms:dry": "node --env-file=.env scripts/import-zenbooker.mjs --business=doms --until=2026-06-19 --dry-run",
+    "test:email": "node --env-file=.env scripts/test-confirmation-email.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.128.0",
+    "@supabase/supabase-js": "^2.38.0",
+    "pdf-parse": "^1.1.1"
+  }
+}

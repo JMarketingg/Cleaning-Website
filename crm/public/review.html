@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>How was your experience?</title>
+<link rel="icon" type="image/svg+xml" href="/favicon-tech.svg">
+<link rel="apple-touch-icon" href="/favicon-tech.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f5f6f8; --panel:#ffffff; --line:#e7e9ee;
+    --ink:#222a35; --ink-2:#3a4453; --mute:#7a8694;
+    --accent:#2563eb;            /* set per-brand at runtime */
+    --star-off:#e3e6eb;
+    --green:#22c55e; --red:#ef4444;
+    --font-sans:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    --fs-h1:clamp(26px,6vw,34px); --fs-h2:22px;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;}
+  body{font-family:var(--font-sans);background:var(--bg);color:var(--ink);-webkit-font-smoothing:antialiased;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;letter-spacing:-.01em;}
+  .container{background:var(--panel);border:1px solid var(--line);border-radius:18px;padding:40px 36px;width:100%;max-width:480px;box-shadow:0 18px 50px rgba(20,30,50,.10);text-align:center;}
+  h1{font-size:var(--fs-h1);font-weight:800;letter-spacing:-.02em;line-height:1.12;margin-bottom:10px;}
+  .hl{color:var(--accent);}
+  .sub{color:var(--mute);font-size:15px;margin-bottom:8px;line-height:1.55;}
+
+  /* ── Stars ── */
+  .stars{display:flex;justify-content:center;gap:10px;margin:30px 0 8px;}
+  .star{background:none;border:none;padding:4px;line-height:0;cursor:pointer;transition:transform .15s ease;}
+  .star svg{width:42px;height:42px;display:block;}
+  .star svg path{fill:var(--star-off);transition:fill .15s ease;}
+  .star.on svg path{fill:var(--accent);}
+  .stars:not(.locked) .star:hover{transform:scale(1.12);}
+  .stars.locked .star{cursor:default;}
+
+  /* ── Follow-up panels ── */
+  .panel{display:none;margin-top:22px;text-align:center;animation:fade .25s ease;}
+  .panel.show{display:block;}
+  @keyframes fade{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+  .panel h2{font-size:var(--fs-h2);font-weight:800;letter-spacing:-.02em;margin-bottom:6px;}
+  .panel p{color:var(--mute);font-size:14px;line-height:1.55;margin-bottom:16px;}
+  textarea{width:100%;background:#fff;border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:13px 14px;font-size:15px;font-family:inherit;min-height:110px;resize:vertical;margin-bottom:14px;}
+  textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent);}
+  .btn{background:var(--accent);color:#fff;border:none;border-radius:12px;padding:14px 24px;font-size:15px;font-weight:700;cursor:pointer;width:100%;display:inline-flex;align-items:center;justify-content:center;gap:9px;}
+  .btn:hover{filter:brightness(.96);}
+  .btn:disabled{opacity:.6;cursor:default;}
+  .btn .gicon{width:18px;height:18px;}
+
+  /* ── Done / error states ── */
+  .state{display:none;}
+  .state.show{display:block;}
+  .check{width:64px;height:64px;border-radius:50%;background:color-mix(in srgb,var(--green) 14%,transparent);display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:32px;color:var(--green);}
+  .state h2{font-size:var(--fs-h2);font-weight:800;letter-spacing:-.02em;margin-bottom:8px;}
+  .state p{color:var(--mute);font-size:14px;line-height:1.55;}
+  .error{display:none;color:var(--red);font-size:14px;margin-top:18px;font-weight:600;}
+  .error.show{display:block;}
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div id="content">
+    <h1 id="title">How was your <span class="hl">experience?</span></h1>
+    <p class="sub" id="subtitle">Tap a star to rate your service.</p>
+
+    <div class="stars" id="starRow">
+      <button class="star" data-rating="1" aria-label="1 star"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L21.6 9.27l-4.8 4.68 1.13 6.6L12 17.4l-5.93 3.15L7.2 13.95 2.4 9.27l6.7-1.01L12 2z"/></svg></button>
+      <button class="star" data-rating="2" aria-label="2 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L21.6 9.27l-4.8 4.68 1.13 6.6L12 17.4l-5.93 3.15L7.2 13.95 2.4 9.27l6.7-1.01L12 2z"/></svg></button>
+      <button class="star" data-rating="3" aria-label="3 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L21.6 9.27l-4.8 4.68 1.13 6.6L12 17.4l-5.93 3.15L7.2 13.95 2.4 9.27l6.7-1.01L12 2z"/></svg></button>
+      <button class="star" data-rating="4" aria-label="4 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L21.6 9.27l-4.8 4.68 1.13 6.6L12 17.4l-5.93 3.15L7.2 13.95 2.4 9.27l6.7-1.01L12 2z"/></svg></button>
+      <button class="star" data-rating="5" aria-label="5 stars"><svg viewBox="0 0 24 24"><path d="M12 2l2.9 6.26L21.6 9.27l-4.8 4.68 1.13 6.6L12 17.4l-5.93 3.15L7.2 13.95 2.4 9.27l6.7-1.01L12 2z"/></svg></button>
+    </div>
+
+    <!-- 1–4 stars: ask what we could do better -->
+    <div class="panel" id="lowSection">
+      <h2>Thanks for your honesty</h2>
+      <p>We're sorry we missed the mark. What could we have done better?</p>
+      <textarea id="lowText" placeholder="Tell us what happened (optional)"></textarea>
+      <button class="btn" id="lowSubmit">Submit feedback</button>
+    </div>
+
+    <!-- 5 stars: ask what they loved, then send to Google -->
+    <div class="panel" id="highSection">
+      <h2>Thank you!</h2>
+      <p>We're so glad we got it right. What did you like about our service?</p>
+      <textarea id="highText" placeholder="What did you like about our service?"></textarea>
+      <button class="btn" id="googleBtn">
+        <svg class="gicon" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.9 29.3 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.3-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 16 19 13 24 13c3.1 0 5.9 1.2 8 3.1l5.7-5.7C34.6 6.1 29.6 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 10-2 13.6-5.2l-6.3-5.3C29.2 35 26.7 36 24 36c-5.3 0-9.7-3.1-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.1-4 5.5l6.3 5.3C39.7 36.4 44 31 44 24c0-1.3-.1-2.3-.4-3.5z"/></svg>
+        Share your experience on Google
+      </button>
+    </div>
+
+    <!-- Success -->
+    <div class="state" id="doneSection">
+      <div class="check">&#10003;</div>
+      <h2>Thank you for your feedback!</h2>
+      <p>We use every review to keep improving our service.</p>
+    </div>
+
+    <!-- Already reviewed -->
+    <div class="state" id="alreadySection">
+      <div class="check">&#10003;</div>
+      <h2>You've already reviewed this job</h2>
+      <p>Thanks again for your feedback!</p>
+    </div>
+
+    <div class="error" id="errorBox"></div>
+  </div>
+</div>
+
+<script>
+const API = '/api/admin';
+const BRANDS = {
+  'handy-andy': { name: 'TidyHaus',        accent: '#FF6B35' },
+  'doms':       { name: "Dom's Home Cleaning", accent: '#2563EB' },
+};
+
+let selectedRating = 0;
+let locked = false;
+let saving = false;
+let reviewUrl = null;
+let businessSlug = 'handy-andy';
+const bookingToken = new URLSearchParams(location.search).get('token');
+
+const $ = (id) => document.getElementById(id);
+const starRow = $('starRow');
+const stars = Array.from(document.querySelectorAll('.star'));
+
+function showError(msg){ const e = $('errorBox'); e.textContent = msg; e.classList.add('show'); }
+
+function applyBrand(slug){
+  const brand = BRANDS[slug] || BRANDS['handy-andy'];
+  document.documentElement.style.setProperty('--accent', brand.accent);
+}
+
+function paintStars(n){
+  stars.forEach((s, i) => s.classList.toggle('on', i < n));
+}
+
+// ── Star interaction (one-way: first click locks the rating in) ──────────────
+stars.forEach(star => {
+  star.addEventListener('click', () => {
+    if (locked) return;
+    selectedRating = parseInt(star.dataset.rating, 10);
+    locked = true;
+    starRow.classList.add('locked');
+    paintStars(selectedRating);
+    openFollowUp();
+  });
+  star.addEventListener('mouseenter', () => {
+    if (locked) return;
+    paintStars(parseInt(star.dataset.rating, 10));
+  });
+});
+starRow.addEventListener('mouseleave', () => { if (!locked) paintStars(selectedRating); });
+
+function openFollowUp(){
+  $('subtitle').style.display = 'none';
+  if (selectedRating === 5) {
+    $('highSection').classList.add('show');
+  } else {
+    $('lowSection').classList.add('show');
+  }
+}
+
+// ── Submit handlers ──────────────────────────────────────────────────────────
+$('lowSubmit').addEventListener('click', async () => {
+  await saveReview($('lowText').value.trim());
+  if (!saving) finishWithThanks();
+});
+
+$('googleBtn').addEventListener('click', async () => {
+  await saveReview($('highText').value.trim());
+  if (saving) return;                 // save failed; error already shown
+  if (reviewUrl) { window.location.href = reviewUrl; }
+  else { finishWithThanks(); }
+});
+
+async function saveReview(feedback){
+  if (saving) return;
+  saving = true;
+  $('errorBox').classList.remove('show');
+  // disable buttons during the request
+  $('lowSubmit').disabled = true; $('googleBtn').disabled = true;
+  try {
+    const res = await fetch(API + '?action=review', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: bookingToken, rating: selectedRating, feedback: feedback || null }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || 'Could not save your review.');
+    saving = false;                   // success
+  } catch (err) {
+    showError(err.message);
+    $('lowSubmit').disabled = false; $('googleBtn').disabled = false;
+    // keep saving=true so callers know it failed
+  }
+}
+
+function finishWithThanks(){
+  starRow.style.display = 'none';
+  $('lowSection').classList.remove('show');
+  $('highSection').classList.remove('show');
+  $('title').style.display = 'none';
+  $('subtitle').style.display = 'none';
+  $('doneSection').classList.add('show');
+}
+
+function showAlready(){
+  starRow.style.display = 'none';
+  $('title').style.display = 'none';
+  $('subtitle').style.display = 'none';
+  $('alreadySection').classList.add('show');
+}
+
+// ── Load: validate token, fetch brand + review url + already-reviewed state ──
+async function init(){
+  if (!bookingToken) {
+    starRow.style.display = 'none';
+    $('subtitle').style.display = 'none';
+    showError('Invalid review link. Please check your email.');
+    return;
+  }
+  try {
+    const res = await fetch(API + '?action=review&token=' + encodeURIComponent(bookingToken));
+    const d = await res.json().catch(() => ({}));
+    if (d.business_slug) {
+      businessSlug = d.business_slug;
+      applyBrand(businessSlug);
+    }
+    if (d.review_url) reviewUrl = d.review_url;
+    if (d.already_reviewed) showAlready();
+  } catch (err) {
+    // Non-fatal: keep default branding, let the user still rate.
+    console.log('init failed:', err);
+  }
+}
+init();
+</script>
+
+</body>
+</html>

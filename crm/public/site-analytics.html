@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Website Analytics · TidyHaus</title>
+<link rel="icon" href="/favicon-admin.svg">
+<style>
+  :root { --bg:#f6f7f5; --panel:#fff; --ink:#1c2422; --mute:#66706d; --line:#e2e6e3; --brand:#1f3a3d; --accent:#e8a33d; --bar:#2f6f73; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121615; --panel:#1b2120; --ink:#e7ece9; --mute:#9aa5a1; --line:#2b3331; --brand:#9fd3cf; --bar:#5fb3b3; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:16px; max-width:1100px; margin:0 auto; }
+  h1 { font-size:20px; margin:0; }
+  a { color:var(--brand); }
+  select { font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  main { max-width:1100px; margin:0 auto; padding:0 16px 40px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+  .tile, .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .tile b { display:block; font-size:26px; font-variant-numeric:tabular-nums; }
+  .tile span { color:var(--mute); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 0; border-top:1px solid var(--line); vertical-align:top; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; padding-left:10px; }
+  td.k { word-break:break-word; }
+  .meter { height:4px; background:var(--bar); border-radius:2px; margin-top:3px; opacity:.6; }
+  .chart { width:100%; height:180px; }
+  .msg { padding:30px 16px; text-align:center; color:var(--mute); }
+  .legend { color:var(--mute); font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Website analytics · tidyhausph.com</h1>
+  <div>
+    <select id="days" aria-label="Date range">
+      <option value="1">Last 24 hours</option>
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="90">Last 90 days</option>
+      <option value="365">Last 12 months</option>
+    </select>
+    <a href="/admin.html" style="margin-left:10px;">← CRM</a>
+  </div>
+</header>
+<main id="out"><div class="msg">Loading…</div></main>
+<script>
+(function(){
+  var out=document.getElementById('out'), sel=document.getElementById('days');
+  var token=''; try{ token=localStorage.getItem('ha_admin_token')||''; }catch(e){}
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function n(v){ return Number(v||0).toLocaleString('en-PH'); }
+  function list(title, rows, extra){
+    if(!rows||!rows.length) return '<div class="card"><h2>'+esc(title)+'</h2><div class="legend">No data yet.</div></div>';
+    var max=rows[0].n||1;
+    return '<div class="card"><h2>'+esc(title)+'</h2><table>'+rows.map(function(r){
+      return '<tr><td class="k">'+esc(r.key)+'<div class="meter" style="width:'+Math.max(2,Math.round(r.n/max*100))+'%"></div></td>'+
+        (extra?'<td class="n">'+esc(extra(r))+'</td>':'')+'<td class="n">'+n(r.n)+'</td></tr>';
+    }).join('')+'</table></div>';
+  }
+  function chart(daily){
+    if(!daily.length) return '';
+    var w=1000,h=180,pad=24,max=Math.max.apply(null,daily.map(function(d){return d.visitors;}).concat([1]));
+    var bw=(w-pad*2)/daily.length;
+    var bars=daily.map(function(d,i){
+      var bh=Math.round((d.visitors/max)*(h-pad*2));
+      return '<rect x="'+(pad+i*bw+1)+'" y="'+(h-pad-bh)+'" width="'+Math.max(1,bw-2)+'" height="'+bh+'" rx="2" fill="var(--bar)"><title>'+esc(d.day)+': '+d.visitors+' visitors, '+d.views+' page views, '+d.quotes+' quotes</title></rect>';
+    }).join('');
+    return '<div class="card" style="margin-bottom:12px;"><h2>Visitors per day</h2><svg class="chart" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" role="img" aria-label="Visitors per day">'+bars+
+      '<text x="'+pad+'" y="'+(h-6)+'" font-size="12" fill="currentColor">'+esc(daily[0].day)+'</text><text x="'+(w-pad)+'" y="'+(h-6)+'" font-size="12" text-anchor="end" fill="currentColor">'+esc(daily[daily.length-1].day)+'</text></svg>'+
+      '<div class="legend">Busiest day: '+n(max)+' visitors. Hover a bar for details.</div></div>';
+  }
+  function load(){
+    if(!token){ out.innerHTML='<div class="msg">Open the <a href="/admin.html">CRM</a> and log in first, then come back here.</div>'; return; }
+    out.innerHTML='<div class="msg">Loading…</div>';
+    fetch('/api/log-event?days='+sel.value,{ headers:{ Authorization:'Bearer '+token } })
+      .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||'Could not load'); return d; }); })
+      .then(function(d){
+        var t=d.totals;
+        out.innerHTML='<div class="tiles">'+
+          [['Visitors',n(t.visitors)],['Visits',n(t.sessions)],['Page views',n(t.page_views)],['Quote requests sent',n(t.quotes_sent)],['Visits that sent a quote',t.quote_rate_pct+'%'],['Left after 1 page',t.bounce_pct+'%']]
+          .map(function(x){ return '<div class="tile"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>'; }).join('')+'</div>'+
+          chart(d.daily)+
+          '<div class="grid">'+
+          list('Top pages', d.pages, function(r){ return r.avg_sec==null?'':r.avg_sec+'s avg'; })+
+          list('Where visitors came from', d.sources)+
+          list('First page seen', d.entries)+
+          list('Quote form: how far people got', d.quote_steps)+
+          list('Clicks (calls, Facebook, buttons)', d.clicks)+
+          list('City', d.cities)+
+          list('Device', d.devices)+
+          list('Browser', d.browsers)+
+          '</div>';
+      })
+      .catch(function(e){ out.innerHTML='<div class="msg">'+esc(e.message)+' <a href="/admin.html">Open CRM</a></div>'; });
+  }
+  sel.addEventListener('change',load);
+  load();
+})();
+</script>
+</body>
+</html>

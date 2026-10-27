@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="referrer" content="no-referrer">
+<meta name="theme-color" content="#0A1628">
+<title>Become a TidyHaus technician</title>
+<meta property="og:title" content="Become a TidyHaus technician">
+<meta property="og:description" content="Mount TVs, get paid, set your own hours. Take the quick screening test to apply.">
+<link rel="icon" type="image/svg+xml" href="/favicon-tech.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<!--
+  Technician applicant funnel (migration 0114). Indeed sends applicants here.
+  Flow: benefits/cities -> intro video -> contact info -> quiz -> pass/fail.
+  A PASS hands the browser to /join?c=<code> (public/join.html), the same
+  already-hardened account-creation flow the owner's own invites use -- this
+  page never creates a technician itself. Styling mirrors join.html's tokens
+  so the whole path reads as one product.
+-->
+<style>
+  :root{--navy:#0A1628;--navy-2:#0f2036;--navy-3:#16304f;--orange:#FF6B35;--orange-d:#e85a28;
+    --ink:#e8eef6;--mute:#8aa0bd;--line:#1d3552;--green:#27c093;--red:#ff5d5d;
+    --font-sans:'Plus Jakarta Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;
+    --grad:linear-gradient(120deg,#ffb347 0%,#ff7a3d 50%,#ff4d7d 100%);}
+  *{margin:0;padding:0;box-sizing:border-box;}
+  html,body{background:var(--navy);}
+  body{font-family:var(--font-sans);color:var(--ink);-webkit-font-smoothing:antialiased;letter-spacing:-.01em;}
+  button{font-family:inherit;cursor:pointer;}
+  .hidden{display:none !important;}
+  .wrap{max-width:520px;margin:0 auto;min-height:100vh;padding:calc(22px + env(safe-area-inset-top,0px)) 20px calc(28px + env(safe-area-inset-bottom,0px));}
+  .hl{background:var(--grad);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;}
+  .brand{display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.07em;margin-bottom:30px;}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--orange);flex:none;}
+  h1{font-size:clamp(26px,7.2vw,32px);font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-bottom:16px;}
+  h2{font-size:23px;font-weight:800;letter-spacing:-.02em;line-height:1.15;margin-bottom:6px;}
+  .lead{color:var(--mute);font-size:15px;line-height:1.6;margin-bottom:30px;}
+  .badge{display:inline-flex;align-items:center;gap:6px;background:rgba(39,192,147,.15);color:#5eead4;border:1px solid rgba(39,192,147,.45);border-radius:999px;padding:6px 12px;font-size:12.5px;font-weight:800;margin-bottom:24px;}
+  .cs-label{font-size:12.5px;font-weight:800;color:var(--mute);text-transform:uppercase;letter-spacing:.06em;margin-bottom:12px;}
+  .cities{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:34px;}
+  .city{display:flex;align-items:center;gap:10px;background:var(--navy-2);border:1px solid var(--line);border-radius:12px;padding:12px;text-align:left;font-family:inherit;}
+  .city .rad{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;font-size:11px;}
+  .city .ctxt{display:flex;flex-direction:column;}
+  .city .ctxt b{font-size:13.5px;font-weight:700;color:var(--ink);}
+  .city .st{display:block;font-size:10.5px;font-weight:700;margin-top:2px;color:var(--mute);}
+  .city.on{background:rgba(39,192,147,.12);border-color:rgba(39,192,147,.45);cursor:default;}
+  .city.on .rad{border-color:#5eead4;background:#5eead4;}
+  .city.on .rad::after{content:'';width:8px;height:8px;border-radius:50%;background:var(--navy);}
+  .city.on .st{color:#5eead4;}
+  .city.off{opacity:.5;cursor:not-allowed;}
+  .city.off .rad{font-size:10px;opacity:.7;}
+  .fgrid{display:grid;grid-template-columns:1fr 1fr;gap:20px 18px;margin-bottom:32px;}
+  .fst{padding:16px 0 2px;border-top:1px solid var(--line);}
+  .fst b{display:block;font-size:28px;font-weight:800;letter-spacing:-.03em;line-height:1;color:var(--orange);}
+  .fst b.w{color:var(--ink);}
+  .fst em{display:block;font-style:normal;font-size:13px;font-weight:700;margin-top:8px;}
+  .fst span{display:block;font-size:12px;color:var(--mute);line-height:1.45;margin-top:3px;}
+  /* Real screenshot of the tech app's Jobs screen -- same classes/colors as
+     public/tech.html's own .jobc cards (navy-2 bg, orange time, bold name,
+     muted meta), not a generic mockup, so this is honestly what a tech sees. */
+  /* Matches the real tech app's Jobs screen: week strip with a badge per day,
+     then the day's job cards. Fake names/addresses only -- this is a
+     marketing screenshot, not live data. */
+  .appshot{background:#08111f;border:1px solid var(--line);border-radius:20px;padding:14px 14px 4px;margin-bottom:34px;box-shadow:0 18px 40px rgba(0,0,0,.35);}
+  .ash-head{display:flex;justify-content:flex-end;align-items:center;padding:2px 2px 12px;}
+  .ash-head .ctl{display:flex;gap:6px;align-items:center;}
+  .ash-today{background:var(--navy-2);border:1px solid var(--line);color:var(--mute);font-size:11.5px;font-weight:700;padding:6px 11px;border-radius:8px;}
+  .ash-arrow{width:26px;height:26px;border-radius:8px;background:var(--navy-2);border:1px solid var(--line);color:var(--mute);display:flex;align-items:center;justify-content:center;font-size:13px;}
+  .week{display:grid;grid-template-columns:repeat(7,1fr);gap:5px;margin-bottom:16px;}
+  .wd{background:var(--navy-2);border:1px solid var(--line);border-radius:10px;padding:8px 2px;text-align:center;}
+  .wd .dn{font-size:9.5px;color:var(--mute);font-weight:700;letter-spacing:.03em;}
+  .wd .dd{font-size:14px;font-weight:800;margin-top:2px;}
+  .wd .badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;border-radius:50%;background:#2b6fd6;color:#fff;font-size:9.5px;font-weight:800;margin-top:4px;padding:0 3px;}
+  .wd.on{background:var(--orange);border-color:var(--orange);}
+  .wd.on .dn,.wd.on .dd{color:#fff;}
+  .wd.on .badge{background:#fff;color:var(--orange);}
+  .jobc{background:var(--navy-2);border:1px solid var(--line);border-radius:14px;padding:14px 15px;margin-bottom:10px;}
+  .jobc .t{font-weight:800;font-size:14px;color:var(--orange);}
+  .jobc .n{font-weight:700;font-size:15.5px;margin-top:3px;}
+  .jobc .svc{color:var(--mute);font-size:13px;margin-top:3px;}
+  .jobc .m{color:var(--mute);font-size:13px;margin-top:1px;line-height:1.5;}
+  .jobc .conf{display:inline-block;margin-top:9px;background:rgba(39,192,147,.15);color:#5eead4;border:1px solid rgba(39,192,147,.4);border-radius:999px;padding:5px 10px;font-size:11px;font-weight:800;}
+  .tabbar{display:flex;justify-content:space-around;padding:10px 0;margin:4px -14px 0;border-top:1px solid var(--line);}
+  .tabbar .tb{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:9.5px;color:var(--mute);font-weight:700;}
+  .tabbar .tb.on{color:var(--orange);}
+  .tabbar .tb .ic{font-size:16px;}
+  /* Functional availability demo -- same shape as public/join.html's real
+     step 2 (quick-select chips + a day/slot grid), so trying it here is an
+     honest preview of the actual sign-up, not a mockup of one. */
+  /* Exact copy of public/join.html's real slot-chip styling -- full-width
+     rows with a checkbox box, not a generic pill grid. */
+  .demo{background:var(--navy-2);border:1px solid var(--line);border-radius:18px;padding:18px;margin-bottom:34px;}
+  .demo .dh{font-size:11.5px;color:var(--mute);text-transform:uppercase;letter-spacing:.5px;font-weight:700;margin-bottom:10px;}
+  .dchips{display:flex;flex-direction:column;gap:8px;}
+  .slotchip{width:100%;text-align:left;background:var(--navy);border:1px solid var(--line);color:var(--ink);padding:13px 14px;border-radius:10px;font-size:15px;font-weight:600;display:flex;align-items:center;gap:10px;}
+  .slotchip .box{width:20px;height:20px;border-radius:6px;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;}
+  .slotchip.on{background:var(--orange);border-color:var(--orange);color:#fff;}
+  .slotchip.on .box{border-color:#fff;background:#fff;color:var(--orange);}
+  .slotbonus{display:inline-block;margin-left:auto;background:#16a34a;color:#fff;font-size:11px;font-weight:800;padding:2px 7px;border-radius:999px;letter-spacing:.3px;}
+  #btnShowDemo{margin-bottom:96px;}
+  .demo{margin-top:18px;}
+  #btnShowPay{margin:0 0 96px;}
+  /* Real-styled payroll screenshot -- same figures/labels the tech app's
+     Payroll tab actually shows (week card, per-job pay, weekly total). Fake
+     names and numbers only, for illustration. */
+  .payshot{background:#08111f;border:1px solid var(--line);border-radius:20px;padding:18px;margin:18px 0 34px;box-shadow:0 18px 40px rgba(0,0,0,.35);}
+  .pw-head{font-size:13px;color:var(--mute);font-weight:700;margin-bottom:14px;}
+  .pw-stats{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding-bottom:16px;border-bottom:1px solid var(--line);margin-bottom:14px;}
+  .pw-stats .lbl{display:block;font-size:11.5px;color:var(--mute);margin-bottom:3px;}
+  .pw-stats b{font-size:22px;font-weight:800;color:var(--green);letter-spacing:-.02em;}
+  .pw-jobs{display:flex;flex-direction:column;}
+  .pw-jobrow{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:11px 0;border-bottom:1px solid var(--line);}
+  .pw-jobrow:last-child{border-bottom:none;}
+  .pw-jobrow .nm{font-weight:700;font-size:14.5px;}
+  .pw-jobrow .sv{color:var(--mute);font-size:12px;margin-top:2px;margin-bottom:5px;}
+  .pw-jobrow .bd{display:flex;justify-content:space-between;gap:14px;color:var(--mute);font-size:11.5px;padding:1px 0;max-width:220px;}
+  .pw-jobrow .amt{font-weight:800;font-size:15px;white-space:nowrap;text-align:right;}
+  .pw-jobrow .bonus{display:block;color:#5eead4;font-size:10.5px;font-weight:700;margin-top:2px;}
+  .pw-total{display:flex;justify-content:space-between;align-items:center;margin-top:16px;padding-top:14px;border-top:1px solid var(--line);}
+  .pw-total span{color:var(--mute);font-size:12px;text-transform:uppercase;letter-spacing:.06em;font-weight:700;}
+  .pw-total b{font-size:24px;font-weight:800;}
+  .nofee{display:flex;gap:10px;align-items:flex-start;background:rgba(94,234,212,.08);border:1px solid rgba(94,234,212,.3);border-radius:14px;padding:16px;margin-bottom:34px;}
+  .nofee .ic{font-size:17px;flex:none;line-height:1.3;}
+  .nofee b{display:block;font-size:14.5px;color:#cdeee2;margin-bottom:2px;}
+  .nofee span{color:var(--mute);font-size:13px;line-height:1.45;}
+  .btn{display:block;background:var(--orange);color:#fff;border:none;border-radius:12px;padding:17px;font-size:17px;font-weight:800;width:100%;text-align:center;text-decoration:none;}
+  .btn:active{background:var(--orange-d);} .btn:disabled{opacity:.45;}
+  .btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:700;margin-top:10px;}
+  .btn.glow{border-color:var(--orange);color:var(--orange);box-shadow:0 0 0 0 rgba(255,107,53,.5);animation:glow 2.2s ease-in-out infinite;}
+  @keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(255,107,53,.35),0 0 14px 0 rgba(255,107,53,.15);}50%{box-shadow:0 0 0 6px rgba(255,107,53,0),0 0 26px 4px rgba(255,107,53,.45);}}
+  @media(prefers-reduced-motion:reduce){.btn.glow{animation:none;box-shadow:0 0 20px 2px rgba(255,107,53,.35);}}
+  .field{margin-bottom:16px;}
+  .field label{display:block;font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-weight:700;}
+  input[type=text],input[type=tel],input[type=email]{width:100%;background:var(--navy-2);border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:15px 16px;font-size:17px;font-family:inherit;}
+  input:focus{outline:none;border-color:var(--orange);}
+  input.bad{border-color:var(--red);}
+  .err{color:var(--red);font-size:14px;margin:10px 0 0;min-height:20px;text-align:center;line-height:1.4;}
+  .step{font-size:12px;font-weight:800;color:var(--orange);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+  .video-frame{background:var(--navy-2);border:1px solid var(--line);border-radius:14px;aspect-ratio:16/9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;margin-bottom:18px;}
+  .video-frame .play{width:52px;height:52px;border-radius:50%;background:var(--orange);display:flex;align-items:center;justify-content:center;font-size:20px;color:#fff;}
+  .video-frame span{color:var(--mute);font-size:13.5px;padding:0 20px;text-align:center;}
+  .progress{height:5px;background:var(--navy-2);border-radius:3px;margin-bottom:22px;overflow:hidden;}
+  .progress i{display:block;height:5px;background:var(--orange);border-radius:3px;transition:width .2s;}
+  .progress-row{display:flex;justify-content:space-between;font-size:12.5px;color:var(--mute);font-weight:700;margin-bottom:8px;}
+  .choices{display:flex;flex-direction:column;gap:9px;margin-bottom:22px;}
+  .choice{display:flex;align-items:center;gap:12px;background:var(--navy-2);border:1px solid var(--line);border-radius:12px;padding:14px 15px;font-size:15px;text-align:left;color:var(--ink);}
+  .choice .box{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);flex:none;display:flex;align-items:center;justify-content:center;}
+  .choice.on{border-color:var(--orange);background:rgba(255,107,53,.1);}
+  .choice.on .box{border-color:var(--orange);background:var(--orange);}
+  textarea{width:100%;background:var(--navy-2);border:1px solid var(--line);border-radius:12px;color:var(--ink);padding:14px 15px;font-size:15px;font-family:inherit;line-height:1.5;min-height:110px;resize:vertical;}
+  textarea:focus{outline:none;border-color:var(--orange);}
+  .done-ic{width:64px;height:64px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:32px;font-weight:900;color:#fff;margin:14px auto 18px;}
+  .done-ic.pass{background:var(--green);} .done-ic.fail{background:var(--red);}
+  .center{text-align:center;}
+  .spinner{width:34px;height:34px;border:3px solid var(--line);border-top-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite;margin:30vh auto 0;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  @media(prefers-reduced-motion:reduce){.spinner{animation:none;}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div id="vLanding">
+    <div class="brand"><span class="dot"></span><span>TidyHaus</span></div>
+    <h1>Pick your hours. We fill the available time slots.</h1>
+    <p class="lead">You set up your account&hellip; tell us when you want to work&hellip; we send jobs that fill your schedule&hellip; you get paid once a week.</p>
+    <div class="fgrid">
+      <div class="fst"><b>100%</b><em>of tips are yours</em><span>Every dollar a customer tips goes straight to you.</span></div>
+      <div class="fst"><b>$1k&ndash;3k</b><em>a week</em><span>Depending on how many jobs you take on.</span></div>
+      <div class="fst"><b>Weekly</b><em>direct deposit</em><span>Paid straight to your bank, every week.</span></div>
+      <div class="fst"><b class="w">You</b><em>set your hours</em><span>Pick the days and times you're free.</span></div>
+      <div class="fst"><b class="w">You</b><em>pick your area</em><span>Jobs only come from the part of town you cover.</span></div>
+      <div class="fst"><b class="w">We</b><em>send the customers</em><span>No advertising, no quoting, no chasing leads.</span></div>
+    </div>
+    <button class="btn ghost glow" type="button" id="btnShowDemo">See how easy scheduling is</button>
+    <div class="demo hidden" id="demoWrap">
+      <div class="dh">Monday</div>
+      <div class="dchips" id="demoDay"></div>
+    </div>
+    <p class="lead" style="margin-top:34px;margin-bottom:16px;font-size:13.5px;">Once you're working, this is what your day looks like:</p>
+    <div class="appshot">
+      <div class="ash-head">
+        <div class="ctl"><span class="ash-today">Today</span><span class="ash-arrow">‹</span><span class="ash-arrow">›</span></div>
+      </div>
+      <div class="week">
+        <div class="wd"><div class="dn">SU</div><div class="dd">13</div><span class="badge">1</span></div>
+        <div class="wd"><div class="dn">MO</div><div class="dd">14</div><span class="badge">2</span></div>
+        <div class="wd on"><div class="dn">TU</div><div class="dd">15</div><span class="badge">2</span></div>
+        <div class="wd"><div class="dn">WE</div><div class="dd">16</div><span class="badge">1</span></div>
+        <div class="wd"><div class="dn">TH</div><div class="dd">17</div><span class="badge">2</span></div>
+        <div class="wd"><div class="dn">FR</div><div class="dd">18</div><span class="badge">1</span></div>
+        <div class="wd"><div class="dn">SA</div><div class="dd">19</div><span class="badge">1</span></div>
+      </div>
+      <div class="jobc">
+        <div class="t">2:00 PM – 4:00 PM</div>
+        <div class="n">J. Alvarez</div>
+        <div class="svc">Home Cleaning</div>
+        <div class="m">Example St, Los Angeles, CA</div>
+        <span class="conf">Confirmed</span>
+      </div>
+      <div class="jobc">
+        <div class="t">5:00 PM – 8:00 PM</div>
+        <div class="n">R. Chen</div>
+        <div class="svc">Home Cleaning</div>
+        <div class="m">Example Ave, Los Angeles, CA</div>
+        <span class="conf">Confirmed</span>
+      </div>
+      <div class="tabbar">
+        <div class="tb on"><span class="ic">📋</span>Jobs</div>
+        <div class="tb"><span class="ic">📅</span>Avail.</div>
+        <div class="tb"><span class="ic">💵</span>Payroll</div>
+        <div class="tb"><span class="ic">⭐</span>Reviews</div>
+        <div class="tb"><span class="ic">📦</span>Stock</div>
+      </div>
+    </div>
+    <button class="btn ghost glow" type="button" id="btnShowPay">Show an example of payroll</button>
+    <div class="payshot hidden" id="payWrap">
+      <div class="pw-head">Week of Sep 8 &ndash; Sep 14</div>
+      <div class="pw-stats">
+        <div><span class="lbl">Next payout</span><b>$1,240</b></div>
+        <div><span class="lbl">Pay date</span><b>Sep 23</b></div>
+      </div>
+      <div class="pw-jobs">
+        <div class="pw-jobrow"><div><div class="nm">J. Alvarez</div><div class="sv">Home Cleaning &middot; Mon 2:00 PM</div>
+          <div class="bd"><span>55&quot; TV</span><span>$90</span></div>
+          <div class="bd"><span>Wire concealment</span><span>$60</span></div>
+        </div><div class="amt">$150</div></div>
+        <div class="pw-jobrow"><div><div class="nm">R. Chen</div><div class="sv">Home Cleaning &middot; Mon 5:00 PM</div>
+          <div class="bd"><span>65&quot; TV</span><span>$110</span></div>
+          <div class="bd"><span>Full-motion bracket</span><span>$55</span></div>
+        </div><div class="amt">$165</div></div>
+        <div class="pw-jobrow"><div><div class="nm">D. Osei</div><div class="sv">Home Cleaning + Soundbar &middot; Wed 11:00 AM</div>
+          <div class="bd"><span>65&quot; TV</span><span>$110</span></div>
+          <div class="bd"><span>Soundbar mount</span><span>$40</span></div>
+          <div class="bd"><span>Wire concealment</span><span>$60</span></div>
+        </div><div class="amt">$210</div></div>
+        <div class="pw-jobrow"><div><div class="nm">M. Suarez</div><div class="sv">Home Cleaning &middot; Thu 8:00 PM</div>
+          <div class="bd"><span>75&quot; TV</span><span>$130</span></div>
+          <div class="bd"><span>Wire concealment</span><span>$75</span></div>
+        </div><div class="amt">$280 <span class="bonus">+$75 bonus</span></div></div>
+        <div class="pw-jobrow"><div><div class="nm">K. Patel</div><div class="sv">Home Cleaning &middot; Fri 2:00 PM</div>
+          <div class="bd"><span>55&quot; TV</span><span>$90</span></div>
+          <div class="bd"><span>Full-motion bracket</span><span>$55</span></div>
+          <div class="bd"><span>Wire concealment</span><span>$50</span></div>
+        </div><div class="amt">$195</div></div>
+        <div class="pw-jobrow"><div><div class="nm">A. Nguyen</div><div class="sv">Home Cleaning &middot; Sat 11:00 AM</div>
+          <div class="bd"><span>75&quot; TV</span><span>$130</span></div>
+          <div class="bd"><span>Fireplace mount</span><span>$50</span></div>
+          <div class="bd"><span>Wire concealment</span><span>$60</span></div>
+        </div><div class="amt">$240</div></div>
+      </div>
+      <div class="pw-total"><span>Weekly total</span><b>$1,240</b></div>
+    </div>
+    <div class="nofee"><span class="ic">✓</span><div><b>You never pay for a job</b><span>No lead fees, subscriptions, the jobs are free.</span></div></div>
+    <div class="cs-label">Select the city you want to work in</div>
+    <div class="cities">
+      <button type="button" class="city on" data-city="la"><span class="rad"></span><span class="ctxt"><b>Los Angeles</b><span class="st">Accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Houston</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Austin</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Denver</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>San Antonio</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Dallas</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Fort Worth</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Arlington</b><span class="st">Not accepting applications</span></span></button>
+      <button type="button" class="city off" disabled><span class="rad">🔒</span><span class="ctxt"><b>Phoenix</b><span class="st">Not accepting applications</span></span></button>
+    </div>
+    <button class="btn" type="button" id="btnApply">Apply for the job</button>
+  </div>
+
+  <div id="vVideo" class="hidden">
+    <div class="step">Step 1 of 3</div>
+    <h2>Before you apply</h2>
+    <p class="lead">A quick look at what working with us is actually like.</p>
+    <div class="video-frame">
+      <div class="play">▶</div>
+      <span>This is not a paid subscription. We send you the jobs — here's how it works, and how many to expect a week.</span>
+    </div>
+    <button class="btn" type="button" id="btnToContact">Continue</button>
+  </div>
+
+  <form id="vContact" class="hidden" novalidate>
+    <div class="step">Step 1 of 2</div>
+    <h2>Your info</h2>
+    <p class="lead">So we know who to follow up with, whether or not you pass.</p>
+    <div class="field"><label for="cName">Full name</label>
+      <input type="text" id="cName" autocomplete="name" placeholder="First and last name" maxlength="60"></div>
+    <div class="field"><label for="cEmail">Email</label>
+      <input type="email" id="cEmail" autocomplete="email" placeholder="you@example.com"></div>
+    <div class="field"><label for="cPhone">Mobile number</label>
+      <input type="tel" id="cPhone" autocomplete="tel" inputmode="tel" placeholder="(555) 123-4567"></div>
+    <div class="err" id="contactErr"></div>
+    <button class="btn" type="submit">Start the test</button>
+  </form>
+
+  <div id="vQuiz" class="hidden">
+    <div class="progress-row"><span id="qLabel"></span><span>No same-day retakes</span></div>
+    <div class="progress"><i id="qBar" style="width:0%;"></i></div>
+    <p style="font-weight:700;font-size:17px;margin-bottom:18px;" id="qPrompt"></p>
+    <div class="choices" id="qChoices"></div>
+    <textarea id="qText" class="hidden"></textarea>
+    <div class="err" id="quizErr"></div>
+    <button class="btn" type="button" id="btnNext" style="margin-top:18px;">Next</button>
+  </div>
+
+  <div id="vGrading" class="hidden center">
+    <div class="spinner" role="status" aria-label="Grading"></div>
+  </div>
+
+  <div id="vPass" class="hidden center">
+    <div class="done-ic pass">✓</div>
+    <h1 id="passScore"></h1>
+    <p class="lead" id="passLead">Set up your login and pick your weekly availability to start getting jobs.</p>
+    <button class="btn" type="button" id="btnContinueJoin">Set up my account</button>
+  </div>
+
+  <div id="vFail" class="hidden center">
+    <div class="done-ic fail">✕</div>
+    <h1>Thanks for applying</h1>
+    <p class="lead" id="failMsg">You didn't pass this time. You're welcome to try again tomorrow.</p>
+  </div>
+
+</div>
+<script>
+const API='/api/tech';
+const $=id=>document.getElementById(id);
+const SCREENS=['vLanding','vVideo','vContact','vQuiz','vGrading','vPass','vFail'];
+function show(id){ SCREENS.forEach(s=>$(s).classList.toggle('hidden', s!==id)); window.scrollTo(0,0); }
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// ── Availability demo (one day, same 5 slots join.html's real Step 2 uses) ──
+// Purely local -- nothing here is saved or sent anywhere. It exists so an
+// applicant can feel the actual weekly-hours screen before they ever create
+// an account, not to collect their picks. One day is enough to get the idea;
+// the real sign-up covers the full week.
+const DEMO_SLOTS=[
+  {key:'s1',label:'8:00 AM – 10:00 AM'},
+  {key:'s2',label:'11:00 AM – 1:00 PM'},
+  {key:'s3',label:'2:00 PM – 4:00 PM'},
+  {key:'s4',label:'5:00 PM – 8:00 PM'},
+  {key:'s5',label:'8:00 PM – 10:30 PM',bonus:75},
+];
+const demoSel=new Set();
+function renderDemoDay(){
+  $('demoDay').innerHTML=DEMO_SLOTS.map(s=>`<button type="button" class="slotchip" data-k="${s.key}"><span class="box"></span><span>${esc(s.label)}</span>${s.bonus?`<span class="slotbonus">+$${s.bonus} bonus</span>`:''}</button>`).join('');
+  $('demoDay').querySelectorAll('.slotchip').forEach(b=>b.addEventListener('click',()=>{
+    const k=b.dataset.k; if(demoSel.has(k)) demoSel.delete(k); else demoSel.add(k);
+    paintDemo();
+  }));
+  paintDemo();
+}
+function paintDemo(){
+  $('demoDay').querySelectorAll('.slotchip').forEach(b=>{
+    const on=demoSel.has(b.dataset.k);
+    b.classList.toggle('on',on);
+    b.querySelector('.box').textContent=on?'✓':'';
+  });
+}
+renderDemoDay();
+// Collapsed by default -- revealed on demand so the schedule isn't the first
+// thing on the page.
+$('btnShowDemo').addEventListener('click',()=>{
+  const open=$('demoWrap').classList.toggle('hidden')===false;
+  $('btnShowDemo').textContent=open?'Hide the schedule':'See how easy scheduling is';
+});
+$('btnShowPay').addEventListener('click',()=>{
+  const open=$('payWrap').classList.toggle('hidden')===false;
+  $('btnShowPay').textContent=open?'Hide the payroll example':'Show an example of payroll';
+});
+
+async function call(action,{method='GET',body=null}={}){
+  const url=new URL(API,location.origin); url.searchParams.set('action',action);
+  const ctrl=new AbortController(); const t=setTimeout(()=>ctrl.abort(),30000);
+  try{
+    const res=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined,signal:ctrl.signal});
+    const data=await res.json().catch(()=>({}));
+    return { ok:res.ok, status:res.status, data };
+  } finally { clearTimeout(t); }
+}
+
+// Video step skipped for now (no footage yet) -- straight to the contact
+// form. Re-point this at 'vVideo' once Andrew has the intro video ready.
+$('btnApply').addEventListener('click',()=>show('vContact'));
+$('btnToContact').addEventListener('click',()=>show('vContact'));
+
+// ── Contact form ─────────────────────────────────────────────────────────────
+function clearBad(){ document.querySelectorAll('#vContact .bad').forEach(e=>e.classList.remove('bad')); $('contactErr').textContent=''; }
+function failContact(id,msg){ clearBad(); $(id).classList.add('bad'); $('contactErr').textContent=msg; try{ $(id).focus(); }catch{} return false; }
+function nameVal(){ return $('cName').value.replace(/'/g,'’').replace(/\s+/g,' ').trim(); }
+function checkContact(){
+  const name=nameVal();
+  if(name.length<2 || name.length>60 || !/^[\p{L}\p{M}][\p{L}\p{M} .’-]*$/u.test(name)) return failContact('cName','Use letters only for your name (spaces, hyphens and apostrophes are fine).');
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('cEmail').value.trim())) return failContact('cEmail','Enter a valid email address.');
+  const d=$('cPhone').value.replace(/\D/g,'');
+  if((d.length===10)||(d.length===11&&d[0]==='1')) { /* ok */ } else return failContact('cPhone','Enter your 10-digit cell number.');
+  clearBad(); return true;
+}
+['cName','cEmail','cPhone'].forEach(id=>$(id).addEventListener('input',()=>$(id).classList.remove('bad')));
+
+let quizQuestions=[]; // [{key,prompt,choices?}] -- mc then short-answer, in order
+let quizIdx=0;
+const responses={}; // key -> choice index (mc) or text (short-answer)
+
+$('vContact').addEventListener('submit', async e=>{
+  e.preventDefault();
+  if(!checkContact()) return;
+  const btn=e.submitter||$('vContact').querySelector('button[type=submit]');
+  const label=btn.textContent; btn.disabled=true; btn.textContent='Loading…';
+  const r=await call('apply_start',{method:'POST',body:{ name:nameVal(), email:$('cEmail').value.trim(), phone:$('cPhone').value }});
+  btn.disabled=false; btn.textContent=label;
+  if(!r.ok){
+    if(r.data&&r.data.code==='RETAKE_BLOCKED'){ $('contactErr').textContent=r.data.error; return; }
+    const f=r.data&&r.data.field;
+    if(f==='name') return failContact('cName',r.data.error);
+    if(f==='email') return failContact('cEmail',r.data.error);
+    if(f==='phone') return failContact('cPhone',r.data.error);
+    $('contactErr').textContent=(r.data&&r.data.error)||'Something went wrong. Try again.';
+    return;
+  }
+  // Already passed today (closed the tab before finishing sign-up): straight
+  // back to their sign-up link, no second test.
+  if(r.data.already_passed){ showPass(null,r.data.join_link); return; }
+  quizQuestions=[
+    ...(r.data.multiple_choice||[]).map(q=>({...q,type:'mc'})),
+    ...(r.data.short_answer||[]).map(q=>({...q,type:'text'})),
+  ];
+  quizIdx=0;
+  renderQuestion();
+  show('vQuiz');
+});
+
+// ── Quiz ─────────────────────────────────────────────────────────────────────
+function renderQuestion(){
+  const q=quizQuestions[quizIdx];
+  $('qLabel').textContent=`Question ${quizIdx+1} of ${quizQuestions.length}`;
+  $('qBar').style.width=Math.round((quizIdx/quizQuestions.length)*100)+'%';
+  $('qPrompt').textContent=q.prompt;
+  $('quizErr').textContent='';
+  if(q.type==='mc'){
+    $('qText').classList.add('hidden');
+    $('qChoices').classList.remove('hidden');
+    $('qChoices').innerHTML=q.choices.map((c,i)=>`<button type="button" class="choice" data-i="${i}"><span class="box"></span><span>${esc(c)}</span></button>`).join('');
+    $('qChoices').querySelectorAll('.choice').forEach(b=>b.addEventListener('click',()=>{
+      responses[q.key]=Number(b.dataset.i);
+      $('qChoices').querySelectorAll('.choice').forEach(x=>x.classList.toggle('on',x===b));
+      $('quizErr').textContent='';
+    }));
+  } else {
+    $('qChoices').classList.add('hidden');
+    $('qText').classList.remove('hidden');
+    $('qText').value=responses[q.key]||'';
+  }
+  $('btnNext').textContent=(quizIdx===quizQuestions.length-1)?'Submit':'Next';
+}
+$('btnNext').addEventListener('click', async ()=>{
+  const q=quizQuestions[quizIdx];
+  if(q.type==='mc'){
+    if(responses[q.key]==null){ $('quizErr').textContent='Pick an answer first.'; return; }
+  } else {
+    const v=$('qText').value.trim();
+    if(!v){ $('quizErr').textContent='Enter an answer first.'; return; }
+    responses[q.key]=v;
+  }
+  if(quizIdx<quizQuestions.length-1){ quizIdx++; renderQuestion(); return; }
+  await submitQuiz();
+});
+
+async function submitQuiz(){
+  show('vGrading');
+  const answers=quizQuestions.filter(q=>q.type==='mc').map(q=>({key:q.key,choice:responses[q.key]}));
+  const short_answers={};
+  quizQuestions.filter(q=>q.type==='text').forEach(q=>{ short_answers[q.key]=responses[q.key]||''; });
+  const r=await call('apply_submit',{method:'POST',body:{
+    name:nameVal(), email:$('cEmail').value.trim(), phone:$('cPhone').value, answers, short_answers,
+  }});
+  if(!r.ok){
+    if(r.data&&r.data.code==='RETAKE_BLOCKED'){ $('failMsg').textContent=r.data.error; show('vFail'); return; }
+    $('failMsg').textContent=(r.data&&r.data.error)||'Something went wrong. Please try again later.';
+    show('vFail'); return;
+  }
+  if(r.data.passed){
+    showPass(`You passed — ${r.data.score} of ${r.data.total}`, r.data.join_link);
+  } else {
+    $('failMsg').textContent="You didn't pass this time. You're welcome to try again tomorrow.";
+    show('vFail');
+  }
+}
+// A pass with no sign-up link (invite couldn't be created) must not send
+// them to a dead /join page -- say so plainly instead.
+function showPass(headline, joinLink){
+  $('passScore').textContent=headline||'You already passed';
+  if(joinLink){
+    $('passLead').textContent='Set up your login and pick your weekly availability to start getting jobs.';
+    $('btnContinueJoin').classList.remove('hidden');
+    $('btnContinueJoin').onclick=()=>{ location.href=joinLink; };
+  } else {
+    $('passLead').textContent="We couldn't create your sign-up link just now. Text us at (888) 915-9967 with your name and we'll send it to you.";
+    $('btnContinueJoin').classList.add('hidden');
+  }
+  show('vPass');
+}
+</script>
+</body>
+</html>

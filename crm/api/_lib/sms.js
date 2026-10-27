@@ -1,0 +1,280 @@
+import { recipientContactBlock } from './miguel-contact-block.js';
+// api/_lib/sms.js
+// Shared outbound SMS sender for the booking, tech, and estimate flows.
+// Twilio only. Everything stays behind the SMS master switch
+// (smsNotificationsOn), so nothing goes out until SMS_NOTIFICATIONS_ENABLED (or
+// the master NOTIFICATIONS_ENABLED) is set.
+//
+// Env vars: TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER
+import { smsNotificationsOn } from './notify.js';
+import { demoMode } from './demo.js';
+import { NATIVE_BUSINESS } from './native-businesses.js';
+import { digitsOf } from './grasshopper.js';
+
+// The name every CUSTOMER-facing text starts with ("<Brand>: ..."). The A2P
+// 10DLC campaign is registered as "TidyHaus Home Cleaning" and carriers match
+// the name in each message against it, so handy-andy texts must carry the full
+// trading name, not the short "TidyHaus" the job cards and email header use.
+// Every other business keeps its own name. SMS wording only: nothing else in
+// the app renders a business name through this.
+export const HANDY_ANDY_SMS_BRAND = 'TidyHaus Home Cleaning';
+export function smsBrandName(slug, name) {
+  const n = (name == null ? '' : String(name)).trim();
+  if (slug === 'handy-andy' || /^handy andy( tv mounting)?$/i.test(n)) return HANDY_ANDY_SMS_BRAND;
+  return n
+    || (slug && NATIVE_BUSINESS[slug] && NATIVE_BUSINESS[slug].name)
+    || (slug === 'doms' ? "Dom's Home Cleaning" : '')
+    || HANDY_ANDY_SMS_BRAND;
+}
+
+// A2P 10DLC keywords, matched against the WHOLE text only ("can you stop by
+// at 3?" or "cancel my appointment" is a customer, not a keyword); trailing
+// punctuation is allowed ("Stop.", "STOP!"). Shared by the inbound webhook
+// (api/analytics.js) and the Messages reply guard (api/admin.js).
+export const SMS_STOP_RE = /^\s*(stop\s*all|stop|unsubscribe|cancel|end|quit|revoke|opt[\s-]*out)[\s.!]*$/i;
+export const SMS_START_RE = /^\s*(start|unstop)[\s.!]*$/i;
+
+// Has this customer opted out of texts? True when their newest STOP-type text
+// to any of our numbers is newer than their newest START/UNSTOP, judged from
+// the inbound texts stored in app.messages. Twilio blocks sends after its own
+// bare keywords, but not after "Stop." or "opt out", which we honor too, so
+// our own sends must check. `phone` is the 10-digit form those rows store.
+// Returns null when the lookup fails, so each caller decides what a failure
+// means (never "not opted out" by accident).
+// Owner rule (2026-09-19): a customer who gave us their phone number has
+// opted in to texts about their job — no consent checkbox, no script, no
+// exceptions. The ONLY thing that turns texts off is the customer replying
+// STOP (smsOptOutState below; STOP handling also writes false onto their
+// rows). Every place a booking or estimate is created stores this, so the
+// send gates that read sms_consent keep working unchanged.
+export async function textConsentFor(db, phone) {
+  const d = String(phone || '').replace(/\D/g, '');
+  if (d.length < 10) return false;
+  const p = d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+  return (await smsOptOutState(db, p)) !== true;
+}
+
+export async function smsOptOutState(db, phone) {
+  try {
+    const { data, error } = await db.from('messages').select('body')
+      .eq('customer_phone', phone).eq('direction', 'in')
+      .order('created_at', { ascending: false }).limit(300);
+    if (error) return null;
+    for (const m of data || []) {
+      const b = (m.body || '').toString();
+      if (SMS_STOP_RE.test(b)) return true;
+      if (SMS_START_RE.test(b)) return false;
+    }
+    return false;
+  } catch {
+    return null;
+  }
+}
+
+// ── Staff manual texts: one gate (owner, 2026-10-09) ────────────────────────
+// Staff (owner or secretary) can record that a person agreed to our terms BY
+// PHONE (app.sms_verbal_consent, migration 0196). That unlocks MANUAL staff
+// texts only. Automated sends never read it. Order of precedence:
+//   1. sitewide blocked number  -> always refused
+//   2. carrier opt-out (STOP)   -> always refused, verbal approval can't undo it
+//   3. consent on the row, or a verbal record -> send
+//   4. otherwise -> refused with needs_consent so the UI can record approval
+export function phone10(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+}
+
+export async function verbalConsentFor(db, phone) {
+  try {
+    const p = phone10(phone);
+    if (p.length !== 10) return null;
+    const { data, error } = await db.from('sms_verbal_consent').select('phone, recorded_by, recorded_at').eq('phone', p).maybeSingle();
+    if (error) return null;
+    return data || null;
+  } catch { return null; }
+}
+
+export const SMS_GATE_MSG = {
+  blocked: 'Blocked number. No texts.',
+  stop: 'They texted STOP. No texts. Call them.',
+  check: 'Could not check texting. Try again.',
+  no_consent: 'No text approval yet.',
+};
+
+// rowConsent: the booking/estimate sms_consent value (true / false / null).
+// Returns { ok:true, via } or { ok:false, code, error, status, needs_consent? }.
+export async function staffTextGate(db, phone, rowConsent) {
+  const p = phone10(phone);
+  if (p.length !== 10) return { ok: false, code: 'bad_phone', status: 400, error: 'No valid phone number.' };
+  try {
+    const { data: bl } = await db.from('blocked_numbers').select('id').eq('phone', p).limit(1);
+    if (bl && bl.length) return { ok: false, code: 'blocked', status: 409, error: SMS_GATE_MSG.blocked };
+  } catch { /* fail open, same as the public forms */ }
+  const optedOut = await smsOptOutState(db, p);
+  if (optedOut === true) return { ok: false, code: 'stop', status: 409, error: SMS_GATE_MSG.stop };
+  if (rowConsent === true) return { ok: true, via: 'row' };
+  if (optedOut === null) return { ok: false, code: 'check', status: 503, error: SMS_GATE_MSG.check };
+  if (await verbalConsentFor(db, p)) return { ok: true, via: 'verbal' };
+  return { ok: false, code: 'no_consent', status: 409, needs_consent: true, phone: p, error: SMS_GATE_MSG.no_consent };
+}
+
+// Express-style helper: sends the refusal JSON, returns true if it refused.
+export function gateRefuse(res, g) {
+  if (g.ok) return false;
+  res.status(g.status || 409).json({ error: g.error, code: g.code, ...(g.needs_consent ? { needs_consent: true, phone: g.phone } : {}) });
+  return true;
+}
+
+// Normalize US/CA numbers to E.164 (+1XXXXXXXXXX), which Twilio requires.
+export function toE164(raw) {
+  if (!raw) return null;
+  let s = String(raw).trim();
+  if (s.startsWith('+')) return s.replace(/[^\d+]/g, '');
+  const d = s.replace(/\D/g, '');
+  if (d.length === 10) return `+1${d}`;
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`;
+  return d ? `+${d}` : null;
+}
+
+function twilioConfigured() {
+  return !!(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN && process.env.TWILIO_PHONE_NUMBER);
+}
+
+// True when Twilio is wired up. The dashboard uses this to show/hide the Send
+// SMS buttons (independent of the on/off switch).
+export function smsConfigured() {
+  return demoMode() || twilioConfigured();
+}
+
+// Hard cap on how long the provider call may hang. Sends are now AWAITED on the
+// tech app's status path (repair #9), so an unresponsive provider would
+// otherwise hold that HTTP response open until Vercel kills the function —
+// the tech would see "failed" for a status change that already committed.
+// 10s is generous for a normal send; an abort is reported as ok:false so the
+// booking records sms_status 'failed' exactly like any other provider error.
+const SMS_TIMEOUT_MS = 10000;
+function smsTimeoutSignal() {
+  const c = new AbortController();
+  const t = setTimeout(() => c.abort(), SMS_TIMEOUT_MS);
+  // Don't let the timer keep the lambda alive after a fast response.
+  if (typeof t.unref === 'function') t.unref();
+  return c.signal;
+}
+
+async function sendViaTwilio(to, message, statusCallback, from) {
+  const formData = new URLSearchParams();
+  // `from` overrides the single account-wide sender. A REPLY must go back out
+  // from the number the customer texted — answering a text to the Greenway
+  // Plaza line from the toll-free number reads as a stranger. Every existing
+  // caller omits it and keeps the old behaviour exactly.
+  formData.append('From', from || process.env.TWILIO_PHONE_NUMBER);
+  formData.append('To', to);
+  formData.append('Body', message);
+  // Twilio POSTs delivery-status updates (queued/sent/delivered/failed/undelivered)
+  // to this URL as the message progresses — see api/analytics.js action=sms_status.
+  if (statusCallback) formData.append('StatusCallback', statusCallback);
+  const auth = Buffer.from(`${process.env.TWILIO_ACCOUNT_SID}:${process.env.TWILIO_AUTH_TOKEN}`).toString('base64');
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_ACCOUNT_SID}/Messages.json`, {
+    method: 'POST',
+    signal: smsTimeoutSignal(),
+    headers: { Authorization: `Basic ${auth}` },
+    body: formData,
+  });
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    return { ok: false, error: `Twilio ${res.status}: ${t.slice(0, 300)}` };
+  }
+  // Hand back the message SID. The conversation view stores it so a later
+  // delivery receipt can find its row, and so a webhook retry can't duplicate
+  // the message. Parsing must never turn a successful send into a failure.
+  let sid = null;
+  try { sid = (await res.json())?.sid || null; } catch { /* sent regardless */ }
+  return { ok: true, sid };
+}
+
+// Keep every automated text GSM-7 (160 chars/segment). One emoji, curly
+// quote or dash flips a text to UCS-2 (70/segment) and doubles+ the bill.
+// Staff-typed texts pass opts.raw and go out exactly as typed.
+const GSM_MAP = [[/[‘’‚′´`]/g, "'"], [/[“”„″«»]/g, '"'],
+  [/[‐-―−]/g, '-'], [/…/g, '...'], [/[×]/g, 'x'], [/[→➔➡]/g, '->'],
+  [/[  -  ]/g, ' '], [/•|·/g, '-'], [/★/g, '*']];
+export function gsm7(text) {
+  let t = String(text == null ? '' : text);
+  for (const [re, rep] of GSM_MAP) t = t.replace(re, rep);
+  t = t.normalize('NFKD').replace(/[^\n\r\x20-\x7E]/g, '');
+  return t.replace(/ {2,}/g, ' ').replace(/ +\n/g, '\n').trim();
+}
+
+// Low-level send that REPORTS its outcome instead of swallowing it. Returns
+// { ok:true } or { ok:false, skipped?, error? } so callers that need to tell the
+// user why a text didn't go out (e.g. the Estimates tab) can surface a real
+// reason. `skipped` is a config/precondition miss; `error` is a live provider
+// failure (the message string is safe to show).
+// opts.statusCallback: a URL for Twilio to POST delivery-status updates to.
+// opts.from: send from THIS number instead of the account-wide default. Used by
+//   the Messages tab so a reply comes from the number the customer texted.
+//   Omit it and nothing changes for any existing caller.
+export async function sendSMSResult(phoneNumber, message, opts = {}) {
+  const contactBlock = await recipientContactBlock('sms', phoneNumber);
+  if (contactBlock) return { ok: false, skipped: contactBlock };
+  // Demo mode: pretend the text sent (no provider call, nothing delivered).
+  if (demoMode()) { console.log('[sms:demo] pretend-sent to', String(phoneNumber).slice(-4)); return { ok: true, demo: true }; }
+  if (!smsNotificationsOn()) return { ok: false, skipped: 'notifications_off' };
+  const to = toE164(phoneNumber);
+  if (!to) return { ok: false, skipped: 'bad_phone' };
+  if (!twilioConfigured()) return { ok: false, skipped: 'not_configured' };
+  try {
+    const r = await sendViaTwilio(to, opts.raw ? message : gsm7(message), opts.statusCallback, toE164(opts.from));
+    if (r.ok) console.log('[SMS] Sent to', to.slice(-4));
+    return r;
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
+// Fire-and-forget SMS for notifications (tech assigned, confirmations, etc.).
+// Swallows-and-logs so existing callers are unaffected.
+export async function sendSMS(phoneNumber, message) {
+  const r = await sendSMSResult(phoneNumber, message);
+  if (r.ok) return;
+  if (r.error) console.error('[SMS]', r.error);
+  else console.warn(`[SMS] not sent (${r.skipped}):`, message);
+}
+
+// Log an AUTOMATED (non-staff-typed) customer send into app.messages
+// (migration 0109), so the Messages screen's thread shows the full text
+// history with a customer — booking confirmations, on-the-way, review
+// requests, invoices, estimates, the inbound webhook's own auto-replies —
+// not just their own inbound texts and a staff reply (messagesSend in
+// api/admin.js logs those separately, with sent_by set to the staff name).
+//
+// Every automated send in this app leaves from the account-wide default
+// sender (none of them pass sendSMSResult a `from`), which is also what
+// our_phone must be for the row to land in the right (our_phone,
+// customer_phone) thread — see admin.js's isNotifyLine, which reads the same
+// env var the same way.
+//
+// `db` is optional so a caller that hasn't been wired up yet keeps working
+// exactly as before; it just leaves that one send out of the thread.
+// Best-effort: a logging failure must never turn an SMS that already went
+// out into a reported failure.
+export async function logAutomatedMessage(db, { businessId, customerPhone, body, result }) {
+  if (!db) return;
+  try {
+    const phone = digitsOf(customerPhone);
+    if (!phone) return;
+    await db.from('messages').insert({
+      business_id: businessId || null,
+      customer_phone: phone,
+      our_phone: digitsOf(process.env.TWILIO_PHONE_NUMBER || ''),
+      direction: 'out',
+      body,
+      twilio_sid: (result && result.sid) || null,
+      status: (result && result.ok) ? 'sent' : 'failed',
+      error: (result && !result.ok) ? (result.error || result.skipped || null) : null,
+      sent_by: 'automated',
+    });
+  } catch (e) {
+    console.error('[sms] automated messages log failed:', e.message);
+  }
+}

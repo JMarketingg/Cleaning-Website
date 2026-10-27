@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="256px" height="275px" viewBox="0 0 256 275" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" preserveAspectRatio="xMidYMid">
+    <title>Google Calendar</title>
+    <defs>
+        <linearGradient id="b" x1="83" x2="83" y1="76" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#4fa0ff"/>
+          <stop offset="1" stop-color="#3186ff"/>
+        </linearGradient>
+        <linearGradient id="d" x1="89.06" x2="89.06" y1="21.75" y2="96.39" gradientUnits="userSpaceOnUse">
+          <stop stop-color="#a9a8ff"/>
+          <stop offset="0.8" stop-color="#3c90ff"/>
+        </linearGradient>
+        <filter id="e" width="152" height="112" x="20" y="-4" color-interpolation-filters="sRGB" filterUnits="userSpaceOnUse">
+          <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+          <feBlend in="SourceGraphic" in2="BackgroundImageFix" result="shape"/>
+          <feGaussianBlur result="effect1_foregroundBlur_37330_7673" stdDeviation="6"/>
+        </filter>
+    </defs>
+  <mask id="a" width="154" height="152" x="19" y="20" maskUnits="userSpaceOnUse" style="mask-type:alpha">
+    <path fill="#3c90ff" d="M19.867 49.392C17.818 33.82 29.94 20 45.645 20h100.71c15.706 0 27.827 13.82 25.778 29.392L166 96l6.133 46.608C174.182 158.18 162.061 172 146.355 172H45.645c-15.706 0-27.827-13.82-25.778-29.392L26 96z"></path>
+  </mask>
+  <mask id="c" width="154" height="152" x="19" y="20" maskUnits="userSpaceOnUse" style="mask-type:alpha">
+    <path fill="#3186ff" d="M19.867 49.392C17.818 33.82 29.94 20 45.645 20h100.71c15.706 0 27.827 13.82 25.778 29.392L166 96l6.133 46.608C174.182 158.18 162.061 172 146.355 172H45.645c-15.706 0-27.827-13.82-25.778-29.392L26 96z"></path>
+  </mask>
+  <g>
+    <path fill="#bbe2ff" d="M 20.824 48.078 C 20.824 21.437 42.42 -0.161 69.062 -0.161 L 186.979 -0.161 C 213.62 -0.161 235.217 21.437 235.217 48.078 L 235.217 98.996 C 235.217 125.637 213.62 147.235 186.979 147.235 L 69.062 147.235 C 42.42 147.235 20.824 125.637 20.824 98.996 L 20.824 48.078 Z"></path>
+    <path fill="#3c90ff" d="M 0.502 69.169 C -2.93 43.087 17.373 19.939 43.679 19.939 L 212.362 19.939 C 238.668 19.939 258.971 43.087 255.54 69.169 L 245.267 147.235 L 255.54 225.301 C 258.971 251.383 238.668 274.531 212.362 274.531 L 43.679 274.531 C 17.372 274.531 -2.93 251.383 0.502 225.301 L 10.774 147.235 L 0.502 69.169 Z"></path>
+    <g mask="url(#a)" transform="matrix(1.674947, 0, 0, 1.674947, -32.775154, -13.559335)" >
+      <path fill="url(#b)" d="M0 0h166v76H0z" transform="matrix(1 0 0 -1 13 172)"></path>
+    </g>
+    <g mask="url(#c)" transform="matrix(1.674947, 0, 0, 1.674947, -32.775154, -13.559335)" >
+      <path fill="url(#d)" d="M32 27.2C32 16.596 40.596 8 51.2 8h89.6c10.604 0 19.2 8.596 19.2 19.2V96H32z" filter="url(#e)"></path>
+    </g>
+    
+  </g>
+</svg>

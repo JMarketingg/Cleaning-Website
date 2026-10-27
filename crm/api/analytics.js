@@ -1,0 +1,2517 @@
+import { startTranscript, finishTranscript } from './_lib/transcribe.js';
+import { serviceClientPublic, serviceClient } from './_lib/supabase.js';
+import { verifyToken, signToken } from './_lib/auth.js';
+import { sendSMS, sendSMSResult, smsBrandName, HANDY_ANDY_SMS_BRAND, SMS_STOP_RE, SMS_START_RE, smsOptOutState, logAutomatedMessage } from './_lib/sms.js';
+import { smsNotificationsOn } from './_lib/notify.js';
+import { demoMode } from './_lib/demo.js';
+import { isBotUserAgent } from './_lib/bot-filter.js';
+import crypto from 'crypto';
+import { pushRing } from './_lib/ring-push.js';
+import { isTollFree } from './_lib/blocked.js';
+import { dateIn, exceptionsOn, applyExceptions } from './_lib/schedule-exceptions.js';
+
+// Screen pop payload: what the secretary's CRM needs to draw the card at once.
+function ringPayload(line, from, sid) {
+  return { phone: from || null, line: line?.label || null, business: line?.business_slug || null, market: line?.market || null, sid: sid || null, at: Date.now() };
+}
+
+// Delivery-status webhooks (Twilio + Resend) live in THIS file rather than a
+// new api/*.js — Vercel's Hobby plan caps a project at 12 functions and this
+// repo is already at that cap (see the comment on the `ics`/`review_click`
+// actions consolidated into book.js for the same reason). analytics.js is the
+// one router that's GET-only and never reads req.body today, so disabling
+// Vercel's automatic body parsing here to get the RAW request body — required
+// for both providers' signature verification — carries zero risk to its
+// existing behavior.
+export const config = { api: { bodyParser: false } };
+
+// Reads the raw request body as a string. GET requests (the analytics
+// endpoint's normal traffic) have no body and resolve to ''.
+function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.on('data', (chunk) => { data += chunk; });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+const TZ = 'Asia/Manila';
+// The TV-mounting booking widget funnel.
+const BOOKING_STEPS = [
+  { key: 'zip',       label: 'ZIP Check' },
+  { key: 'frame_tv',  label: 'TV Type' },
+  { key: 'size',      label: 'TV Size' },
+  { key: 'bracket',   label: 'Bracket' },
+  { key: 'fireplace', label: 'Fireplace' },
+  { key: 'surface',   label: 'Wall Surface' },
+  { key: 'wires',     label: 'Wire Hiding' },
+  { key: 'lifting',   label: 'Lifting Help' },
+  { key: 'dismount',  label: 'Dismount Offer' },
+  { key: 'extras',    label: 'Add-ons' },
+  { key: 'terms',     label: 'Terms' },
+  { key: 'slots',     label: 'Date & Time' },
+  { key: 'customer',  label: 'Checkout' },
+];
+// The handyman estimate widget funnel (public/estimate.html, 5 steps).
+const HANDYMAN_STEPS = [
+  { key: 'service',  label: 'Service' },
+  { key: 'describe', label: 'Describe Job' },
+  { key: 'photo',    label: 'Photo' },
+  { key: 'times',    label: 'Preferred Times' },
+  { key: 'contact',  label: 'Contact Info' },
+];
+// Legacy event step names that map onto a canonical step key
+const STEP_ALIAS = { zip_verify: 'zip' };
+
+// Build the per-request step config for a widget. A "-handyman" widget uses the
+// handyman funnel; everything else uses the booking funnel. Returns the step
+// list, an index lookup, and the index of the final step (set when a session
+// reaches price/booking).
+function stepConfigFor(widget) {
+  const STEPS = String(widget).endsWith('-handyman') ? HANDYMAN_STEPS : BOOKING_STEPS;
+  const index = {};
+  STEPS.forEach((s, i) => { index[s.key] = i; });
+  const stepIndexOf = (name) => {
+    if (!name) return -1;
+    const k = STEP_ALIAS[name] || name;
+    return index[k] ?? -1;
+  };
+  return { STEPS, stepIndexOf, lastStepIdx: STEPS.length - 1 };
+}
+
+function parseBrowser(ua) {
+  if (!ua) return 'unknown';
+  if (/Edg\//.test(ua)) return 'Edge';
+  if (/OPR\//.test(ua)) return 'Opera';
+  if (/SamsungBrowser/.test(ua)) return 'Samsung';
+  if (/Firefox\//.test(ua)) return 'Firefox';
+  if (/Chrome\//.test(ua)) return 'Chrome';
+  if (/Safari\//.test(ua)) return 'Safari';
+  return 'other';
+}
+
+function tzHour(ts) {
+  return Number(new Date(ts).toLocaleString('en-US', { timeZone: TZ, hour: '2-digit', hour12: false })) % 24;
+}
+function tzDow(ts) {
+  return new Date(ts).toLocaleString('en-US', { timeZone: TZ, weekday: 'short' });
+}
+function tzDate(ts) {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: TZ });
+}
+function median(arr) {
+  if (!arr.length) return null;
+  const a = [...arr].sort((x, y) => x - y);
+  const m = Math.floor(a.length / 2);
+  return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2;
+}
+function round1(n) { return Math.round(n * 10) / 10; }
+
+// Twilio signs its webhook POSTs with X-Twilio-Signature: base64(HMAC-SHA1(
+// authToken, url + sorted "key"+"value" concatenation of every POST param)).
+// We reconstruct the exact URL we set as the StatusCallback (see sendSMSResult
+// callers in admin.js/tech.js) rather than trusting request headers for host/
+// proto, which a proxy could rewrite — verification shouldn't depend on how
+// the request physically arrived.
+export function verifyTwilioSignature(url, params, signature) {
+  if (!signature || !process.env.TWILIO_AUTH_TOKEN) return false;
+  let data = url;
+  for (const k of Object.keys(params).sort()) data += k + params[k];
+  const expected = crypto.createHmac('sha1', process.env.TWILIO_AUTH_TOKEN).update(data, 'utf8').digest('base64');
+  const a = Buffer.from(signature);
+  const b = Buffer.from(expected);
+  return a.length === b.length && crypto.timingSafeEqual(a, b);
+}
+
+// POST /api/analytics?action=sms_status&token=<review_token> — Twilio's
+// message-status callback. Records delivered/failed/undelivered on the
+// booking the token points at. Always responds 200 (Twilio retries on
+// non-2xx; this is a bonus signal, never worth a retry storm over).
+async function handleTwilioStatus(req, res) {
+  res.setHeader('Content-Type', 'text/plain');
+  try {
+    const rawBody = await readRawBody(req);
+    const params = Object.fromEntries(new URLSearchParams(rawBody));
+    const token = (req.query.token || '').toString();
+    const base = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+    const url = `${base}/api/analytics?action=sms_status&token=${encodeURIComponent(token)}`;
+    if (!verifyTwilioSignature(url, params, req.headers['x-twilio-signature'])) {
+      console.warn('[sms_status] signature verification failed');
+      return res.status(200).send('ok');
+    }
+    const t = verifyToken(token);
+    // Independent of which token `kind` matches below (or whether the token
+    // even verifies): any automated send logged into app.messages carries
+    // this callback's MessageSid as its twilio_sid (see _lib/sms.js's
+    // logAutomatedMessage, and messagesSend's own insert in this file), so
+    // the Messages screen picks up the same delivered/failed lifecycle the
+    // booking-column branches below already give their own tables. A no-op
+    // when no messages row has this SID — every staff/tech send that isn't
+    // logged into this table.
+    try {
+      const sid = (params.MessageSid || '').toString();
+      const mstatus = (params.MessageStatus || '').toLowerCase();
+      if (sid && (mstatus === 'delivered' || mstatus === 'failed' || mstatus === 'undelivered')) {
+        await serviceClient().from('messages').update({ status: mstatus }).eq('twilio_sid', sid);
+      }
+    } catch (e) { console.warn('[sms_status] messages-table status update failed:', e.message); }
+    // Same dual-shape acceptance as api/book.js review_click: legacy review
+    // tokens from mirror.js carry NO kind (every widget booking until Jul
+    // 2026), so requiring kind === 'review' silently dropped their delivery
+    // updates — review texts showed "Delivery pending" forever. A kindless
+    // token with a booking_id can only be a review token; on_the_way tokens
+    // always carry their kind and still route to the branch below.
+    if (t && t.booking_id && (t.kind === 'review' || !t.kind)) {
+      const status = (params.MessageStatus || '').toLowerCase();
+      const db = serviceClient();
+      if (status === 'delivered') {
+        await db.from('bookings')
+          .update({ review_sms_delivered_at: new Date().toISOString(), review_sms_status: 'delivered' })
+          .eq('id', t.booking_id).is('review_sms_delivered_at', null);
+      } else if (status === 'failed' || status === 'undelivered') {
+        await db.from('bookings').update({ review_sms_status: status }).eq('id', t.booking_id);
+      }
+    } else if (t && t.kind === 'on_the_way' && t.booking_id) {
+      // Same delivery-tracking pattern as the review SMS above, for the
+      // tech's "on the way" text — admin/secretary dashboard only, never
+      // shown to techs.
+      const status = (params.MessageStatus || '').toLowerCase();
+      const db = serviceClient();
+      if (status === 'delivered') {
+        await db.from('bookings')
+          .update({ on_the_way_sms_delivered_at: new Date().toISOString(), on_the_way_sms_status: 'delivered' })
+          .eq('id', t.booking_id).is('on_the_way_sms_delivered_at', null);
+      } else if (status === 'failed' || status === 'undelivered') {
+        await db.from('bookings').update({ on_the_way_sms_status: status }).eq('id', t.booking_id);
+      }
+    } else if (t && t.kind === 'tech_sms' && t.tech_sms_log_id) {
+      // The "You got a job!" text to a TECHNICIAN (api/_lib/tech-notify.js).
+      // Until this existed, tech texts had no delivery tracking at all — a
+      // failed send left no trace anywhere the owner could see it.
+      const status = (params.MessageStatus || '').toLowerCase();
+      const db = serviceClient();
+      if (status === 'delivered') {
+        await db.from('tech_sms_log')
+          .update({ status: 'delivered', delivered_at: new Date().toISOString() })
+          .eq('id', t.tech_sms_log_id).is('delivered_at', null);
+      } else if (status === 'failed' || status === 'undelivered') {
+        // ErrorCode is the actionable part (30034 = unregistered A2P 10DLC,
+        // 21610 = the tech replied STOP) — without it a carrier block looks
+        // identical to any other failure.
+        const errCode = (params.ErrorCode || '').toString();
+        await db.from('tech_sms_log')
+          .update({ status, error: errCode ? `Twilio ErrorCode ${errCode}` : null })
+          .eq('id', t.tech_sms_log_id);
+      }
+    } else if (t && t.kind === 'message' && t.message_id) {
+      // A reply typed by the office in the Messages tab (migration 0109).
+      // Delivery matters more here than anywhere else in the system: a
+      // secretary who thinks she answered a customer, and didn't, is worse
+      // than one who can see it failed and picks up the phone instead.
+      const status = (params.MessageStatus || '').toLowerCase();
+      const db = serviceClient();
+      if (status === 'delivered' || status === 'sent') {
+        await db.from('messages').update({ status }).eq('id', t.message_id);
+      } else if (status === 'failed' || status === 'undelivered') {
+        // ErrorCode 30034 here means the A2P campaign still isn't approved for
+        // the number she replied from — the single most likely failure while
+        // the registration submitted 2026-09-09 is pending.
+        const errCode = (params.ErrorCode || '').toString();
+        await db.from('messages')
+          .update({ status, error: errCode ? `Twilio ErrorCode ${errCode}` : 'Carrier did not deliver' })
+          .eq('id', t.message_id);
+        if (errCode === '30034') await rescueUnregisteredAutoText(db, t.message_id);
+      }
+    }
+  } catch (e) {
+    console.error('[sms_status] error:', e.message);
+  }
+  return res.status(200).send('ok');
+}
+
+// Resend webhooks are Svix-signed: signature = base64(HMAC-SHA256(secret_bytes,
+// `${svix-id}.${svix-timestamp}.${rawBody}`)), checked against one or more
+// "v1,<sig>" entries in svix-signature (space-separated — more than one only
+// during a secret rotation). The secret arrives as "whsec_<base64>"; only the
+// part after the prefix is real key material. Rejects anything outside a
+// 5-minute timestamp window to block replay of a captured request.
+function verifySvixSignature({ id, timestamp, rawBody, signatureHeader, secret }) {
+  if (!id || !timestamp || !signatureHeader || !secret) return false;
+  const ts = Number(timestamp);
+  if (!Number.isFinite(ts) || Math.abs(Date.now() / 1000 - ts) > 300) return false;
+  const secretBytes = Buffer.from(secret.startsWith('whsec_') ? secret.slice(6) : secret, 'base64');
+  const expected = crypto.createHmac('sha256', secretBytes).update(`${id}.${timestamp}.${rawBody}`, 'utf8').digest('base64');
+  const expectedBuf = Buffer.from(expected, 'base64');
+  return signatureHeader.split(' ').some((entry) => {
+    const sig = entry.includes(',') ? entry.split(',')[1] : entry;
+    if (!sig) return false;
+    const sigBuf = Buffer.from(sig, 'base64');
+    return sigBuf.length === expectedBuf.length && crypto.timingSafeEqual(sigBuf, expectedBuf);
+  });
+}
+
+// POST /api/analytics?action=email_webhook — Resend's delivery webhook.
+// Configure at https://resend.com/webhooks pointing here, subscribed to
+// email.delivered / email.bounced / email.complained. TidyHaus and Doms each
+// have their own Resend account/webhook, so their signing secrets are set as
+// RESEND_WEBHOOK_SECRET_Handy_Andy and RESEND_WEBHOOK_SECRET_Doms in Vercel
+// (RESEND_WEBHOOK_SECRET / DOMS_RESEND_WEBHOOK_SECRET are also accepted for a
+// shared-account setup). We only ever act on an email_id WE issued (stored as
+// review_email_id at send time) — a forged webhook can't touch an arbitrary
+// booking without guessing a live Resend message id (an unguessable UUID).
+async function handleResendWebhook(req, res) {
+  res.setHeader('Content-Type', 'text/plain');
+  try {
+    const rawBody = await readRawBody(req);
+    const secrets = [
+      process.env.RESEND_WEBHOOK_SECRET,
+      process.env.DOMS_RESEND_WEBHOOK_SECRET,
+      process.env.RESEND_WEBHOOK_SECRET_Handy_Andy,
+      process.env.RESEND_WEBHOOK_SECRET_Doms,
+    ].filter(Boolean);
+    const verified = secrets.some((secret) => verifySvixSignature({
+      id: req.headers['svix-id'], timestamp: req.headers['svix-timestamp'],
+      rawBody, signatureHeader: req.headers['svix-signature'], secret,
+    }));
+    if (!verified) {
+      console.warn('[email_webhook] signature verification failed (or no secret configured)');
+      return res.status(200).send('ok');
+    }
+    const payload = JSON.parse(rawBody);
+    const emailId = payload?.data?.email_id;
+    const type = payload?.type;
+    if (emailId && type) {
+      const db = serviceClient();
+      if (type === 'email.delivered') {
+        await db.from('estimates').update({ email_status: 'delivered' }).eq('email_id', emailId).neq('email_status', 'bounced');
+        await db.from('bookings')
+          .update({ review_email_delivered_at: new Date().toISOString(), review_email_status: 'delivered' })
+          .eq('review_email_id', emailId).is('review_email_delivered_at', null);
+      } else if (type === 'email.bounced') {
+        await db.from('bookings').update({ review_email_status: 'bounced' }).eq('review_email_id', emailId);
+        // Estimate emails too (owner 2026-09-27): a bounce means re-check the address on the call.
+        await db.from('estimates').update({ email_status: 'bounced', email_bounced_at: new Date().toISOString() }).eq('email_id', emailId);
+      } else if (type === 'email.complained') {
+        await db.from('bookings').update({ review_email_status: 'complained' }).eq('review_email_id', emailId);
+      }
+      // Other event types (sent, delivery_delayed, opened, clicked) are ignored
+      // on purpose — "opened"/"clicked" are already answered more reliably by
+      // our own click-tracking redirect (api/book.js action=review_click).
+    }
+  } catch (e) {
+    console.error('[email_webhook] error:', e.message);
+  }
+  return res.status(200).send('ok');
+}
+
+// ── Twilio Voice: tracking numbers ──────────────────────────────────────────
+// A real local number we own on Twilio, forwarded to a person's phone. Unlike
+// Grasshopper (migration 0080 / api/_lib/grasshopper.js — email-only, and only
+// for voicemails), Twilio posts a webhook the moment the phone rings, so
+// app.calls gets a row whether or not anybody picked up, with a duration and an
+// answered flag. Because each number is its own line, putting a distinct one on
+// an ad or a location page turns the Calls tab into campaign attribution.
+//
+// Three POST actions, all from Twilio, all signature-verified:
+//   voice_inbound    the call arrives     -> log it, return TwiML that forwards
+//   voice_status     the forward finished -> answered? how long? else voicemail
+//   voice_recording  the voicemail is in  -> attach recording + transcript
+//
+// Each one answers 200 with TwiML even on an internal error: a non-2xx makes
+// Twilio play its own "application error" recording to a live customer, which
+// is a far worse outcome than a missing analytics row.
+export function xml(res, twiml) {
+  res.setHeader('Content-Type', 'text/xml');
+  return res.status(200).send(`<?xml version="1.0" encoding="UTF-8"?>${twiml}`);
+}
+export function xmlEsc(s) {
+  return String(s == null ? '' : s).replace(/[<>&"']/g, (c) => ({ '<': '&lt;', '>': '&gt;', '&': '&amp;', '"': '&quot;', "'": '&apos;' })[c]);
+}
+function publicBase() {
+  return process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
+}
+// Twilio signs against the EXACT callback URL string it was given, so every
+// callback URL is built here and verified against the same builder — a
+// mismatch in parameter order or escaping is the classic cause of a webhook
+// that silently fails verification.
+function voiceUrl(action, params = {}) {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  return `${publicBase()}/api/analytics?${qs}`;
+}
+function tenDigits(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
+}
+
+// Reads and verifies a Twilio POST. On a bad signature it has already
+// responded, and returns null, so callers can `if (!params) return;`.
+//
+// Two candidate URLs, because the one Twilio signed is not always the one we
+// would build. The status and recording callbacks come from TwiML we wrote, so
+// PUBLIC_URL matches by construction — but the FIRST hit (voice_inbound) uses
+// whatever URL is typed into the number's config in the Twilio console, which
+// may be a different host than PUBLIC_URL (a custom domain, or a bare
+// *.vercel.app). Accepting either keeps a host mismatch from silently sending
+// every caller to voicemail. The signature itself is still required and still
+// checked against the auth token, so this widens which URL is accepted, not
+// who is allowed to call.
+async function twilioVoiceParams(req, res, action, extraQuery = {}) {
+  const rawBody = await readRawBody(req);
+  const params = Object.fromEntries(new URLSearchParams(rawBody));
+  const sig = req.headers['x-twilio-signature'];
+  const proto = (req.headers['x-forwarded-proto'] || 'https').toString().split(',')[0];
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '').toString().split(',')[0];
+  const candidates = [voiceUrl(action, extraQuery)];
+  if (host) candidates.push(`${proto}://${host}${req.url}`);
+  if (!candidates.some(u => verifyTwilioSignature(u, params, sig))) {
+    console.warn(`[${action}] signature verification failed; tried ${candidates.join(' , ')}`);
+    xml(res, '<Response><Reject/></Response>');
+    return null;
+  }
+  return params;
+}
+
+// The voicemail leg, used whenever nobody picks up.
+function voicemailTwiml(sid) {
+  const done = voiceUrl('voice_recording', { sid });
+  return '<Response>'
+    + '<Say voice="Polly.Joanna">Sorry we missed you. Please leave your name, number and what you need after the tone, and we will call you right back.</Say>'
+    + `<Record maxLength="120" playBeep="true" timeout="4" transcribe="true" transcribeCallback="${xmlEsc(done)}" action="${xmlEsc(done)}" method="POST"/>`
+    + '<Say voice="Polly.Joanna">We did not get a message. Goodbye.</Say>'
+    + '</Response>';
+}
+
+// POST /api/analytics?action=voice_whisper&label=... — fetched when the person
+// being forwarded to picks up, and played only to them. The caller is still
+// hearing ringing while this plays, so keep it to a couple of words: it is the
+// delay between "hello?" and being connected.
+//
+// The label is carried in the query rather than looked up by CallSid on
+// purpose. It is inside the signed URL, so it cannot be tampered with, and a
+// database round-trip here would be dead air on a live call.
+async function handleVoiceWhisper(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const label = (req.query.label || '').toString();
+  const params = await twilioVoiceParams(req, res, 'voice_whisper', { label, sid });
+  if (!params) return;
+  if (!label) return xml(res, '<Response/>');
+  return xml(res, `<Response><Say voice="Polly.Joanna">${xmlEsc(label)}</Say></Response>`);
+}
+
+// Which handset a line rings RIGHT NOW.
+//
+// A line with an after-hours number splits the day at [hours_start, hours_end)
+// read in that line's OWN market timezone (migration 0099) — so a Houston
+// customer dialing at 7pm their time reaches the daytime handset regardless of
+// where the server, or the office, happens to be. Austin and Houston are both
+// Central, which is why the eight lead-gen lines share one window.
+//
+// A line with no window configured (the default, and every line before this)
+// returns forward_to unchanged, so nothing that was working changes.
+// Secretary time off (owner 2026-09-27): on a day a secretary marked herself
+// off in My Availability, the lines that ring her handset ring the owner
+// instead, all day. The next day they go back to her automatically.
+const SECRETARY_HANDSETS = { '7207223653': 'handy-andy', '3032190118': 'doms' };
+// Shift routing (owner 2026-10-02): a line with route_team rings whoever is
+// scheduled TODAY in staff_schedules (day read in the line's own time zone).
+// Two people on one day: lowest priority wins (Alex before Joe). Nobody
+// scheduled: the after-hours number (the owner). The 8am-8pm window and the
+// after-hours split still come from destinationFor() below, unchanged.
+const DOW_SHORT = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+async function applyShiftRouting(db, line) {
+  if (!line || !line.route_team) return line;
+  try {
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: line.hours_timezone || 'America/Chicago', weekday: 'short' }).format(new Date());
+    const dow = DOW_SHORT[wd];
+    if (dow == null) return line;
+    const { data, error } = await db.from('staff_schedules').select('name, phone, priority')
+      .eq('business_slug', line.route_team).eq('day_of_week', dow).not('phone', 'is', null)
+      .order('priority', { ascending: true }).order('name', { ascending: true });
+    // supabase-js returns errors instead of throwing: a failed read keeps the
+    // line's own forward_to rather than looking like "nobody scheduled".
+    if (error) throw new Error(error.message);
+    const exc = await exceptionsOn(db, dateIn(line.hours_timezone || 'America/Chicago'));
+    const p = applyExceptions(data, exc, line.route_team).find(r => tenDigits(r.phone).length === 10);
+    const ownerDigits = tenDigits(process.env.OWNER_PHONE_NUMBER || '');
+    const fallback = line.after_hours_forward_to || (ownerDigits.length === 10 ? '+1' + ownerDigits : null);
+    return { ...line, forward_to: p ? '+1' + tenDigits(p.phone) : (fallback || line.forward_to) };
+  } catch (e) {
+    console.error('[shift_routing] failed (keeps the line\'s own forward_to):', e.message);
+    return line;
+  }
+}
+
+async function applyTimeOff(db, line) {
+  if (!line) return line;
+  line = await applyShiftRouting(db, line);
+  const slug = SECRETARY_HANDSETS[tenDigits(line.forward_to)];
+  const ownerDigits = tenDigits(process.env.OWNER_PHONE_NUMBER || '');
+  const ownerTo = line.after_hours_forward_to || (ownerDigits.length === 10 ? '+1' + ownerDigits : null);
+  if (!slug || !ownerTo) return line;
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: line.hours_timezone || 'America/Chicago' });
+    const { data: biz } = await db.from('businesses').select('id').eq('slug', slug).maybeSingle();
+    if (!biz) return line;
+    const { data: ex } = await db.from('secretary_availability_exceptions')
+      .select('is_available').eq('business_id', biz.id).eq('exception_date', today).maybeSingle();
+    if (ex && ex.is_available === false) {
+      console.log(`[time_off] ${line.phone}: ${slug} secretary off ${today}, ringing owner`);
+      return { ...line, forward_to: ownerTo };
+    }
+  } catch (e) {
+    console.error('[time_off] check failed (keeps normal routing):', e.message);
+  }
+  return line;
+}
+
+function destinationFor(line) {
+  if (!line) return null;
+  const primary = line.forward_to || null;
+  if (!line.after_hours_forward_to || !line.hours_timezone) return primary;
+
+  let hour;
+  try {
+    // hourCycle 'h23' rather than hour12:false — the latter reports midnight as
+    // "24" on some ICU builds, which would read as outside every window.
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: line.hours_timezone, hourCycle: 'h23', hour: '2-digit',
+    }).formatToParts(new Date());
+    hour = parseInt((parts.find(p => p.type === 'hour') || {}).value, 10);
+  } catch (e) {
+    // A bad timezone must never drop a customer's call: fall back to the
+    // primary handset, which is exactly what this line did before it had a
+    // window at all. Loud, because it means the row needs fixing.
+    console.error(`[voice_inbound] bad hours_timezone "${line.hours_timezone}" on ${line.phone}:`, e.message);
+    return primary;
+  }
+  if (!Number.isInteger(hour)) return primary;
+
+  const open = Number(line.hours_start), close = Number(line.hours_end);
+  if (!Number.isFinite(open) || !Number.isFinite(close)) return primary;
+  return (hour >= open && hour < close) ? primary : line.after_hours_forward_to;
+}
+
+// Read-only preview for the Virtual Assistants tab (owner 2026-10-12): runs the
+// SAME chain the live call webhook runs (applyTimeOff -> applyShiftRouting ->
+// destinationFor) for one tracking_numbers row. Changes nothing.
+export const ROUTE_LINE_COLUMNS = 'phone, label, business_slug, market, forward_to, ring_seconds, record_calls, active, after_hours_forward_to, hours_start, hours_end, hours_timezone, ivr_gate_enabled, ai_bot_enabled, route_team';
+export async function routeNow(db, line) {
+  if (!line || !line.active) return { rings: null, reason: 'inactive' };
+  if (line.ai_bot_enabled) return { rings: null, reason: 'AI bot' };
+  const shifted = await applyShiftRouting(db, line);
+  const final = await applyTimeOff(db, line);
+  const rings = destinationFor(final);
+  if (!rings) return { rings: null, reason: 'voicemail' };
+  const ownerDigits = tenDigits(process.env.OWNER_PHONE_NUMBER || '');
+  const fallback = tenDigits(line.after_hours_forward_to || (ownerDigits.length === 10 ? '+1' + ownerDigits : ''));
+  let reason = 'scheduled';
+  if (tenDigits(rings) !== tenDigits(final.forward_to)) reason = 'after hours';
+  else if (tenDigits(final.forward_to) !== tenDigits(shifted.forward_to)) reason = 'time off';
+  else if (line.route_team && fallback && tenDigits(shifted.forward_to) === fallback) reason = 'nobody scheduled';
+  else if (!line.route_team) reason = 'fixed';
+  return { rings, reason };
+}
+
+// Shared by the direct path (IVR gate off) and handleVoiceGather (gate
+// passed): builds the actual forwarding <Dial>. Split out so the gate can sit
+// in FRONT of this without duplicating the disclosure/recording/whisper logic.
+function dialTwiml(line, callerFrom, sid, actionExtra = {}) {
+  const dialTo = destinationFor(line);
+  if (!line || !dialTo) return voicemailTwiml(sid);
+
+  // callerId is the CALLER's own number, not ours, so whoever picks up sees who
+  // is really calling and can just hit redial. Twilio permits this for straight
+  // call forwarding. The tradeoff is that the handset cannot show WHICH line
+  // was dialed — that lives in the Calls tab, which is the point of logging it.
+  const action = voiceUrl('voice_status', { sid, ...actionExtra });
+  const rec = line.record_calls ? ' record="record-from-answer-dual"' : '';
+  // recordingStatusCallback is the RELIABLE recording signal — the action
+  // callback above also carries RecordingUrl, but Twilio's own docs warn the
+  // file "may not yet be accessible" when that fires. Reuses the existing
+  // voice_recording handler (same one the voicemail <Record> already posts
+  // to) keyed by the same sid, so this is one code path, not two.
+  const recStatusCb = line.record_calls
+    ? ` recordingStatusCallback="${xmlEsc(voiceUrl('voice_recording', { sid }))}" recordingStatusCallbackEvent="completed"`
+    : '';
+  // Spoken consent notice, gated on record_calls ALONE — not on this line's
+  // own market/area code. A caller's true location can't be known from which
+  // tracking number they dialed (an out-of-state cell keeps its old area
+  // code), and a cross-state call is generally held to the strictest law in
+  // play — so area-code-based gating would not actually guarantee compliance
+  // in a two-party-consent state (California, since the LA line, and
+  // whichever states the next 10-20 numbers land in). Announcing whenever
+  // recording is on costs nothing in one-party states and is correct
+  // everywhere, with no state lookup table to maintain as the fleet grows.
+  // Owner 2026-10-02: announce recording on California lines only (his call,
+  // after being told the two-party-consent risk for out-of-state callers).
+  const caLine = /los angeles|california/i.test(String(line.market || '')) || /^(213|310|323|424|562|626|657|661|714|747|760|805|818|858|909|916|949|951|415|510|408|650|619)/.test(tenDigits(line.phone || ''));
+  const disclosure = line.record_calls && caLine
+    ? '<Say voice="Polly.Joanna">This call may be recorded for quality and training purposes.</Say>'
+    : '';
+  // The whisper: because callerId is the customer's number, the handset cannot
+  // say WHICH line rang, and with a dozen numbers across several cities that
+  // matters more than it does with one. The url on <Number> is fetched the
+  // moment the person picks up and plays only to THEM — the caller hears
+  // ringing throughout — so you answer already knowing what you picked up.
+  const whisper = voiceUrl('voice_whisper', { label: line.label || '', sid });
+  return `<Response>${disclosure}<Dial timeout="${Number(line.ring_seconds) || 20}" answerOnBridge="true" callerId="${xmlEsc(callerFrom || '')}" action="${xmlEsc(action)}" method="POST"${rec}${recStatusCb}><Number url="${xmlEsc(whisper)}" method="POST">${xmlEsc(dialTo)}</Number></Dial></Response>`;
+}
+
+// "Press 1 to continue" — a real caller taps one key and never notices the
+// delay; a robocall/scam autodialer plays a pre-recorded message into dead
+// air and gets nothing back, so it never reaches a human or a voicemail box.
+// Per-line, defaulting on (tracking_numbers.ivr_gate_enabled, migration 0101 —
+// owner call 2026-08-29, scammer volume on the tracking lines).
+function ivrGateTwiml(sid) {
+  const action = voiceUrl('voice_gather', { sid });
+  return '<Response><Gather numDigits="1" timeout="8" action="' + xmlEsc(action) + '" method="POST">'
+    + '<Say voice="Polly.Joanna">Please press 1 to continue.</Say>'
+    + '</Gather><Say voice="Polly.Joanna">We did not get a response. Goodbye.</Say><Hangup/></Response>';
+}
+
+// Numbers that ring and forward like anyone else but leave no row behind
+// (migration 0104 — the owner's own handset test-dialing the tracking lines
+// was showing up as a lead). Never throws: if the lookup fails we log the
+// call, because a missing row is worse than an extra one.
+async function isSilentNumber(db, phone) {
+  if (!phone) return false;
+  try {
+    const { data } = await db.from('silent_numbers').select('id').eq('phone', phone).maybeSingle();
+    return !!data;
+  } catch (e) {
+    console.error('[silent_numbers] lookup failed:', e.message);
+    return false;
+  }
+}
+
+// Inserts the `calls` row. Split out of handleVoiceInbound so the IVR-gated
+// path (below) can call it AFTER the caller proves they're not an autodialer,
+// instead of logging every gate failure as a call that never actually rang
+// anyone (owner, 2026-09-18: "if someone calls and doesn't press 1 ... that
+// shouldn't even be tracked" — the row itself, not just its status).
+async function logCallRow(db, { line, from, to, sid, blocked }) {
+  if (isTollFree(from)) return;   // toll-free = spam, never logged (owner 2026-09-30)
+  let business_id = null;
+  if (line && line.business_slug) {
+    const { data: biz } = await db.from('businesses').select('id').eq('slug', line.business_slug).maybeSingle();
+    business_id = biz?.id || null;
+  }
+  let customer_id = null;
+  if (from) {
+    const { data: c } = await db.from('customers').select('id').eq('phone', from).limit(1);
+    customer_id = (c || [])[0]?.id || null;
+  }
+  await db.from('calls').insert({
+    business_id,
+    source: 'twilio',
+    kind: 'inbound',
+    caller_phone: from || 'unknown',
+    grasshopper_number: to || null,   // the line dialed; same meaning as in 0080
+    tracking_label: line?.label || null,
+    market: line?.market || null,
+    // The handset actually dialed for THIS call, not the line's daytime
+    // default — on an after-hours line those differ, and the Calls tab's
+    // "routed to" (plus the missed-call text, which is sent to this number)
+    // must name whoever really rang. Only ever set on a row that reaches
+    // this function, which by construction means the call is actually about
+    // to Dial (or was blocked pre-ring — see caller) — never for an IVR-gate
+    // failure, which never calls this at all.
+    forwarded_to: destinationFor(line),
+    twilio_call_sid: sid,
+    occurred_at: new Date().toISOString(),
+    customer_id,
+    // Blocked calls are pre-resolved — nobody needs to call a blocked
+    // number back, so this never sits in the Needs-callback queue.
+    status: blocked ? 'ignored' : 'new',
+    handled_by: blocked ? 'Blocked number' : null,
+    handled_at: blocked ? new Date().toISOString() : null,
+    // An unmapped number is a config gap, never a reason to drop a caller —
+    // same rule as GRASSHOPPER_LINES. The office sees the warning on the card.
+    warnings: blocked ? ['Blocked number — call was rejected before ringing'] : (line ? null : ['Number is not in tracking_numbers - call still connected']),
+  });
+}
+
+// POST /api/analytics?action=voice_inbound — someone dialed a tracking number.
+async function handleVoiceInbound(req, res) {
+  const params = await twilioVoiceParams(req, res, 'voice_inbound');
+  if (!params) return;
+  const sid = params.CallSid || '';
+  const from = tenDigits(params.From);
+  const to = tenDigits(params.To);
+  let line = null;
+  let blocked = false;
+  try {
+    const db = serviceClient();
+    const { data } = await db.from('tracking_numbers')
+      .select('phone, label, business_slug, market, forward_to, ring_seconds, record_calls, active, after_hours_forward_to, hours_start, hours_end, hours_timezone, ivr_gate_enabled, ai_bot_enabled, route_team')
+      .eq('phone', to).maybeSingle();
+    line = await applyTimeOff(db, data && data.active ? data : null);
+
+    if (from) {
+      const { data: b } = await db.from('blocked_numbers').select('id').eq('phone', from).maybeSingle();
+      blocked = !!b;
+    }
+
+    // A silent number skips the insert but nothing else — the call still gets
+    // the IVR gate, the dial, the recording and the voicemail box, so a test
+    // call exercises the same path a real one takes. The later status /
+    // recording callbacks key on twilio_call_sid, so with no row to match they
+    // are harmless no-ops and no missed-call text goes out either.
+    if (await isSilentNumber(db, from)) return finishVoiceInbound(res, line, params, sid, blocked);
+
+    // A line with the IVR gate on doesn't get logged here at all: whether
+    // this becomes a real, dialed call is only known once the gate resolves,
+    // so the row (and the "routed to" it carries) is created from
+    // handleVoiceGather instead, only on a real press-1. Blocked and AI-bot
+    // calls bypass the gate (see finishVoiceInbound) and are still logged
+    // immediately here, same as before.
+    if (line && line.ivr_gate_enabled && !blocked && !line.ai_bot_enabled) {
+      return finishVoiceInbound(res, line, params, sid, blocked);
+    }
+
+    // Log first, forward second — but the whole block is wrapped, because if
+    // logging throws the call must still connect. A customer reaching a human
+    // matters more than the analytics row.
+    // No gate on this line: it rings right after this, so pop the screen now.
+    const dest = !blocked && line && !line.ai_bot_enabled && !isTollFree(from) ? destinationFor(line) : null;
+    await Promise.all([logCallRow(db, { line, from, to, sid, blocked }), dest ? pushRing(dest, ringPayload(line, from, sid)) : null]);
+  } catch (e) {
+    console.error('[voice_inbound] log failed:', e.message);
+  }
+
+  return finishVoiceInbound(res, line, params, sid, blocked);
+}
+
+// Everything voice_inbound does after logging — split out so the silent-number
+// path can skip the row without duplicating the routing decisions.
+function finishVoiceInbound(res, line, params, sid, blocked) {
+  // Rejected with no ring, no voicemail prompt, nothing for a scammer to work
+  // with — same principle as the IVR gate below, just skipping the prompt
+  // entirely for a number that's already proven itself unwanted.
+  if (blocked) return xml(res, '<Response><Reject/></Response>');
+
+  // AI voice-bot pilot (2026-09-03): a line with ai_bot_enabled routes into the
+  // bot flow instead of ringing a human at all. Deliberately bypasses the IVR
+  // spam gate — this is a single zero-traffic test number for now, not a
+  // public-facing line yet; add the gate back here before ever enabling this
+  // on a real ad-driven number.
+  if (line && line.ai_bot_enabled) return xml(res, '<Response><Redirect method="POST">' + xmlEsc(voiceUrl('voice_bot_start', { sid })) + '</Redirect></Response>');
+
+  if (line && line.ivr_gate_enabled) return xml(res, ivrGateTwiml(sid));
+  return xml(res, dialTwiml(line, params.From, sid));
+}
+
+// POST /api/analytics?action=voice_gather&sid=... — the caller either pressed
+// a key or the Gather above timed out. Re-looks-up the line itself (Twilio's
+// gather POST doesn't carry it) rather than trusting anything client-supplied.
+async function handleVoiceGather(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const params = await twilioVoiceParams(req, res, 'voice_gather', { sid });
+  if (!params) return;
+  const from = tenDigits(params.From);
+  const to = tenDigits(params.To);
+  let line = null;
+  const db = serviceClient();
+  try {
+    const { data } = await db.from('tracking_numbers')
+      .select('phone, label, business_slug, market, forward_to, ring_seconds, record_calls, active, after_hours_forward_to, hours_start, hours_end, hours_timezone, route_team')
+      .eq('phone', to).maybeSingle();
+    line = await applyTimeOff(db, data && data.active ? data : null);
+  } catch (e) {
+    console.error('[voice_gather] line lookup failed:', e.message);
+  }
+  if (!/^[0-9*#]$/.test((params.Digits || '').toString())) {
+    // No key at all — hang up with no row (handleVoiceInbound deliberately
+    // skipped logging this call), never voicemail: giving a scam dialer a
+    // record/transcribe prompt is exactly the thing the gate exists to deny.
+    // ANY key passes, not just 1 (2026-09-21, port day): callers of the lines
+    // ported from Grasshopper learned its "press 1 for home cleaning, press 2
+    // for handyman" menu, and a repeat customer pressing 2 was being hung up
+    // on. Autodialers press nothing, so the spam filter is unchanged.
+    return xml(res, '<Response><Hangup/></Response>');
+  }
+  // Passed the gate — this is a real call about to ring someone, so it gets
+  // logged NOW (see logCallRow), with an accurate forwarded_to/"routed to"
+  // instead of one stamped before we knew the call would ever be dialed.
+  // Silent-number test calls still skip the row, same as the non-gated path.
+  try {
+    // Passed the gate: the handset rings next. Log + screen pop together.
+    const dest = line && !isTollFree(from) ? destinationFor(line) : null;
+    await Promise.all([
+      (async () => { if (!(await isSilentNumber(db, from))) await logCallRow(db, { line, from, to, sid, blocked: false }); })(),
+      dest ? pushRing(dest, ringPayload(line, from, sid)) : null,
+    ]);
+  } catch (e) {
+    console.error('[voice_gather] log failed:', e.message);
+  }
+  return xml(res, dialTwiml(line, params.From, sid));
+}
+
+// POST /api/analytics?action=voice_status&sid=... — the <Dial> finished.
+// DialCallStatus says whether a human picked up; anything else means the call
+// was missed, and the caller is still on the line, so we take a message.
+async function handleVoiceStatus(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const bk = req.query.bk ? '1' : '';
+  const params = await twilioVoiceParams(req, res, 'voice_status', bk ? { sid, bk } : { sid });
+  if (!params) return;
+  const status = (params.DialCallStatus || '').toLowerCase();
+  const answered = status === 'completed';
+  // Backup ring (owner 2026-10-25): first leg missed, caller still on the
+  // line -> ring the backup once. bk=1 on the second action stops loops.
+  if (!answered && !bk && MISSED_DIAL_STATUSES.has(status) && (params.CallStatus || '').toLowerCase() === 'in-progress') {
+    const twiml = await backupDialTwiml(params, sid, status);
+    if (twiml) return xml(res, twiml);
+  }
+  const dur = parseInt(params.DialCallDuration, 10);
+  // Why a forward wasn't answered: no-answer (rang out), busy, failed (the
+  // handset's carrier rejected it) or canceled (caller hung up first). Heather
+  // 2026-09-24: a call showed as missed but her phone never rang -- without
+  // this there was no way to tell a blocked forward from an ignored one.
+  if (!answered) console.log(`[voice_status] ${sid.slice(-6)} dial ${status || 'unknown'} after ${Number.isFinite(dur) ? dur + 's' : '?'}`);
+  try {
+    const db = serviceClient();
+    await db.from('calls').update({
+      answered,
+      ...(!answered && status ? { warnings: [`Forward result: ${status}`] } : {}),
+      duration_sec: Number.isFinite(dur) ? dur : null,
+      ...(params.RecordingUrl ? { recording_url: params.RecordingUrl, has_recording: true } : {}),
+      // An answered call needs no callback-queue entry — somebody already spoke
+      // to them. A missed one stays 'new' until the office clears it.
+      ...(answered ? { status: 'resolved', handled_by: 'Answered', handled_at: new Date().toISOString() } : {}),
+    }).eq('twilio_call_sid', sid);
+  } catch (e) {
+    console.error('[voice_status] update failed:', e.message);
+  }
+  // Missed-call text to the caller (see missedCallTextAfterDial below).
+  // Never throws and never alters the TwiML returned below.
+  if (!answered) await missedCallTextAfterDial(params, status);
+  if (answered) return xml(res, '<Response><Hangup/></Response>');
+  return xml(res, voicemailTwiml(sid));
+}
+
+// Backup ring pairs: when the call rang `name` (matched by the phone on their
+// staff_schedules rows) and they missed, ring `backup` next. Add pairs here.
+const BACKUP_RING = [{ name: 'Joe', backup: 'Joey', backupPhone: '3032190118' }];
+async function backupDialTwiml(params, sid, status) {
+  try {
+    const db = serviceClient();
+    const { data: call } = await db.from('calls').select('id, forwarded_to, warnings').eq('twilio_call_sid', sid).maybeSingle();
+    const dialed = tenDigits(call && call.forwarded_to);
+    if (!call || dialed.length !== 10) return null;
+    const { data: sched } = await db.from('staff_schedules').select('name, phone').in('name', BACKUP_RING.map(p => p.name));
+    const hit = (sched || []).find(r => tenDigits(r.phone) === dialed);
+    const pair = hit && BACKUP_RING.find(p => p.name === hit.name);
+    if (!pair || tenDigits(pair.backupPhone) === dialed) return null;
+    const { data: line } = await db.from('tracking_numbers').select(ROUTE_LINE_COLUMNS).eq('phone', tenDigits(params.To)).maybeSingle();
+    if (!line) return null;
+    const to = '+1' + tenDigits(pair.backupPhone);
+    await db.from('calls').update({
+      forwarded_to: to,
+      warnings: [...(Array.isArray(call.warnings) ? call.warnings : []), `${pair.name} ${status}, rang ${pair.backup}`],
+    }).eq('id', call.id);
+    console.log(`[voice_status] ${sid.slice(-6)} ${pair.name} ${status} -> ringing ${pair.backup}`);
+    return dialTwiml({ ...line, forward_to: to, after_hours_forward_to: null }, params.From, sid, { bk: '1' });
+  } catch (e) {
+    console.error('[backup_ring] failed (voicemail instead):', e.message);
+    return null;
+  }
+}
+
+// ── Missed-call text (owner request, 2026-09-18) ─────────────────────────────
+// When a tracking-line call rings out, text the caller from THAT line with
+// the line's own tracking_numbers.missed_call_text (migration 0117; null or
+// blank = off, so it is enabled per line in data, never in code). The reply
+// lands in the same Messages thread, because the row is keyed (our_phone =
+// the line, customer_phone = the caller) exactly like an inbound text.
+//
+// Hooked HERE, in the <Dial> action, and nowhere else, because this is the one
+// callback that (a) only exists for a call that really rang somebody — a
+// blocked caller gets <Reject/>, an IVR-gate failure gets <Hangup/>, neither
+// ever reaches a <Dial> — and (b) carries DialCallStatus, the only field that
+// separates "a person picked up" from "nobody did". voice_recording is NOT a
+// hook: it also fires for answered calls' recordings and for transcripts.
+//
+// Only these DialCallStatus values are a miss. 'completed' is a pickup (the
+// existing `answered` flag above), and anything unknown or missing sends
+// nothing. Known edge, deliberately not engineered around: when the forwarded
+// cell's OWN carrier voicemail picks up, Twilio sees the dial leg answered
+// ('completed' with a duration), so that caller gets no text.
+const MISSED_DIAL_STATUSES = new Set(['no-answer', 'busy', 'failed', 'canceled']);
+// The parent call's own CallStatus on the action request: 'in-progress' means
+// the caller is still on the line waiting for the voicemail TwiML; any of
+// these means they already hung up and nobody is listening for a response.
+const CALLER_GONE_STATUSES = new Set(['completed', 'canceled', 'busy', 'no-answer', 'failed']);
+
+// Never throws, never changes what handleVoiceStatus returns. When the caller
+// has already hung up there is nobody to keep waiting, so the send is simply
+// awaited. When the caller is still on the line (about to hear the voicemail
+// greeting) the send must not sit in front of that TwiML, so it is handed to
+// Vercel's waitUntil — the same request-context hook @vercel/functions'
+// waitUntil() reads, used directly because this repo has no dependency on that
+// package — and the response goes out immediately. Without that hook (local
+// dev) it falls back to awaiting, bounded by sms.js's 10s send cap: a short
+// pause is better than a text Vercel freezes halfway through.
+async function missedCallTextAfterDial(params, dialStatus) {
+  try {
+    if (!MISSED_DIAL_STATUSES.has(dialStatus)) return;
+    const job = sendMissedCallText(params).catch((e) => {
+      console.error('[missed_call_text] failed:', e && e.message);
+    });
+    const callStatus = (params.CallStatus || '').toString().toLowerCase();
+    if (CALLER_GONE_STATUSES.has(callStatus)) { await job; return; }
+    let ctx = null;
+    try { ctx = globalThis[Symbol.for('@vercel/request-context')]?.get?.() || null; } catch { ctx = null; }
+    if (ctx && typeof ctx.waitUntil === 'function') { ctx.waitUntil(job); return; }
+    await job;
+  } catch (e) {
+    console.error('[missed_call_text] failed:', e && e.message);
+  }
+}
+
+// 30034 = the carrier refused a text because the sending number isn't in an
+// approved A2P campaign. Owner report 2026-09-24: the Austin line's missed-call
+// text died this way. When an AUTOMATED text from a tracking line hits it:
+// switch that line to send from the toll-free from now on
+// (missed_call_via_tollfree, the same switch Dom's uses) and resend this one
+// text once from the toll-free, so the customer still gets it. Never throws.
+async function rescueUnregisteredAutoText(db, messageId) {
+  try {
+    const tollfree = tenDigits(process.env.TWILIO_PHONE_NUMBER || '');
+    const { data: m } = await db.from('messages').select('id, business_id, customer_phone, customer_id, our_phone, body, sent_by').eq('id', messageId).maybeSingle();
+    if (!m || m.sent_by !== 'automated' || !tollfree || m.our_phone === tollfree) return;
+    await db.from('tracking_numbers').update({ missed_call_via_tollfree: true }).eq('phone', m.our_phone);
+    const { data: row } = await db.from('messages').insert({
+      business_id: m.business_id, customer_phone: m.customer_phone, customer_id: m.customer_id,
+      our_phone: tollfree, direction: 'out', body: m.body, status: 'queued', sent_by: 'automated',
+    }).select('id').single();
+    if (!row) return;
+    const r = await sendSMSResult(m.customer_phone, m.body, { from: tollfree });
+    await db.from('messages').update(r.ok ? { status: 'sent', twilio_sid: r.sid || null } : { status: 'failed', error: r.error || 'not sent' }).eq('id', row.id);
+    console.log(`[sms_status] 30034 on line ...${String(m.our_phone).slice(-4)}: switched it to toll-free, resent ${r.ok ? 'ok' : 'FAILED'}`);
+  } catch (e) {
+    console.error('[sms_status] 30034 rescue failed:', e.message);
+  }
+}
+
+// Every guard fails CLOSED: any lookup error means no text. A missed "sorry"
+// costs nothing; an unwanted text to a staff phone, an opted-out customer or
+// a robocaller costs a carrier complaint on the A2P campaign.
+async function sendMissedCallText(params) {
+  const to = tenDigits(params.To);
+  const rawFrom = (params.From || '').toString().trim();
+  const tag = `[missed_call_text] line ...${to.slice(-4)}`;
+  // Anonymous / withheld / "Restricted" / non-NANP caller IDs never match.
+  if (!/^\+1[2-9]\d{2}[2-9]\d{6}$/.test(rawFrom)) { console.log(`${tag} skipped: caller ID is not a textable US number`); return; }
+  const from = rawFrom.slice(2);
+  const who = `${tag} caller ...${from.slice(-4)}`;
+  // FromCountry is Twilio's own lookup; only trusted when present, so a
+  // callback that omits it still falls back to the +1 check above.
+  const country = (params.FromCountry || '').toString().toUpperCase();
+  if (country && country !== 'US') { console.log(`${who} skipped: caller country ${country}`); return; }
+  if (/^8(00|33|44|55|66|77|88)/.test(from)) { console.log(`${who} skipped: toll-free caller ID`); return; }
+  if (from === to) { console.log(`${who} skipped: caller is the line itself`); return; }
+  if (from === tenDigits(process.env.TWILIO_PHONE_NUMBER || '')) { console.log(`${who} skipped: caller is our toll-free sender`); return; }
+  // Master switch first, so a disabled system leaves no 'failed' rows behind.
+  if (!demoMode() && !smsNotificationsOn()) { console.log(`${who} skipped: SMS notifications are off`); return; }
+
+  const db = serviceClient();
+  const { data: line, error: lineErr } = await db.from('tracking_numbers')
+    .select('phone, business_slug, active, ai_bot_enabled, ai_bot_v2_enabled, forward_to, after_hours_forward_to, missed_call_text, missed_call_via_tollfree')
+    .eq('phone', to).maybeSingle();
+  if (lineErr || !line) { console.log(`${who} skipped: line lookup ${lineErr ? 'failed: ' + lineErr.message : 'found no line'}`); return; }
+  const text = line.missed_call_text == null ? '' : String(line.missed_call_text);
+  if (!text.trim()) return;   // feature off on this line: silent, the normal case
+  if (!line.active) { console.log(`${who} skipped: line inactive`); return; }
+  if (line.ai_bot_enabled || line.ai_bot_v2_enabled) { console.log(`${who} skipped: AI bot line`); return; }
+  // Which number the text leaves from. Normally the line itself (it's in the
+  // A2P sender pool). A line whose brand has no A2P registration -- Dom's,
+  // 2026-09-22 (migration 0133) -- can't send as itself, so it borrows the
+  // toll-free sender. The messages row is keyed on that sender too, so the
+  // customer's reply threads with it in Messages instead of landing on a
+  // thread nobody can answer from, and the 24h dedupe below counts what the
+  // customer actually received from that number.
+  const tollfree = tenDigits(process.env.TWILIO_PHONE_NUMBER || '');
+  const sender = line.missed_call_via_tollfree ? tollfree : to;
+  if (!sender) { console.log(`${who} skipped: toll-free sender is not configured`); return; }
+
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  const [ownQ, silentQ, staffQ, blockedQ, optedOut, recentQ, bizQ, custQ] = await Promise.all([
+    db.from('tracking_numbers').select('id').eq('phone', from).limit(1),
+    db.from('silent_numbers').select('id').eq('phone', from).limit(1),
+    db.from('staff_users').select('phone').not('phone', 'is', null),
+    db.from('blocked_numbers').select('id').eq('phone', from).limit(1),
+    smsOptOutState(db, from),
+    // Dedupe: one missed-call text per caller per line per 24h. Every
+    // automated send from a tracking line is this one (the rest leave from
+    // the toll-free), and the row is inserted BEFORE the send (below), so a
+    // Twilio retry of this callback finds it too.
+    db.from('messages').select('id').eq('our_phone', sender).eq('customer_phone', from)
+      .eq('direction', 'out').eq('sent_by', 'automated').gte('created_at', since).limit(1),
+    line.business_slug
+      ? db.from('businesses').select('id').eq('slug', line.business_slug).maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    db.from('customers').select('id').eq('phone', from).limit(1),
+  ]);
+  const failed = [ownQ, silentQ, staffQ, blockedQ, recentQ].find(q => q.error);
+  if (failed) { console.log(`${who} skipped: guard lookup failed: ${failed.error.message}`); return; }
+  if ((ownQ.data || []).length) { console.log(`${who} skipped: caller is one of our tracking numbers`); return; }
+  if ((blockedQ.data || []).length) { console.log(`${who} skipped: blocked number`); return; }
+  // The owner's handset is in silent_numbers AND staff_users; silent_numbers
+  // only keeps his test calls out of the Calls tab, so it must not stop him
+  // testing this text. Every other staff / handset number is excluded.
+  const isSilent = (silentQ.data || []).length > 0;
+  if (!isSilent) {
+    const staffPhones = new Set((staffQ.data || []).map(s => tenDigits(s.phone)).filter(Boolean));
+    if (staffPhones.has(from)) { console.log(`${who} skipped: staff phone`); return; }
+    if (from === tenDigits(line.forward_to) || from === tenDigits(line.after_hours_forward_to)) { console.log(`${who} skipped: caller is this line's own handset`); return; }
+  }
+  if (optedOut !== false) { console.log(`${who} skipped: ${optedOut === null ? 'opt-out lookup failed' : 'caller opted out of texts'}`); return; }
+  if ((recentQ.data || []).length) { console.log(`${who} skipped: already texted from this line in the last 24h`); return; }
+
+  // Claim BEFORE sending (same pattern as admin.js messagesSend): the row is
+  // the dedupe record and its id rides in the delivery-status token. No row,
+  // no send — an untracked text could repeat on the next retry.
+  const { data: row, error: insErr } = await db.from('messages').insert({
+    business_id: (bizQ && bizQ.data && bizQ.data.id) || null,
+    customer_phone: from,
+    our_phone: sender,
+    direction: 'out',
+    body: text,
+    status: 'queued',
+    sent_by: 'automated',
+    customer_id: (custQ && !custQ.error && (custQ.data || [])[0]?.id) || null,
+  }).select('id').single();
+  if (insErr || !row) { console.error(`${who} not sent: message row insert failed: ${insErr ? insErr.message : 'no row'}`); return; }
+
+  const base = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
+  const statusCallback = base
+    ? `${base}/api/analytics?action=sms_status&token=${encodeURIComponent(signToken({ kind: 'message', message_id: row.id }, 86400))}`
+    : undefined;
+  // FROM the tracking line (in the campaign's sender pool) -- or the toll-free
+  // for a line flagged missed_call_via_tollfree (see `sender` above).
+  const r = await sendSMSResult(from, text, { from: sender, statusCallback });
+  if (r.ok) {
+    if (r.sid) await db.from('messages').update({ twilio_sid: r.sid }).eq('id', row.id);
+    // Only from 'queued': a delivery receipt that raced ahead keeps 'delivered'.
+    await db.from('messages').update({ status: 'sent' }).eq('id', row.id).eq('status', 'queued');
+    console.log(`${who} sent${r.demo ? ' (demo)' : ''}`);
+  } else {
+    const why = r.error || `not sent (${r.skipped})`;
+    await db.from('messages').update({ status: 'failed', error: why }).eq('id', row.id);
+    // Twilio error bodies can echo the full To number; logs get last 4 only.
+    console.error(`${who} send failed: ${why.replace(/\+?\d{10,11}/g, (m) => '...' + m.slice(-4))}`);
+  }
+}
+
+// POST /api/analytics?action=voice_recording&sid=... — fires twice: once when
+// the recording is stored (RecordingUrl) and again when transcription finishes
+// (TranscriptionText). Both patch the same row, so arrival order does not
+// matter and a missing transcription never loses the recording.
+async function handleVoiceRecording(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const params = await twilioVoiceParams(req, res, 'voice_recording', { sid });
+  if (!params) return;
+  const patch = {};
+  if (params.RecordingUrl) { patch.recording_url = params.RecordingUrl; patch.has_recording = true; }
+  if (params.RecordingSid) patch.recording_sid = params.RecordingSid;
+  if (params.TranscriptionText) patch.transcript = params.TranscriptionText;
+  if (params.RecordingDuration) patch.duration_sec = parseInt(params.RecordingDuration, 10) || null;
+  try {
+    const db = serviceClient();
+    let row = null;
+    if (Object.keys(patch).length) {
+      const { data } = await db.from('calls').update(patch).eq('twilio_call_sid', sid)
+        .select('id, caller_phone, tracking_label, forwarded_to, notified_at, answered, market').maybeSingle();
+      row = data || null;
+    }
+    // Text whoever the line forwards to that a VOICEMAIL is waiting — once,
+    // and only for a real voicemail. Fixed 2026-09-21 (port day): this used to
+    // fire on every ANSWERED recorded call too, because the dual-channel
+    // recording of an answered call (RecordingSource 'DialVerb') posts a
+    // RecordingUrl here as well, and a real voicemail alerted twice (the
+    // <Record> action and the transcribeCallback both carry RecordingUrl)
+    // since sendSMS() returns nothing and notified_at was never stamped. Now:
+    // skip dial-leg recordings and answered calls, claim notified_at BEFORE
+    // sending so only one callback can win, and release the claim if the send
+    // fails. Awaited, never fire-and-forget: an un-awaited send is killed the
+    // moment this function responds.
+    const fromDialLeg = params.RecordingSource === 'DialVerb';
+    if (row && params.RecordingUrl && row.forwarded_to && !row.notified_at && row.answered !== true && !fromDialLeg) {
+      const { data: claimed } = await db.from('calls').update({ notified_at: new Date().toISOString() })
+        .eq('id', row.id).is('notified_at', null).select('id');
+      if (claimed && claimed.length) {
+        const p = row.caller_phone || '';
+        const pretty = p.length === 10 ? `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}` : p;
+        const r = await sendSMSResult(row.forwarded_to,
+          `Missed call${row.market ? ` (${row.market})` : ''} from ${pretty}. They left a voicemail - it is in the Calls tab.`);
+        if (!r.ok) await db.from('calls').update({ notified_at: null }).eq('id', row.id);
+      }
+    }
+    // Transcribe every answered call's dual-channel recording (owner,
+    // 2026-09-25). Twilio calls vi_webhook when the text is ready.
+    if (row && fromDialLeg && params.RecordingSid && (!params.RecordingStatus || params.RecordingStatus === 'completed')) {
+      try { await startTranscript(db, row.id, params.RecordingSid); }
+      catch (e) { console.error('[voice_recording] transcript start failed:', e.message); }
+    }
+  } catch (e) {
+    console.error('[voice_recording] update failed:', e.message);
+  }
+  return xml(res, '<Response><Say voice="Polly.Joanna">Thanks. We will call you right back.</Say><Hangup/></Response>');
+}
+
+// ── AI Voice Bot (pilot, 2026-09-03) ─────────────────────────────────────────
+// A turn-based Twilio <Gather>/<Say> loop that walks a caller through the same
+// booking conversation the Call Wizard scripts for a human secretary (see
+// public/admin.html renderCallWiz()): category -> zip -> TV questions (or a
+// handyman description) -> real availability -> priced recap -> customer info
+// -> booking_create. Deliberately NOT Media Streams / ConversationRelay — every
+// turn is a plain webhook round-trip, so it costs nothing beyond ordinary
+// Twilio voice minutes plus the included Gather speech recognition. No LLM in
+// the loop at all: every question is a numbered menu matched deterministically
+// against the SAME service catalog the office prices from (api/admin.js's
+// `services`/`service_options` actions), so pricing can never drift from what
+// a human would quote, and there's no API key to configure for this to work.
+//
+// Session state lives in app.voice_bot_sessions (one row per CallSid) because
+// serverless functions are stateless between webhook hits. Gated per-line by
+// tracking_numbers.ai_bot_enabled (default false everywhere) — see the branch
+// in handleVoiceInbound above. Pilot scope is intentionally narrow: no
+// discount negotiation, no GDS/Assurion/cross-company, no card collection
+// (books with card_skipped-equivalent, same as the human "collect at service"
+// escape hatch) — any of those, or two failed/ambiguous answers in a row on
+// any single question, transfers the live call to the line's own forward_to
+// human, reusing dialTwiml() so nothing about human fallback is reimplemented.
+
+const AFTER_HOURS_SLOT_KEY = 's5';
+// Flat $75 for the 8 PM slot EVERY day (owner, 2026-10-09: "8pm should be 75
+// added"). The old $100-on-Sundays rule is gone, same as api/book.js and the
+// public widget. dateStr stays in the signature so callers are unchanged.
+function botAfterHoursFee(slotKey, dateStr) {
+  return slotKey === AFTER_HOURS_SLOT_KEY ? 75 : 0;
+}
+const BOT_TAX_RATE = 0.0825;     // matches New Booking / Call Wizard's TAX_RATE
+const BOT_MIN_TICKET = 139;      // matches MIN_TICKET_PRICE in api/admin.js/api/book.js
+const BOT_HANDYMAN_HOURLY = 85;  // matches HANDYMAN_HOURLY in public/admin.html
+
+// A short-lived internal admin token, minted in-process (same SESSION_SECRET
+// the real dashboard login signs with) so the bot can call the office's own
+// authenticated actions — zip/availability/pricing/booking — instead of
+// reimplementing any of that logic. role:'owner', scope:'all' so it can act
+// on ANY business (the bot may be answering for a lead-gen brand that isn't
+// 'handy-andy' or 'doms'), same as a real owner login would.
+function botToken() {
+  return signToken({ kind: 'admin', role: 'owner', scope: 'all', name: 'AI Voice Bot' }, 3600);
+}
+async function adminApi(action, { method = 'GET', params = {}, body = null } = {}) {
+  const qs = new URLSearchParams({ action, ...params }).toString();
+  const url = `${publicBase()}/api/admin?${qs}`;
+  const r = await fetch(url, {
+    method,
+    headers: { Authorization: `Bearer ${botToken()}`, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  let data = {};
+  try { data = await r.json(); } catch (_) { /* non-JSON error page */ }
+  if (!r.ok) {
+    const e = new Error(data.error || `admin ${action} failed (${r.status})`);
+    e.status = r.status; e.data = data;
+    throw e;
+  }
+  return data;
+}
+
+async function botSessionGet(db, callSid) {
+  const { data } = await db.from('voice_bot_sessions').select('*').eq('call_sid', callSid).maybeSingle();
+  return data;
+}
+async function botSessionSave(db, callSid, patch) {
+  await db.from('voice_bot_sessions').update({ ...patch, updated_at: new Date().toISOString() }).eq('call_sid', callSid);
+}
+
+// ── TwiML builders (bot-specific; reuses xml/xmlEsc/voiceUrl from above) ─────
+// sayText is spoken AS WRITTEN — no auto-generated "Press or say 1 for X,
+// press or say 2 for Y" (owner request, 2026-09-03: it read too robotic and
+// took too long). Write the choices INTO the question itself in plain
+// English ("...behind the wall, outside the wall, or left hanging?"); the
+// options array is still used to MATCH the answer (botMatchMenu), and a
+// keypress still silently works as a 1/2/3-in-order fallback even though
+// it's never announced.
+function botMenuTwiml(action, sayText) {
+  return '<Response><Gather input="speech dtmf" numDigits="1" timeout="6" speechTimeout="auto" action="'
+    + xmlEsc(action) + '" method="POST"><Say voice="Polly.Joanna">' + xmlEsc(sayText) + '</Say></Gather>'
+    + '<Redirect method="POST">' + xmlEsc(action) + '</Redirect></Response>';
+}
+function botOpenTwiml(action, sayIntro) {
+  return '<Response><Gather input="speech dtmf" timeout="8" speechTimeout="auto" action="'
+    + xmlEsc(action) + '" method="POST"><Say voice="Polly.Joanna">' + xmlEsc(sayIntro) + '</Say></Gather>'
+    + '<Redirect method="POST">' + xmlEsc(action) + '</Redirect></Response>';
+}
+function botSayRedirect(sayText, action) {
+  return '<Response><Say voice="Polly.Joanna">' + xmlEsc(sayText) + '</Say><Redirect method="POST">' + xmlEsc(action) + '</Redirect></Response>';
+}
+function botHangup(sayText) {
+  return '<Response>' + (sayText ? '<Say voice="Polly.Joanna">' + xmlEsc(sayText) + '</Say>' : '') + '<Hangup/></Response>';
+}
+// Escalation: reuses dialTwiml() verbatim (whisper/disclosure/recording/
+// voicemail fallback all come along for free), just prefixes one spoken line.
+function botTransfer(line, callerFrom, sid, sayFirst) {
+  const twiml = dialTwiml(line, callerFrom, sid);
+  return sayFirst ? twiml.replace('<Response>', '<Response><Say voice="Polly.Joanna">' + xmlEsc(sayFirst) + '</Say>') : twiml;
+}
+
+// ── Menu answer matching (deterministic — no LLM) ────────────────────────────
+const NUM_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const BOT_STOPWORDS = new Set(['the', 'a', 'an', 'is', 'are', 'has', 'have', 'will', 'with', 'for', 'and', 'or', 'to', 'of', 'tv', 'on', 'in', 'my', 'i']);
+function botTermsFor(label) {
+  const bare = String(label || '').toLowerCase().replace(/\([^)]*\)/g, ' ').replace(/[^a-z0-9\s]/g, ' ').trim();
+  const words = bare.split(/\s+/).filter(w => w.length >= 3 && !BOT_STOPWORDS.has(w));
+  const terms = new Set(words);
+  for (let i = 0; i < words.length - 1; i++) terms.add(words[i] + ' ' + words[i + 1]);
+  return [...terms];
+}
+// options: [{ say, terms, ...anything }]. digits/speech come straight off the
+// Twilio Gather POST (params.Digits / params.SpeechResult).
+function botMatchMenu(options, { digits, speech }) {
+  if (digits) {
+    const idx = parseInt(digits, 10) - 1;
+    if (idx >= 0 && idx < options.length) return options[idx];
+  }
+  const s = (speech || '').toLowerCase().trim();
+  if (!s) return null;
+  const asNum = parseInt(s, 10);
+  if (Number.isFinite(asNum) && asNum >= 1 && asNum <= options.length) return options[asNum - 1];
+  const firstWord = s.split(/\s+/)[0];
+  const wIdx = NUM_WORDS.indexOf(firstWord);
+  if (wIdx >= 1 && wIdx <= options.length) return options[wIdx - 1];
+  let best = null, bestLen = 0;
+  for (const o of options) {
+    for (const t of (o.terms || [])) {
+      if (t && s.includes(t) && t.length > bestLen) { bestLen = t.length; best = o; }
+    }
+  }
+  return best;
+}
+// Date and time-slot answers get their own matchers instead of botMatchMenu:
+// once the menu stopped announcing "press 1/2/3" (owner request, 2026-09-03),
+// a caller naturally answers with the actual calendar day ("the 4th",
+// "September 4th") or clock time ("8 AM", "morning") — not a menu POSITION —
+// and botMatchMenu's number-word/digit fallback was silently misreading that
+// as "option #4", which doesn't exist on a 3-item menu, so it just failed and
+// escalated on the very first try. Real calendar/clock meaning is checked
+// FIRST here; menu position is still a fallback for someone who does say
+// "one" or "the first one".
+const ORDINAL_WORDS = { first: 1, second: 2, third: 3, fourth: 4, fifth: 5, sixth: 6, seventh: 7, eighth: 8, ninth: 9, tenth: 10, eleventh: 11, twelfth: 12, thirteenth: 13, fourteenth: 14, fifteenth: 15, sixteenth: 16, seventeenth: 17, eighteenth: 18, nineteenth: 19, twentieth: 20, thirtieth: 30, thirty: 30, twenty: 20 };
+function botOrdinalDayFrom(s) {
+  const m = s.match(/\b(twenty|thirty)[\s-]?(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth)?\b|\b(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth|eleventh|twelfth|thirteenth|fourteenth|fifteenth|sixteenth|seventeenth|eighteenth|nineteenth|twentieth|thirtieth)\b/);
+  if (!m) return null;
+  if (m[1]) return (ORDINAL_WORDS[m[1]] || 0) + (m[2] ? ORDINAL_WORDS[m[2]] : 0);
+  return ORDINAL_WORDS[m[3]] || null;
+}
+function botMatchDate(dates, { digits, speech }) {
+  const s = (speech || '').toLowerCase();
+  if (/\b(soonest|earliest|first available|whatever'?s? (soonest|earliest|first)|any(time|day)|next available)\b/.test(s) && dates[0]) return dates[0];
+  if (/\btomorrow\b/.test(s) && dates[1]) return dates[1];
+  if (/\btoday\b/.test(s) && dates[0]) return dates[0];
+  if (/\bday after tomorrow\b/.test(s) && dates[2]) return dates[2];
+  const dayNum = (s.match(/\d{1,2}/) || [])[0] || botOrdinalDayFrom(s);
+  if (dayNum) {
+    const n = parseInt(dayNum, 10);
+    const hit = dates.find(ds => parseInt(ds.slice(-2), 10) === n);
+    if (hit) return hit;
+  }
+  const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+  for (const ds of dates) {
+    let dow;
+    try { dow = new Date(ds + 'T12:00:00').getDay(); } catch (_) { continue; }
+    if (s.includes(WEEKDAYS[dow])) return ds;
+  }
+  if (digits) { const idx = parseInt(digits, 10) - 1; if (idx >= 0 && idx < dates.length) return dates[idx]; }
+  const wIdx = NUM_WORDS.indexOf(s.split(/\s+/)[0]);
+  if (wIdx >= 1 && wIdx <= dates.length) return dates[wIdx - 1];
+  return null;
+}
+function botMatchSlot(slots, { digits, speech }) {
+  const s = (speech || '').toLowerCase();
+  if (/\b(soonest|earliest|first available|whatever'?s? (soonest|earliest|first)|any(time)?|next available)\b/.test(s) && slots[0]) return slots[0];
+  const m = s.match(/(\d{1,2})\s*(am|pm)?/);
+  if (m) {
+    let hr = parseInt(m[1], 10);
+    const ap = m[2];
+    if (ap === 'pm' && hr < 12) hr += 12;
+    if (ap === 'am' && hr === 12) hr = 0;
+    const hourOf = (sl) => parseInt((sl.start || '').split(':')[0], 10);
+    let hit = slots.find(sl => hourOf(sl) === hr);
+    // No am/pm given and the hour reads as a small number (1-7) — office
+    // hours run 8 AM to 10:30 PM, so "at 2" almost always means 2 PM, not
+    // 2 AM (which is never a real slot anyway).
+    if (!hit && !ap && hr >= 1 && hr <= 7) hit = slots.find(sl => hourOf(sl) === hr + 12);
+    if (hit) return hit;
+  }
+  if (/\bmorning\b/.test(s)) { const hit = slots.find(sl => (sl.start || '') < '12:00'); if (hit) return hit; }
+  if (/\bafternoon\b/.test(s)) { const hit = slots.find(sl => (sl.start || '') >= '12:00' && (sl.start || '') < '17:00'); if (hit) return hit; }
+  if (/\b(evening|night)\b/.test(s)) { const hit = slots.find(sl => (sl.start || '') >= '17:00'); if (hit) return hit; }
+  if (digits) { const idx = parseInt(digits, 10) - 1; if (idx >= 0 && idx < slots.length) return slots[idx]; }
+  const wIdx = NUM_WORDS.indexOf(s.split(/\s+/)[0]);
+  if (wIdx >= 1 && wIdx <= slots.length) return slots[wIdx - 1];
+  return null;
+}
+// ── Claude reasoning fallback (optional, 2026-09-03) ─────────────────────────
+// Every matcher above is deterministic and free — it runs FIRST and handles
+// the common case instantly with zero API cost. Only when it can't confidently
+// resolve an answer does a step reach for Claude, and only if the caller
+// actually said something (never on silence/timeout) and ANTHROPIC_API_KEY is
+// configured — if it's not set, every function here is a silent no-op and the
+// bot behaves exactly as before (a plain retry), so this is a pure upgrade,
+// never a new failure mode. Never trusts the model's text as data: the answer
+// is always re-validated against the real choices list before being used for
+// anything (pricing, scheduling, booking).
+async function botClaudeCall(prompt, maxTokens) {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  try {
+    const ctrl = new AbortController();
+    const t = setTimeout(() => ctrl.abort(), 4500);
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': process.env.ANTHROPIC_API_KEY, 'anthropic-version': '2023-06-01', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: maxTokens || 20, messages: [{ role: 'user', content: prompt }] }),
+      signal: ctrl.signal,
+    });
+    clearTimeout(t);
+    if (!r.ok) { console.error('[voice_bot] Claude call failed:', r.status, await r.text().catch(() => '')); return null; }
+    const data = await r.json();
+    return ((data.content && data.content[0] && data.content[0].text) || '').trim();
+  } catch (e) {
+    console.error('[voice_bot] Claude call errored:', e.message);
+    return null;
+  }
+}
+// Picks the closest of a list of plain-text choices, or null. Used for every
+// step whose valid answers are a short list of labels (category, bracket,
+// wires, lifting, and the spoken date/time menus).
+async function botClaudeChoose(question, speech, choices) {
+  if (!speech || !choices.length) return null;
+  const prompt = `A caller on a phone booking call was asked: "${question}"\nThey said: "${speech}"\n`
+    + `Which ONE of these is the closest match to what they meant? Reply with ONLY the exact text of that choice, character for character, nothing else. If none reasonably match, reply exactly: NONE\n\nChoices:\n`
+    + choices.map(c => `- ${c}`).join('\n');
+  const text = await botClaudeCall(prompt, 40);
+  if (!text || /^NONE$/i.test(text)) return null;
+  // Re-validated against the real list — the model's own words are never
+  // trusted as the answer, only used to point at one of OUR options.
+  return choices.find(c => c.toLowerCase().trim() === text.toLowerCase().trim()) || null;
+}
+// Plain yes/no via Claude, for when botYes()'s keyword regex comes up empty
+// (e.g. "that's fine", "go ahead", "I'd rather not").
+async function botClaudeYesNo(question, speech) {
+  if (!speech) return null;
+  const prompt = `A caller on a phone booking call was asked: "${question}"\nThey said: "${speech}"\nIs that a yes or a no? Reply with ONLY one word: YES, NO, or UNCLEAR.`;
+  const text = await botClaudeCall(prompt, 5);
+  if (!text) return null;
+  if (/^YES$/i.test(text)) return true;
+  if (/^NO$/i.test(text)) return false;
+  return null;
+}
+function botYes(speech, digits) {
+  if (digits === '1') return true;
+  if (digits === '2') return false;
+  const s = (speech || '').toLowerCase();
+  if (/\b(yes|yeah|yep|sure|correct|that works|sounds good|book it)\b/.test(s)) return true;
+  if (/\b(no|nope|not|different|change)\b/.test(s)) return false;
+  return null;
+}
+function botParseDigitsFrom(speech, digits, count) {
+  if (digits && new RegExp(`^\\d{${count}}$`).test(digits)) return digits;
+  const stripped = String(speech || '').replace(/\D/g, '');
+  if (stripped.length === count) return stripped;
+  if (count === 10 && stripped.length === 11 && stripped.startsWith('1')) return stripped.slice(1);
+  const DIGIT_WORDS = { zero: '0', oh: '0', one: '1', two: '2', to: '2', too: '2', three: '3', four: '4', for: '4', five: '5', six: '6', seven: '7', eight: '8', nine: '9' };
+  let out = '';
+  for (const w of String(speech || '').toLowerCase().split(/\s+/)) {
+    if (/^\d$/.test(w)) out += w;
+    else if (DIGIT_WORDS[w] != null) out += DIGIT_WORDS[w];
+  }
+  return out.length === count ? out : null;
+}
+function botSpokenMoney(n) {
+  const v = Math.round(Number(n) || 0);
+  return `${v} dollar${v === 1 ? '' : 's'}`;
+}
+
+// Fetches the TV-mounting option catalog once (at the zip step) and caches it
+// on the session so every later question is a plain lookup, not a re-fetch.
+// Mirrors exactly what serviceOptions() returns; only the fields the bot
+// needs (id, label, price, sizecat) survive into the cached copy.
+async function botLoadCatalog(businessSlug, serviceId) {
+  const { groups } = await adminApi('service_options', { params: { business: businessSlug, service_id: serviceId } });
+  const byKey = {};
+  for (const g of (groups || [])) {
+    byKey[g.key] = (g.options || []).map(o => ({
+      id: o.id, label: o.label, price: Number(o.price) || 0,
+      sizecat: o.metadata && o.metadata.sizecat || null,
+    }));
+  }
+  return byKey;
+}
+// Catalog labels are written for a screen, not a voice: "33"-59"" reads out
+// loud as "thirty-three MINUS fifty-nine" (Polly reads a numeral-to-numeral
+// hyphen or en-dash as subtraction), and the inch marks either get skipped
+// oddly or read as "inch". Only the SPOKEN text goes through this — matching
+// still runs against the raw label in botTermsFor, where the punctuation
+// doesn't matter.
+function botSpeakLabel(label) {
+  return String(label || '')
+    .replace(/(\d)\s*[-–—]\s*(\d)/g, '$1 to $2')
+    .replace(/["″]/g, '')
+    .replace(/(\d)\+/g, '$1 or more');
+}
+function botMenuOptionsFrom(catalogGroup) {
+  return (catalogGroup || []).map(o => ({ say: botSpeakLabel(o.label), terms: botTermsFor(o.label), catalogOpt: o }));
+}
+// TV size range parsed from the catalog label itself (no separate min/max
+// columns exist), so a caller can just say a number ("about 55 inches")
+// instead of sitting through a 6-item menu — reading all six sizes out loud
+// was the single slowest part of the call. Ranges are contiguous (0-32,
+// 33-59, 60-69, 70-85, 86-97, 98+), so any real TV size lands in exactly one.
+function botSizeRangeFor(label) {
+  const nums = String(label || '').match(/\d+/g);
+  if (!nums || !nums.length) return null;
+  if (/or less|under/i.test(label)) return { min: 0, max: parseInt(nums[0], 10) };
+  if (/\+/.test(label) || nums.length === 1) return { min: parseInt(nums[0], 10), max: Infinity };
+  return { min: parseInt(nums[0], 10), max: parseInt(nums[nums.length - 1], 10) };
+}
+function botMatchSize(catalogGroup, { digits, speech }) {
+  const raw = digits || (String(speech || '').match(/\d+/) || [])[0];
+  const n = parseInt(raw, 10);
+  if (!Number.isFinite(n)) return null;
+  for (const o of (catalogGroup || [])) {
+    const r = botSizeRangeFor(o.label);
+    if (r && n >= r.min && n <= r.max) return o;
+  }
+  return null;
+}
+
+// Builds the priced selections array in the same shape booking_create expects
+// (mirrors nbCollectSelections()'s output shape: option_id/label/price/qty),
+// plus travel surcharge and after-hours fee as their own lines, plus a
+// "Service minimum" top-up if the raw total is under the $139 floor — the
+// exact same auto-topup behavior nbMinimumTopUp() applies in the office tool.
+function botBuildSelections(d) {
+  const out = [];
+  if (d.category === 'tv') {
+    for (const key of ['size', 'bracket', 'fireplace', 'surface', 'wires', 'lifting', 'extras']) {
+      const picked = d.answers && d.answers[key];
+      if (picked && picked.price > 0) out.push({ option_id: picked.id || null, label: picked.label, price: picked.price, quantity: 1 });
+      else if (picked) out.push({ option_id: picked.id || null, label: picked.label, price: 0, quantity: 1 });
+    }
+  } else if (d.category === 'handyman') {
+    const hrs = Math.max(2, Number(d.handymanHours) || 2);
+    out.push({ option_id: null, label: `Handyman Labor: ${d.handymanDesc || 'as described'} — ${hrs} hour${hrs === 1 ? '' : 's'}`, price: BOT_HANDYMAN_HOURLY, quantity: hrs });
+  }
+  if (d.surcharge !== 0) out.push({ option_id: null, label: d.surcharge > 0 ? 'Travel' : 'Local travel credit', price: d.surcharge, quantity: 1 });
+  const ahFee = botAfterHoursFee(d.slotKey, d.date);
+  if (ahFee > 0) out.push({ option_id: null, label: 'After-Hours Service Fee (8 PM)', price: ahFee, quantity: 1 });
+  const rawSum = out.filter(x => x.label !== 'Service minimum').reduce((s, x) => s + x.price * x.quantity, 0);
+  if (rawSum > 0 && rawSum < BOT_MIN_TICKET) out.push({ option_id: null, label: 'Service minimum', price: Math.round((BOT_MIN_TICKET - rawSum) * 100) / 100, quantity: 1 });
+  return out;
+}
+
+// POST /api/analytics?action=voice_bot_start — the very first turn on a
+// bot-enabled line (redirected here from handleVoiceInbound).
+async function handleVoiceBotStart(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const params = await twilioVoiceParams(req, res, 'voice_bot_start', { sid });
+  if (!params) return;
+  const to = tenDigits(params.To);
+  const from = params.From || '';
+  const db = serviceClient();
+  let line = null;
+  try {
+    const { data } = await db.from('tracking_numbers')
+      .select('phone, label, business_slug, market, forward_to, ring_seconds, record_calls, after_hours_forward_to, hours_start, hours_end, hours_timezone, ai_bot_enabled, route_team')
+      .eq('phone', to).maybeSingle();
+    line = await applyShiftRouting(db, data || null);
+    // Safety net: got redirected here but the flag is off (race with someone
+    // flipping it mid-call) — fall back to the normal human-forwarding path
+    // rather than dead-ending the caller.
+    if (!line || !line.ai_bot_enabled) return xml(res, dialTwiml(line, from, params.CallSid || ''));
+
+    const { data: biz } = await db.from('businesses').select('id, slug, name, timezone').eq('slug', line.business_slug).maybeSingle();
+    if (!biz) return xml(res, botHangup("Sorry, we're having trouble right now. Please call back in a few minutes."));
+
+    const { services: svcs } = await adminApi('services', { params: { business: biz.slug } }).catch(() => ({ services: [] }));
+    const tvService = (svcs || []).find(s => /tv\s*mount|tv\s*install/i.test(s.category || s.name || ''));
+    const handymanService = (svcs || []).find(s => /handyman/i.test(s.category || s.name || ''));
+    if (!tvService && !handymanService) return xml(res, botHangup("Sorry, we're having trouble right now. Please call back in a few minutes."));
+
+    const onlyOne = (tvService && !handymanService) ? 'tv' : (!tvService && handymanService) ? 'handyman' : null;
+    const session = {
+      call_sid: params.CallSid || '',
+      business_id: biz.id, business_slug: biz.slug,
+      tracking_number: line.phone, caller_phone: tenDigits(from),
+      step: onlyOne ? 'zip' : 'category',
+      data: {
+        tvServiceId: tvService ? tvService.id : null,
+        handymanServiceId: handymanService ? handymanService.id : null,
+        category: onlyOne, businessName: biz.name, timezone: biz.timezone || 'Asia/Manila',
+        forwardTo: line.forward_to, answers: {},
+      },
+      retry_count: 0,
+    };
+    await db.from('voice_bot_sessions').upsert(session, { onConflict: 'call_sid' });
+
+    const greetName = biz.name || 'our company';
+    const turnAction = voiceUrl('voice_bot_turn', { sid: session.call_sid });
+    if (!onlyOne) {
+      return xml(res, botMenuTwiml(turnAction, `Thanks for calling ${greetName}! Would you like to book home cleaning or handyman services?`));
+    }
+    return xml(res, botOpenTwiml(turnAction,
+      `Thanks for calling ${greetName}! I can help you book a ${onlyOne === 'tv' ? 'home cleaning' : 'handyman'} appointment. What's your 5 digit zip code?`));
+  } catch (e) {
+    console.error('[voice_bot_start] failed:', e.message);
+    return xml(res, botTransfer(line, from, params.CallSid || '', "Sorry, I'm having trouble right now — let me connect you with someone."));
+  }
+}
+
+// POST /api/analytics?action=voice_bot_turn&sid=... — every subsequent Gather
+// result on a bot call lands here. Loads the session by CallSid, dispatches on
+// session.step, and returns the next question (or books / transfers / hangs
+// up). One big step switch, matching the size of everything else this file's
+// voice handlers already do inline — see the file-level comment above for the
+// overall design.
+async function handleVoiceBotTurn(req, res) {
+  const sid = (req.query.sid || '').toString();
+  const params = await twilioVoiceParams(req, res, 'voice_bot_turn', { sid });
+  if (!params) return;
+  const digits = (params.Digits || '').toString().trim();
+  const speech = (params.SpeechResult || '').toString().trim();
+  const callerFrom = params.From || '';
+  const db = serviceClient();
+  const action = voiceUrl('voice_bot_turn', { sid });
+
+  const session = await botSessionGet(db, sid);
+  if (!session) return xml(res, botHangup('Sorry, this call has expired. Please call back.'));
+  const d = session.data || {};
+  const step = session.step;
+
+  // Line row, re-fetched fresh (needed for any transfer on this turn — never
+  // trust a stale copy of forward_to/recording settings from session start).
+  const { data: lineRow } = await db.from('tracking_numbers')
+    .select('phone, label, business_slug, forward_to, ring_seconds, record_calls, after_hours_forward_to, hours_start, hours_end, hours_timezone, route_team')
+    .eq('phone', session.tracking_number).maybeSingle();
+  const line = await applyShiftRouting(db, lineRow);
+
+  // 3 misses tolerated (owner request, 2026-09-03 — escalating after just 2
+  // felt instant/abrupt on a real call) before handing off to a human.
+  const retry = async (sayText) => {
+    const n = (session.retry_count || 0) + 1;
+    if (n > 3) {
+      await botSessionSave(db, sid, { retry_count: 0 });
+      return xml(res, botTransfer(line, callerFrom, sid, "I'm having a little trouble understanding — let me connect you with someone who can help."));
+    }
+    await botSessionSave(db, sid, { retry_count: n });
+    return xml(res, botSayRedirect(sayText, action));
+  };
+  const goto = async (nextStep, patch, sayText, twimlFn) => {
+    const newData = { ...d, ...(patch || {}) };
+    // Awaited: some twimlFns (schedule/recap/booking) are async, and passing an
+    // un-awaited Promise straight to xml() would send "[object Promise]" as
+    // the TwiML body instead of the real markup.
+    const twiml = await twimlFn(newData);
+    await botSessionSave(db, sid, { step: nextStep, data: newData, retry_count: 0 });
+    return xml(res, twiml);
+  };
+
+  try {
+    switch (step) {
+
+      case 'category': {
+        let opt = botMatchMenu([
+          { say: 'tv', terms: ['tv', 'mount', 'mounting', 'television'] },
+          { say: 'handyman', terms: ['handyman', 'handy', 'handywork'] },
+        ], { digits, speech });
+        if (!opt && speech) {
+          const picked = await botClaudeChoose('Would you like home cleaning or handyman services?', speech, ['home cleaning', 'handyman services']);
+          if (picked) opt = { say: picked === 'home cleaning' ? 'tv' : 'handyman' };
+        }
+        if (!opt) return retry("I didn't catch that — would you like home cleaning or handyman services?");
+        const cat = opt.say === 'tv' ? 'tv' : 'handyman';
+        return goto('zip', { category: cat },
+          null, () => botOpenTwiml(action, `Great. What's your 5 digit zip code?`));
+      }
+
+      case 'zip': {
+        const zip = botParseDigitsFrom(speech, digits, 5);
+        if (!zip) return retry("I need your 5 digit zip code. You can say it or enter it on the keypad.");
+        let za;
+        try { za = await adminApi('zip_area', { params: { business: session.business_slug, postal_code: zip } }); }
+        catch (e) { return retry("I couldn't check that zip code. Could you say it again?"); }
+        if (!za.service_area_id) {
+          await botSessionSave(db, sid, { retry_count: 0 });
+          return xml(res, botTransfer(line, callerFrom, sid, "That zip code is outside our normal service area — let me connect you with someone who can take a closer look."));
+        }
+        const nd = { ...d, zip, surcharge: Number(za.surcharge) || 0 };
+        if (nd.category === 'tv') {
+          let catalog;
+          try { catalog = await botLoadCatalog(session.business_slug, nd.tvServiceId); }
+          catch (e) { return retry("I'm having trouble pulling up pricing. Could you give me a moment and repeat your last answer?"); }
+          nd.catalog = catalog;
+          return goto('tv_size', nd, null, () => botOpenTwiml(action, "What size is your TV, in inches?"));
+        }
+        return goto('handyman_desc', nd, null, () => botOpenTwiml(action, "What do you need done?"));
+      }
+
+      // ── Home Cleaning path ──────────────────────────────────────────────────
+      case 'tv_size': {
+        // Open question, not a 6-item menu — the caller just says a number
+        // ("about 55 inches") and it's bucketed into the right catalog size
+        // range (botSizeRangeFor), which is both faster and how a human
+        // secretary actually asks this on a real call.
+        let opt = botMatchSize(d.catalog.size, { digits, speech });
+        if (!opt && speech) {
+          // No digit in what they said at all ("it's pretty big", "a medium
+          // sized one") — let Claude match the vague description to one of
+          // the real size-bracket labels instead of just giving up.
+          const picked = await botClaudeChoose('What size is your TV, in inches?', speech, d.catalog.size.map(o => o.label));
+          if (picked) opt = d.catalog.size.find(o => o.label === picked) || null;
+        }
+        if (!opt) return retry("What size is the TV — just the number of inches is fine?");
+        const answers = { ...d.answers, size: opt };
+        const bracketOpts = d.catalog.bracket || [];
+        if (!bracketOpts.length) {
+          return goto('tv_fireplace', { answers }, null, (nn) => botMenuTwiml(action, "Is your TV going over a fireplace?"));
+        }
+        // Open question, not a 9-item menu — this catalog has "own bracket",
+        // three sizes of Flat/Tilting/Full Motion, three 85"-100" variants, a
+        // Samsung Frame in-box bracket, and Mantel Mount, and reading all of
+        // those as "press 1 for X, press 2 for Y..." was the single longest
+        // stretch of any question in the call. Matched by keyword against the
+        // full catalog either way, so nothing on the pricing side changes.
+        return goto('tv_bracket', { answers }, null, () => botOpenTwiml(action, "Do you have your own bracket, or would you like us to bring a flat, tilting, or full motion one?"));
+      }
+      case 'tv_bracket': {
+        const opts = botMenuOptionsFrom(d.catalog.bracket);
+        // digits intentionally ignored — no numbered menu was read, so a
+        // stray keypress shouldn't be reinterpreted as "option #N".
+        let opt = botMatchMenu(opts, { digits: '', speech });
+        if (!opt && speech) {
+          const picked = await botClaudeChoose('Do you have your own bracket, or would you like us to bring a flat, tilting, or full motion one?', speech, d.catalog.bracket.map(o => o.label));
+          if (picked) opt = { catalogOpt: d.catalog.bracket.find(o => o.label === picked) };
+        }
+        if (!opt) return retry("Do you have your own bracket, or should we bring a flat, tilting, or full motion bracket?");
+        const answers = { ...d.answers, bracket: opt.catalogOpt };
+        return goto('tv_fireplace', { answers }, null, () => botMenuTwiml(action, "Is your TV going over a fireplace?"));
+      }
+      case 'tv_fireplace': {
+        let yn = botYes(speech, digits);
+        if (yn === null && speech) yn = await botClaudeYesNo('Is the TV going over a fireplace?', speech);
+        if (yn === null) return retry("Is the TV going over a fireplace — yes or no?");
+        const fpOpts = d.catalog.fireplace || [];
+        // "TV NOT above a fireplace" contains the substring "above a
+        // fireplace" too, so a plain regex test can't tell the two options
+        // apart — a label only counts as the POSITIVE one if it also lacks "not".
+        const isAboveFireplace = (label) => /above a fireplace/i.test(label) && !/\bnot\b/i.test(label);
+        const picked = fpOpts.find(o => isAboveFireplace(o.label) === yn);
+        let answers = { ...d.answers, fireplace: picked || { label: yn ? 'TV above a fireplace' : 'TV NOT above a fireplace', price: 0 } };
+        // Wall-surface question skipped entirely (owner request, 2026-09-03)
+        // — defaults to Drywall (the free, most common case) rather than
+        // asking. A tech who finds brick/stone/stucco on site adjusts the
+        // ticket in person, same as any other on-site correction.
+        const drywall = (d.catalog.surface || []).find(o => /drywall/i.test(o.label)) || { label: 'Drywall', price: 0 };
+        answers = { ...answers, surface: drywall };
+        const wireOpts = d.catalog.wires || [];
+        if (!wireOpts.length) return goto('schedule_date', { answers }, null, (nn) => botAskDate(nn, action, session.business_slug));
+        return goto('tv_wires', { answers }, null, () => botMenuTwiml(action, "Would you like the wires hidden behind the wall, hidden outside the wall, or left hanging down?"));
+      }
+      case 'tv_wires': {
+        const opts = botMenuOptionsFrom(d.catalog.wires);
+        let opt = botMatchMenu(opts, { digits, speech });
+        if (!opt && speech) {
+          const picked = await botClaudeChoose('Would you like the wires hidden behind the wall, hidden outside the wall, or left hanging?', speech, d.catalog.wires.map(o => o.label));
+          if (picked) opt = { catalogOpt: d.catalog.wires.find(o => o.label === picked) };
+        }
+        if (!opt) return retry("Would you like the wires hidden behind the wall, hidden outside the wall, or left hanging?");
+        const answers = { ...d.answers, wires: opt.catalogOpt };
+        const sizecat = answers.size && answers.size.sizecat;
+        const needsLifting = sizecat && sizecat !== 'small' && (d.catalog.lifting || []).length;
+        if (needsLifting) {
+          return goto('tv_lifting', { answers }, null, () => botMenuTwiml(action, "Since it's a larger TV, will you be able to help lift it, or should we send a second technician?"));
+        }
+        // Extras ("anything else?") question skipped entirely (owner request,
+        // 2026-09-03) — straight to scheduling. A caller who wants a soundbar
+        // or Apple TV install can still mention it and the office adds the
+        // line item, same as any other post-booking adjustment.
+        return goto('schedule_date', { answers }, null, (nn) => botAskDate(nn, action, session.business_slug));
+      }
+      case 'tv_lifting': {
+        const opts = botMenuOptionsFrom(d.catalog.lifting);
+        let opt = botMatchMenu(opts, { digits, speech });
+        if (!opt && speech) {
+          const picked = await botClaudeChoose('Will you be able to help lift the TV, or should we send a second technician?', speech, d.catalog.lifting.map(o => o.label));
+          if (picked) opt = { catalogOpt: d.catalog.lifting.find(o => o.label === picked) };
+        }
+        if (!opt) return retry("Will you be able to help lift the TV, or would you like a second technician?");
+        const answers = { ...d.answers, lifting: opt.catalogOpt };
+        return goto('schedule_date', { answers }, null, (nn) => botAskDate(nn, action, session.business_slug));
+      }
+
+      // ── Handyman path ──────────────────────────────────────────────────────
+      case 'handyman_desc': {
+        if (!speech) return retry("Could you describe what you need done?");
+        return goto('handyman_hours', { handymanDesc: speech }, null, () => botOpenTwiml(action, `Got it. About how many hours of work is that, at ${BOT_HANDYMAN_HOURLY} dollars an hour, with a 2 hour minimum? You can say a number.`));
+      }
+      case 'handyman_hours': {
+        const n = parseInt(digits || speech, 10);
+        if (!Number.isFinite(n) || n < 1) return retry("About how many hours — you can just say a number like 2 or 3?");
+        return goto('schedule_date', { handymanHours: Math.max(2, n) }, null, (nn) => botAskDate(nn, action, session.business_slug));
+      }
+
+      // ── Scheduling ──────────────────────────────────────────────────────────
+      case 'schedule_date': {
+        const dates = d._dateChoices || [];
+        let dateStr = botMatchDate(dates, { digits, speech });
+        if (!dateStr && speech) {
+          // Grounded with today's date so relative phrases ("tomorrow",
+          // "whenever's soonest") resolve correctly — botMatchDate alone has
+          // no sense of "relative to today", only literal days/numbers.
+          const todayLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+          const labels = dates.map(botSpokenDate);
+          const picked = await botClaudeChoose(`Today is ${todayLabel}. Which day works best for the appointment?`, speech, labels);
+          if (picked) dateStr = dates[labels.indexOf(picked)];
+        }
+        if (!dateStr) return retry("Which day works best — you can just tell me the day, like Thursday or the 4th?");
+        return goto('schedule_slot', { date: dateStr, _dateChoices: null }, null, (nn) => botAskSlot(nn, session.business_slug, action));
+      }
+      case 'schedule_slot': {
+        const slots = d._slotChoices || [];
+        let opt = botMatchSlot(slots, { digits, speech });
+        if (!opt && speech) {
+          const labels = slots.map(s => s.label);
+          const picked = await botClaudeChoose(`Which time works best on ${botSpokenDate(d.date)}?`, speech, labels);
+          if (picked) opt = slots[labels.indexOf(picked)];
+        }
+        if (!opt) return retry("Which time works best — morning, afternoon, or evening is fine?");
+        const answers = { ...d.answers };
+        return goto('recap', { slotKey: opt.slot_key, slotLabel: opt.label, _slotChoices: null }, null, (nn) => botRecap(nn, action));
+      }
+
+      case 'recap': {
+        let yn = botYes(speech, digits);
+        if (yn === null && speech) yn = await botClaudeYesNo('Does the appointment time and price work for you?', speech);
+        if (yn === null) return retry("Does that work for you — yes or no?");
+        if (!yn) {
+          await botSessionSave(db, sid, { retry_count: 0 });
+          return xml(res, botTransfer(line, callerFrom, sid, "No problem — let me connect you with someone who can go over some options."));
+        }
+        return goto('customer_name', {}, null, () => botOpenTwiml(action, "Great, let's get you booked. Can I get your first and last name?"));
+      }
+
+      // ── Customer info ────────────────────────────────────────────────────
+      case 'customer_name': {
+        if (!speech) return retry("Could you say your first and last name?");
+        const name = speech.replace(/\b\w/g, c => c.toUpperCase());
+        const last4 = (session.caller_phone || '').slice(-4);
+        return goto('customer_phone', { name }, null, () => last4
+          ? botMenuTwiml(action, `Thanks. Is the best number to reach you the one you're calling from, ending in ${last4.split('').join(' ')}?`)
+          : botOpenTwiml(action, "What's the best phone number to reach you?"));
+      }
+      case 'customer_phone': {
+        if (session.caller_phone && !d._phoneAsked) {
+          let yn = botYes(speech, digits);
+          if (yn === null && speech) yn = await botClaudeYesNo("Is the caller's own phone number the best number to reach them?", speech);
+          if (yn === null) return retry("Is that the right number — yes or no?");
+          if (yn) return goto('customer_email', { phone: session.caller_phone }, null, () => botOpenTwiml(action, "What's your email? You can also just say skip."));
+          return goto('customer_phone', { _phoneAsked: true }, null, () => botOpenTwiml(action, "What's the best number to reach you?"));
+        }
+        const phone = botParseDigitsFrom(speech, digits, 10);
+        if (!phone) return retry("Could you say your 10 digit phone number again?");
+        return goto('customer_email', { phone }, null, () => botOpenTwiml(action, "What's your email? You can also just say skip."));
+      }
+      case 'customer_email': {
+        const s = speech.toLowerCase();
+        const email = /\b(skip|no email|none|don't have)\b/.test(s) ? null : (speech || null);
+        return goto('customer_address', { email }, null, () => botOpenTwiml(action, "And what's the street address for the appointment?"));
+      }
+      case 'customer_address': {
+        if (!speech) return retry("Could you give me the street address again?");
+        return goto('book', { address: speech }, null, (nn) => botDoBooking(db, session, nn, line, callerFrom));
+      }
+
+      default:
+        return xml(res, botTransfer(line, callerFrom, sid, "Sorry, something went wrong on my end — let me connect you with someone."));
+    }
+  } catch (e) {
+    console.error(`[voice_bot_turn] step=${step} failed:`, e.message);
+    return xml(res, botTransfer(line, callerFrom, sid, "Sorry, I'm having trouble right now — let me connect you with someone."));
+  }
+}
+
+// Fetches the soonest 3 open dates (this month, spilling into next month if
+// this month is nearly out) and stashes them on the session so schedule_date
+// can match the caller's answer against exactly what was just read aloud.
+async function botAskDate(d, action, businessSlug) {
+  const now = new Date();
+  const months = [now, new Date(now.getFullYear(), now.getMonth() + 1, 1)];
+  let dates = [];
+  for (const m of months) {
+    const month = `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`;
+    try {
+      const r = await adminApi('available_dates', { params: { business: businessSlug, month, technician_id: 'any', pool: 'cross', postal_code: d.zip } });
+      dates = dates.concat(r.dates || []);
+    } catch (e) { /* try the next month anyway */ }
+    if (dates.length >= 3) break;
+  }
+  dates = dates.slice(0, 3);
+  d._dateChoices = dates;
+  if (!dates.length) return botHangup("I'm sorry, we don't have any openings in your area right now. Please call back soon.");
+  const list = botSpokenList(dates.map(botSpokenDate));
+  return botMenuTwiml(action, `The soonest openings are ${list}. Which day works best?`);
+}
+// "A" / "A or B" / "A, B, or C" — used to speak a short dynamic list (dates,
+// times) inline instead of an enumerated "press 1 for A, press 2 for B" menu.
+function botSpokenList(items) {
+  if (!items.length) return '';
+  if (items.length === 1) return items[0];
+  if (items.length === 2) return `${items[0]} or ${items[1]}`;
+  return items.slice(0, -1).join(', ') + ', or ' + items[items.length - 1];
+}
+function botSpokenDate(dateStr) {
+  try {
+    const dt = new Date(dateStr + 'T12:00:00');
+    return dt.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  } catch (_) { return dateStr; }
+}
+async function botAskSlot(d, businessSlug, action) {
+  let slots = [];
+  try {
+    const r = await adminApi('available_slots', { params: { business: businessSlug, date: d.date, technician_id: 'any', pool: 'cross', postal_code: d.zip } });
+    slots = r.slots || [];
+  } catch (e) { /* fall through to empty */ }
+  d._slotChoices = slots;
+  if (!slots.length) return botSayRedirect("Sorry, that day just filled up.", action);
+  const list = botSpokenList(slots.map(s => s.label + (botAfterHoursFee(s.slot_key, d.date) > 0 ? ` with an after-hours fee` : '')));
+  return botMenuTwiml(action, `Here's what's open ${botSpokenDate(d.date)}: ${list}. Which works best?`);
+}
+function botRecap(d, action) {
+  const selections = botBuildSelections(d);
+  const subtotal = selections.reduce((s, x) => s + x.price * x.quantity, 0);
+  const tax = Math.round(subtotal * BOT_TAX_RATE * 100) / 100;
+  const total = Math.round((subtotal + tax) * 100) / 100;
+  d._priced = { selections, subtotal, tax, total };
+  const what = d.category === 'tv' ? (d.answers.size ? botSpeakLabel(d.answers.size.label) + ' TV mount' : 'TV mount') : `${d.handymanHours || 2} hours of handyman work`;
+  return botMenuTwiml(action,
+    `Okay, I have ${what} on ${botSpokenDate(d.date)}, ${d.slotLabel}. The total before tax is ${botSpokenMoney(total)}. Does that work for you?`);
+}
+// The actual booking_create call. Runs at the END of a step (not its own
+// step) so the caller never sits through a bare "processing" turn — the write
+// happens inline and the very next TwiML is either the confirmation or the
+// transfer. Returns a TwiML string like every other step (does NOT call
+// xml(res,...) itself) so goto()'s single await-then-xml() stays the one
+// place a response is ever sent for a turn.
+async function botDoBooking(db, session, d, line, callerFrom) {
+  const priced = d._priced || (() => { const sel = botBuildSelections(d); const sub = sel.reduce((s, x) => s + x.price * x.quantity, 0); const tax = Math.round(sub * BOT_TAX_RATE * 100) / 100; return { selections: sel, subtotal: sub, tax, total: Math.round((sub + tax) * 100) / 100 }; })();
+  const body = {
+    business: session.business_slug,
+    idempotency_key: `voicebot-${session.call_sid}`,
+    customer: {
+      name: d.name || 'Phone Customer', phone: d.phone || session.caller_phone || null,
+      email: d.email || null, postal_code: d.zip, address_line1: d.address || null,
+    },
+    service_id: d.category === 'tv' ? d.tvServiceId : d.handymanServiceId,
+    // 'cross' (host roster + partner fallback), not 'own': most of the
+    // lead-gen brands this bot answers for have ZERO technicians of their
+    // own by design (they borrow their parent company's roster via
+    // PARTNER_SLUG in api/admin.js) — 'own' alone would silently return no
+    // availability at all for those, the exact bug found 2026-09-03.
+    technician_id: 'any', pool: 'cross',
+    scheduled_date: d.date, scheduled_slot: d.slotKey,
+    selections: priced.selections, subtotal: priced.subtotal, tax: priced.tax, price: priced.total,
+    payment_method: 'card',   // no payment_method_id — same "collect at service" path the human Skip-for-now checkbox uses
+    notes: 'Booked by AI Voice Bot (pilot)',
+    // The bot never reads the text-message consent script, so it can never
+    // record a yes. Only the office script or the unchecked web checkbox opts
+    // a customer in (A2P 10DLC; see ihandyandy.com/sms-opt-in).
+    sms_consent: false,
+  };
+  try {
+    await adminApi('booking_create', { method: 'POST', body });
+    await botSessionSave(db, session.call_sid, { step: 'done' });
+    return botHangup(`You're all set for ${botSpokenDate(d.date)}, ${d.slotLabel}. The total is ${botSpokenMoney(priced.total)}. Thanks for calling, and we'll see you then!`);
+  } catch (e) {
+    console.error('[voice_bot] booking_create failed:', e.message, e.data || '');
+    await botSessionSave(db, session.call_sid, { retry_count: 0 });
+    return botTransfer(line, callerFrom, session.call_sid, "I'm sorry, that time just became unavailable — let me connect you with someone who can find another slot.");
+  }
+}
+
+// POST /api/analytics?action=sms_inbound — someone texted a tracking number.
+// Same shape as handleVoiceInbound: look the number up, log it, then relay the
+// text content to whoever the line forwards to (as a plain SMS, not a call) so
+// a customer text doesn't just vanish into a number nobody reads. Replies to
+// the customer with a short auto-ack so they know a human is coming.
+async function handleSmsInbound(req, res) {
+  const params = await twilioVoiceParams(req, res, 'sms_inbound');
+  if (!params) return;
+  const from = tenDigits(params.From);
+  const to = tenDigits(params.To);
+  if (isTollFree(from)) return xml(res, '<Response/>');   // toll-free = spam: not stored, not relayed
+  const body = (params.Body || '').toString().trim();
+  let line = null;
+  let blocked = false;
+  // Declared out here, not inside the try: the relay-and-ack call after the
+  // catch below names the brand with it. Declared inside the try, that call
+  // threw a ReferenceError on every inbound text (no reply, no staff relay).
+  // business_id is declared alongside it for the exact same reason: the
+  // automated-message logging plumbed into finishSmsInbound needs it at the
+  // post-try/catch call site below too.
+  let business_name = null;
+  let business_id = null;
+  try {
+    const db = serviceClient();
+    const { data } = await db.from('tracking_numbers')
+      .select('phone, label, business_slug, forward_to, active, after_hours_forward_to, hours_start, hours_end, hours_timezone, route_team')
+      .eq('phone', to).maybeSingle();
+    line = await applyShiftRouting(db, data && data.active ? data : null);
+
+    // Same blocked_numbers table the voice path checks (handleVoiceInbound
+    // above) and the Messages "Block" button writes to — one block covers
+    // both channels, so a texter blocked here also stops getting relayed or
+    // auto-acked, not just kept out of the calls ticket queue below.
+    if (from) {
+      const { data: b } = await db.from('blocked_numbers').select('id').eq('phone', from).maybeSingle();
+      blocked = !!b;
+    }
+
+    // A tech replying YES to the late text (owner 2026-10-20). Own try: never
+    // blocks the normal store/relay below.
+    if (from && body) {
+      try { const { confirmTechReply } = await import('./_lib/tech-reminders.js'); await confirmTechReply(db, from, body); }
+      catch (e) { console.warn('[sms_inbound] tech confirm failed:', e.message); }
+    }
+    // No `let` here — this assigns the business_id declared above the try
+    // block (see the comment by that declaration) rather than shadowing it
+    // with a new binding that would go out of scope when the try/catch closes.
+    business_id = null;
+    // An INACTIVE tracking number still belongs to a brand: name that brand in
+    // any reply (never fall back to TidyHaus on another company's number),
+    // but keep queue attribution to active lines only, exactly as before.
+    const brandSlug = (line && line.business_slug) || (data && data.business_slug) || null;
+    if (brandSlug) {
+      const { data: biz } = await db.from('businesses').select('id, name').eq('slug', brandSlug).maybeSingle();
+      business_id = line ? (biz?.id || null) : null;
+      business_name = biz?.name || null;
+    }
+
+    // Moved ABOVE the silent-number check so the messages insert below can use
+    // it too. The `calls` insert further down still receives exactly the same
+    // value it always did — this is a reorder, not a behaviour change.
+    let customer_id = null;
+    if (from) {
+      const { data: c } = await db.from('customers').select('id').eq('phone', from).limit(1);
+      customer_id = (c || [])[0]?.id || null;
+    }
+
+    // Keep the message itself (migration 0109). Until this existed an inbound
+    // text was relayed and then discarded, so the office could never see a
+    // conversation, let alone reply to one.
+    //
+    // DELIBERATELY BEFORE the silent-number check, unlike the `calls` insert.
+    // silent_numbers exists to keep the owner's own test calls out of the
+    // ticket queue — but a thread is not a ticket, and the owner testing
+    // "can I text my number and reply to it" is exactly the case that must
+    // work. Storing his test texts costs nothing and stops the feature from
+    // looking broken when he tries it. (It looked broken once already, for
+    // precisely this reason.)
+    //
+    // twilio_sid is UNIQUE, so Twilio retrying this webhook cannot duplicate a
+    // message. A duplicate is swallowed, not raised: the relay and auto-ack
+    // below must still happen even on a retry we've already stored.
+    if (from && to) {
+      const { error: msgErr } = await db.from('messages').insert({
+        business_id,
+        customer_phone: from,
+        our_phone: to,
+        direction: 'in',
+        body: body || null,
+        twilio_sid: (params.MessageSid || params.SmsSid || '').toString() || null,
+        customer_id,
+        // Photos (MMS): the pictures stay at Twilio; api/admin.js sms_media
+        // fetches them by this message's sid (owner 2026-09-30).
+        media_count: Number(params.NumMedia) || 0,
+      });
+      if (msgErr && !/duplicate key|unique/i.test(msgErr.message || '')) {
+        console.error('[sms_inbound] message store failed:', msgErr.message);
+      }
+    }
+
+    // Same rule as the voice path: the text still relays, it just isn't logged.
+    if (await isSilentNumber(db, from)) return finishSmsInbound(res, line, from, body, blocked, business_name, to, business_id);
+
+    // A bare STOP/HELP/START keyword gets its automatic handling in
+    // finishSmsInbound, but it is still relayed and queued like any other
+    // text: on a lead line "Info" can be a prospect and "Cancel" can mean the
+    // appointment. The note records which keyword it was and what was automated.
+    const keyword = smsKeyword(body);
+    const keywordNote = keyword === 'stop' ? `STOP keyword: texts turned off for this number (${TWILIO_OPTOUT_RE.test(body || '') ? 'Twilio sent the opt-out confirmation' : 'we sent the opt-out confirmation'}); relayed to staff`
+      : keyword === 'help' ? (line && line.business_slug === 'handy-andy' && TWILIO_HELP_RE.test(body || '') ? 'HELP keyword: Twilio sent the registered help reply; relayed to staff' : 'HELP keyword: auto-replied with support contact; relayed to staff')
+      : keyword === 'start' ? 'START keyword: Twilio may re-enable texts to this number, but CRM text consent was NOT restored; relayed to staff'
+      : null;
+    const callWarnings = blocked ? ['Blocked number — text was not relayed']
+      : [keywordNote, line ? null : 'Number is not in tracking_numbers - text still relayed if possible'].filter(Boolean);
+    await db.from('calls').insert({
+      business_id,
+      source: 'twilio',
+      kind: 'sms',
+      caller_phone: from || 'unknown',
+      grasshopper_number: to || null,
+      tracking_label: line?.label || null,
+      transcript: body || null,
+      occurred_at: new Date().toISOString(),
+      customer_id,
+      // Same pre-resolved treatment blocked calls get: nobody needs to follow
+      // up on a text from a number that's already blocked. A keyword text
+      // stays open ('new'); handled_by only annotates what was automated.
+      status: blocked ? 'ignored' : 'new',
+      handled_by: blocked ? 'Blocked number' : keyword ? `Auto-handled ${keyword.toUpperCase()} keyword` : null,
+      handled_at: blocked ? new Date().toISOString() : null,
+      warnings: callWarnings.length ? callWarnings : null,
+    });
+  } catch (e) {
+    console.error('[sms_inbound] log failed:', e.message);
+  }
+
+  return finishSmsInbound(res, line, from, body, blocked, business_name, to, business_id);
+}
+
+// A2P 10DLC keywords, matched against the WHOLE text only ("can you stop by
+// at 3?" or "cancel my appointment" is a customer, not a keyword); trailing
+// punctuation is allowed ("Stop.", "STOP!", "Help?"). STOP: Twilio has already
+// blocked further sends to this number and sends the ONE opt-out
+// confirmation, so we add no reply of our own and clear the CRM consent flag
+// so every consent-gated template skips them too. HELP: reply with who we are
+// and how to reach us. START/UNSTOP: Twilio lifts its block and sends its own
+// resubscribe confirmation, so we add no reply, and we deliberately do NOT
+// restore CRM consent (only a recorded opt-in does that). All three are still
+// relayed to staff (relayInboundText) with a note saying what was automated.
+// SMS_STOP_RE and SMS_START_RE live in _lib/sms.js: the Messages screen's
+// reply guard reads the same keywords back out of stored texts.
+const SMS_HELP_RE = /^\s*(help|info)[\s.!?]*$/i;
+// Twilio's own default opt-out keywords, bare. Only these get Twilio's
+// automatic opt-out + confirmation; the wider SMS_STOP_RE variants ("opt out",
+// "stop all", "Stop.") are honored by us and confirmed by us.
+const TWILIO_OPTOUT_RE = /^\s*(stop|stopall|unsubscribe|cancel|end|quit|revoke|optout)\s*$/i;
+// Bare HELP/INFO. On TidyHaus's campaign lines Twilio's Advanced Opt-Out
+// answers these with the registered help message, so we add no second reply.
+const TWILIO_HELP_RE = /^\s*(help|info)\s*$/i;
+function smsKeyword(body) {
+  const s = (body || '').toString();
+  if (SMS_STOP_RE.test(s)) return 'stop';
+  if (SMS_HELP_RE.test(s)) return 'help';
+  if (SMS_START_RE.test(s)) return 'start';
+  return null;
+}
+
+// STOP means stop everywhere we'd text this person: clear sms_consent on every
+// booking and estimate on file for the phone. Matches the phone the way this
+// handler already does (tenDigits), plus the formatted spellings rows are
+// actually stored in: estimate.js saves "(713) 555-0134", and office/widget
+// customer rows keep whatever was typed. Best-effort and never throws, because
+// the webhook must still answer Twilio.
+async function clearSmsConsentForPhone(phone) {
+  const d = tenDigits(phone);
+  if (d.length !== 10) return;
+  const a = d.slice(0, 3), b = d.slice(3, 6), c = d.slice(6);
+  const variants = [d, `1${d}`, `+1${d}`, `(${a}) ${b}-${c}`, `(${a})${b}-${c}`, `${a}-${b}-${c}`, `${a}.${b}.${c}`, `${a} ${b} ${c}`, `+1 (${a}) ${b}-${c}`, `+1 ${a}-${b}-${c}`];
+  try {
+    const db = serviceClient();
+    let bookings = 0, estimates = 0;
+    const { data: custs, error: cErr } = await db.from('customers').select('id').in('phone', variants);
+    if (cErr) console.warn('[sms_inbound] STOP: customer lookup failed:', cErr.message);
+    const ids = (custs || []).map(r => r.id);
+    if (ids.length) {
+      const { data: bk, error: bErr } = await db.from('bookings')
+        .update({ sms_consent: false }).in('customer_id', ids).eq('sms_consent', true).select('id');
+      if (bErr) console.warn('[sms_inbound] STOP: bookings consent update failed:', bErr.message);
+      else bookings = (bk || []).length;
+    }
+    const { data: es, error: eErr } = await db.from('estimates')
+      .update({ sms_consent: false }).in('customer_phone', variants).eq('sms_consent', true).select('id');
+    if (eErr) console.warn('[sms_inbound] STOP: estimates consent update failed:', eErr.message);
+    else estimates = (es || []).length;
+    console.log(`[sms_inbound] STOP from ...${d.slice(-4)}: sms_consent cleared on ${bookings} booking(s), ${estimates} estimate(s)`);
+  } catch (e) {
+    console.warn('[sms_inbound] STOP: consent update failed:', e.message);
+  }
+}
+
+// Relay an inbound text to whoever the line forwards to, as a plain SMS, so a
+// customer text doesn't vanish into a number nobody reads. Same day/night
+// split the call path uses: a text landing at 3am must not wake whoever
+// answers that line during the day. `note` goes after the customer's words so
+// staff can tell an auto-handled keyword (STOP/HELP/START) from a normal text.
+// Best-effort and never throws: the webhook must still answer Twilio.
+async function relayInboundText(line, from, body, business_name, note = '') {
+  const smsTo = destinationFor(line);
+  if (!(line && smsTo && body)) return;
+  // Never relay to the owner (owner, 2026-09-23: a customer's "let me see if
+  // that works" reached his phone -- "its unnessesary for me to recieve this
+  // text"). Some lines forward to him, but the text is already on the
+  // Messages screen and the office handles replies; relaying just bills an
+  // SMS he never needed.
+  const digits = v => String(v || '').replace(/\D/g, '').slice(-10);
+  const owner = digits(process.env.OWNER_PHONE_NUMBER);
+  if (owner && digits(smsTo) === owner) return;
+  try {
+    const pretty = from.length === 10 ? `(${from.slice(0, 3)}) ${from.slice(3, 6)}-${from.slice(6)}` : from;
+    // Just the number and their words: no business-name prefix (owner,
+    // 2026-09-23: "it shouldnt have the business name in the text"), which
+    // also keeps a short customer text inside one billed SMS segment.
+    await sendSMS(smsTo, `${pretty}: ${body}${note || ''}`);
+  } catch (e) {
+    console.error('[sms_inbound] relay failed:', e.message);
+  }
+}
+
+// The relay-and-ack tail of sms_inbound, split out so a silent number can skip
+// the row without skipping the relay.
+async function finishSmsInbound(res, line, from, body, blocked, business_name, to, business_id) {
+  const db = serviceClient();
+  const keyword = smsKeyword(body);
+  // An opt-out is honored even from a blocked number (Twilio has already
+  // stopped sends; the CRM should agree). Either way we send no reply of ours:
+  // Twilio's opt-out confirmation must be the only one. Staff still see it
+  // (it can be a booked customer's "Cancel"), unless the number is blocked.
+  if (keyword === 'stop') {
+    await clearSmsConsentForPhone(from);
+    if (!blocked) await relayInboundText(line, from, body, business_name, ' (auto: customer opted out of texts)');
+    // Twilio only opts out and confirms its own bare keywords. For the other
+    // variants we send the one confirmation ourselves. If Twilio did opt the
+    // number out after all, it rejects this reply (21610), so the customer can
+    // never receive two confirmations.
+    if (!blocked && !TWILIO_OPTOUT_RE.test(body || '')) {
+      const optBrand = smsBrandName(line && line.business_slug, business_name);
+      // TidyHaus's wording is the opt-out message registered on its A2P
+      // campaign (and set as Twilio's Advanced Opt-Out reply), word for word.
+      const optText = optBrand === HANDY_ANDY_SMS_BRAND
+        ? `You are unsubscribed and will receive no further messages. Questions? Email contact@ihandyandy.com or call (713) 876-9032.`
+        : `You are unsubscribed and will receive no further messages.`;
+      // Twilio sends this itself (no send-result to inspect), so it's logged
+      // as a plain "sent" the moment the TwiML is built, same as the HELP
+      // reply and the default auto-ack below.
+      await logAutomatedMessage(db, { businessId: business_id, customerPhone: from, body: optText, result: { ok: true } });
+      return xml(res, `<Response><Message>${xmlEsc(optText)}</Message></Response>`);
+    }
+    return xml(res, '<Response/>');
+  }
+
+  // No relay, no auto-ack — same "give a blocked sender nothing to work with"
+  // principle as the voice path's <Reject/>. The message itself is still kept
+  // (that insert runs above, before this is ever reached), so the thread
+  // stays visible in Messages; it just stops bothering anyone.
+  if (blocked) return xml(res, '<Response/>');
+
+  // Every reply names the brand of the line that was texted. A number that
+  // isn't in tracking_numbers (e.g. the toll-free notification sender) falls
+  // back to TidyHaus Home Cleaning, the registered brand.
+  const brand = smsBrandName(line && line.business_slug, business_name);
+
+  // HELP: who we are and how to reach us, per brand. TidyHaus's contact
+  // details only go out under TidyHaus's name; any other brand points back
+  // at the line that was texted, so a Denver brand never hands out Houston's
+  // number or another company's website.
+  if (keyword === 'help') {
+    // TidyHaus's lines sit in the campaign's Messaging Service, where
+    // Twilio's Advanced Opt-Out answers a bare HELP/INFO with the registered
+    // help message (the same words as below). Answering too would send two.
+    if (line && line.business_slug === 'handy-andy' && TWILIO_HELP_RE.test(body || '')) {
+      await relayInboundText(line, from, body, business_name, ' (auto: HELP reply sent)');
+      console.log(`[sms_inbound] HELP from ...${String(from || '').slice(-4)}: bare keyword, answered by Twilio, relayed to staff`);
+      return xml(res, '<Response/>');
+    }
+    const ld = tenDigits(line && line.phone);
+    const contact = brand === HANDY_ANDY_SMS_BRAND
+      ? 'call (713) 876-9032, email contact@ihandyandy.com or visit www.ihandyandy.com'
+      : (ld.length === 10 ? `call or text (${ld.slice(0, 3)}) ${ld.slice(3, 6)}-${ld.slice(6)}` : 'reply here and a team member will help you');
+    await relayInboundText(line, from, body, business_name, ' (auto: HELP reply sent)');
+    console.log(`[sms_inbound] HELP from ...${String(from || '').slice(-4)}: answered with support contact, relayed to staff`);
+    const helpText = `For help ${contact}.`;
+    await logAutomatedMessage(db, { businessId: business_id, customerPhone: from, body: helpText, result: { ok: true } });
+    return xml(res, `<Response><Message>${xmlEsc(helpText)}</Message></Response>`);
+  }
+
+  // START/UNSTOP: Twilio sends its own resubscribe confirmation, so no reply
+  // of ours. CRM consent is NOT restored here; staff just see it came in.
+  if (keyword === 'start') {
+    await relayInboundText(line, from, body, business_name, ' (auto: START keyword)');
+    return xml(res, '<Response/>');
+  }
+
+  await relayInboundText(line, from, body, business_name);
+
+  // One "Thanks for your text!" per conversation, not one per text: skip it
+  // when this thread already had a text either way in the last 12 hours, and
+  // for anyone who opted out ("Stop." isn't blocked by Twilio, so we check).
+  if (!(await shouldAutoAck(from, to, body))) return xml(res, '<Response/>');
+  const ackText = `Thanks for your text! A team member will reply shortly.`;
+  await logAutomatedMessage(db, { businessId: business_id, customerPhone: from, body: ackText, result: { ok: true } });
+  return xml(res, `<Response><Message>${xmlEsc(ackText)}</Message></Response>`);
+}
+
+// Whether the auto-ack above goes out. Any failed lookup means no ack: a
+// missing "thanks" costs nothing, an unwanted text does.
+// Never to our own techs/staff (a tech's reply to a job reminder got a
+// "Thanks for your text!" and his phone's AI assistant answered it -- owner,
+// 2026-09-26), and never to an iPhone reaction ("Emphasized “...”").
+const TAPBACK_RE = /^(Liked|Loved|Disliked|Laughed at|Emphasized|Questioned|Reacted [^ ]+ to)\s+[“"']/i;
+async function shouldAutoAck(from, to, body) {
+  if (!from || !to) return false;
+  if (TAPBACK_RE.test(String(body || '').trim())) return false;
+  // Android reactions: an emoji + to "..." (owner 2026-10-04).
+  if (/^\S{1,8}\s+to\s+[“”"]/u.test(String(body || '').trim()) && !/^[a-z0-9]/i.test(String(body || '').trim())) return false;
+  try {
+    const db = serviceClient();
+    const last10 = String(from).replace(/\D/g, '').slice(-10);
+    const [techs, staff] = await Promise.all([
+      db.from('technicians').select('id').or(`phone.eq.${last10},phone.eq.+1${last10},phone.eq.1${last10}`).limit(1),
+      db.from('staff_users').select('id').or(`phone.eq.${last10},phone.eq.+1${last10},phone.eq.1${last10}`).limit(1),
+    ]);
+    if ((techs.data || []).length || (staff.data || []).length) return false;
+    if ((await smsOptOutState(db, from)) !== false) return false;
+    const since = new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString();
+    const { data, error } = await db.from('messages').select('id')
+      .eq('our_phone', to).eq('customer_phone', from).gte('created_at', since).limit(2);
+    if (error) return false;
+    // The text being answered was stored before this runs, so a second row
+    // means the conversation was already going.
+    return (data || []).length < 2;
+  } catch (e) {
+    console.warn('[sms_inbound] auto-ack check failed:', e.message);
+    return false;
+  }
+}
+
+export default async function handler(req, res) {
+  const action = (req.query.action || '').toString();
+  if (req.method === 'POST' && action === 'sms_status') return handleTwilioStatus(req, res);
+  if (req.method === 'POST' && action === 'sms_inbound') return handleSmsInbound(req, res);
+  if (req.method === 'POST' && action === 'email_webhook') return handleResendWebhook(req, res);
+  if (req.method === 'POST' && action === 'voice_inbound') return handleVoiceInbound(req, res);
+  if (req.method === 'POST' && action === 'voice_whisper') return handleVoiceWhisper(req, res);
+  if (req.method === 'POST' && action === 'voice_status') return handleVoiceStatus(req, res);
+  if (req.method === 'POST' && action === 'voice_recording') return handleVoiceRecording(req, res);
+  // Twilio Voice Intelligence: a transcript finished. Only the sid is used;
+  // finishTranscript re-reads everything from Twilio with our credentials.
+  if (req.method === 'POST' && action === 'vi_webhook') {
+    const b = (req.body && typeof req.body === 'object') ? req.body : {};
+    const tsid = String(b.transcript_sid || b.TranscriptSid || (req.query && req.query.transcript_sid) || '');
+    try { await finishTranscript(serviceClient(), tsid); } catch (e) { console.error('[vi_webhook]', e.message); }
+    return res.status(200).json({ ok: true });
+  }
+  if (req.method === 'POST' && action === 'voice_gather') return handleVoiceGather(req, res);
+  if (req.method === 'POST' && action === 'voice_bot_start') return handleVoiceBotStart(req, res);
+  if (req.method === 'POST' && action === 'voice_bot_turn') return handleVoiceBotTurn(req, res);
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(204).end();
+  try {
+    if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+      return res.status(500).json({ error: 'Missing Supabase credentials' });
+    }
+    // Service-role (public schema): reads the analytics `events` table after RLS
+    // is FORCED on it. This endpoint is server-side only; the key never ships.
+    const supabase = serviceClientPublic();
+
+    const WIDGET = (req.query.widget || 'handy-andy').toString();
+    // Recognizes a widget tag if it's a business's configured funnel_backend
+    // (app.businesses.analytics_config, migration 0106). DB-driven so a new
+    // business is wired up by adding one row of config, not a code deploy —
+    // this is the check that 400'd every "Home Cleaning Los Angeles" request
+    // before analytics_config existed, because LA had never been added to
+    // the old hardcoded ALL_BUSINESS_SLUGS list. The two handyman-estimate
+    // widgets are fixed literal tags, independent of their business's own
+    // funnel_backend (doms's is renamed to 'doms-tv', but 'doms-handyman'
+    // is not) — kept as an explicit exception rather than derived from it.
+    const validWidget = WIDGET === 'handy-andy-handyman' || WIDGET === 'doms-handyman'
+      ? true
+      : !!(await serviceClient().from('businesses')
+          .select('id').eq('active', true).eq('analytics_config->>funnel_backend', WIDGET).limit(1)).data?.length;
+    if (!validWidget) {
+      return res.status(400).json({ error: 'Invalid widget' });
+    }
+    // Pick the funnel for this widget (booking vs handyman estimate).
+    const { STEPS, stepIndexOf, lastStepIdx } = stepConfigFor(WIDGET);
+
+    // 'from'/'to' ISO params take priority (used for Denver calendar-day "Today"); else rolling 'days'.
+    const days = Math.max(0, parseInt(req.query.days ?? '30', 10) || 0);
+    const sinceISO = req.query.from
+      ? new Date(req.query.from).toISOString()
+      : (days > 0 ? new Date(Date.now() - days * 86400000).toISOString() : null);
+    const untilISO = req.query.to ? new Date(req.query.to).toISOString() : null;
+
+    // Pull all events in the range — Supabase caps responses at 1000 rows, so paginate
+    const events = [];
+    for (let page = 0; page < 30; page++) {
+      let q = supabase.from('events').select('*').eq('widget', WIDGET)
+        .order('created_at', { ascending: true })
+        .range(page * 1000, page * 1000 + 999);
+      if (sinceISO) q = q.gte('created_at', sinceISO);
+      if (untilISO) q = q.lte('created_at', untilISO);
+      const { data, error } = await q;
+      if (error) throw error;
+      // Crawlers, monitors and our own tooling are dropped at write time now
+      // (api/log-event.js), but rows logged before that shipped are still in
+      // the table. The same shared rule is applied on read so this funnel and
+      // the portfolio Overview can never report two different numbers for the
+      // same business.
+      events.push(...data.filter(e => !isBotUserAgent(e.browser)));
+      if (data.length < 1000) break;
+    }
+
+    // ── Group events into sessions ──────────────────────────────────────────
+    const sessions = new Map();
+    let zipServed = 0, zipUnserved = 0;
+    const unservedZips = {};
+
+    for (const e of events) {
+      let s = sessions.get(e.session_id);
+      if (!s) {
+        s = {
+          id: e.session_id,
+          visitor: e.session_id.includes('.') ? e.session_id.split('.')[0] : e.session_id,
+          firstTs: null, lastTs: null,
+          device: null, source: null, browser: null, customer: null, coupon: null, couponSeen: false,
+          city: null, state: null, zip: null,
+          maxStep: -1, booked: false, bookedValue: null, bookedTs: null,
+          priceShown: false, lastPrice: null,
+          answers: [], errors: [], failed: false, eventCount: 0,
+        };
+        sessions.set(e.session_id, s);
+      }
+      const ts = new Date(e.created_at).getTime();
+      if (s.firstTs === null || ts < s.firstTs) s.firstTs = ts;
+      if (s.lastTs === null || ts > s.lastTs) s.lastTs = ts;
+      s.eventCount++;
+      if (!s.device && e.device_type) s.device = e.device_type;
+      if (!s.source && e.traffic_source) s.source = e.traffic_source;
+      if (!s.browser && e.browser) s.browser = parseBrowser(e.browser);
+      // Customer name once they enter it on the booking form (or book). Keep the
+      // latest non-empty value for the session.
+      if (e.customer_name && String(e.customer_name).trim()) s.customer = String(e.customer_name).trim();
+      if (e.city) s.city = e.city;
+      if (e.state) s.state = e.state;
+      if (e.zip_code) s.zip = e.zip_code;
+
+      const t = e.event_type;
+      if (t === 'step_view' || t === 'page_view') {
+        const i = stepIndexOf(e.step_name);
+        if (i > s.maxStep) s.maxStep = i;
+      } else if (t === 'price_displayed') {
+        s.priceShown = true;
+        const v = Number(e.value);
+        if (!isNaN(v) && v > 0) s.lastPrice = v;
+        if (lastStepIdx > s.maxStep) s.maxStep = lastStepIdx;
+      } else if (t === 'booking_confirmed') {
+        s.booked = true;
+        s.bookedTs = ts;
+        const v = Number(e.value);
+        if (!isNaN(v) && v > 0) s.bookedValue = v;
+        if (lastStepIdx > s.maxStep) s.maxStep = lastStepIdx;
+      } else if (t === 'answer' && e.step_name) {
+        s.answers.push(e.step_name);
+        // Coupon events are tracked as "coupon:CODE" (see widget.js logEvent
+        // call at checkout) — keep the latest one applied this session.
+        if (e.step_name.startsWith('coupon:')) s.coupon = e.step_name.slice(7);
+        // The exit-intent coupon popup was shown to this visitor ("coupon seen").
+        // exit_intent_shown fires the moment the popup renders; applied/dismissed
+        // follow it, so shown alone is the trigger signal.
+        if (e.step_name === 'exit_intent_shown') s.couponSeen = true;
+      } else if (t === 'booking_failed' || t === 'error' || t === 'form_error') {
+        s.errors.push({ type: t, step: e.step_name, message: e.error_message, at: e.created_at });
+        if (t === 'booking_failed') s.failed = true;
+      } else if (t === 'zip_check') {
+        s.zipEntered = true;
+        if (e.step_name === 'served') zipServed++;
+        else if (e.step_name === 'unserved') {
+          zipUnserved++;
+          const z = e.error_message || e.zip_code;
+          if (z) unservedZips[z] = (unservedZips[z] || 0) + 1;
+        }
+      }
+    }
+
+    const sess = [...sessions.values()];
+    const totalSessions = sess.length;
+    const bookings = sess.filter(s => s.booked);
+    const revenue = bookings.reduce((n, s) => n + (s.bookedValue || 0), 0);
+
+    // ── Funnel with drop-off ────────────────────────────────────────────────
+    const funnel = STEPS.map((st, i) => {
+      const reached = sess.filter(s => s.maxStep >= i).length;
+      const droppedHere = sess.filter(s => s.maxStep === i && !s.booked).length;
+      return { key: st.key, label: st.label, reached, droppedHere };
+    });
+
+    // ── Breakdowns with per-segment conversion ──────────────────────────────
+    function breakdown(keyFn, limit) {
+      const m = {};
+      for (const s of sess) {
+        const k = keyFn(s) || 'unknown';
+        if (!m[k]) m[k] = { sessions: 0, bookings: 0, revenue: 0 };
+        m[k].sessions++;
+        if (s.booked) { m[k].bookings++; m[k].revenue += s.bookedValue || 0; }
+      }
+      let rows = Object.entries(m).map(([k, v]) => ({
+        key: k, ...v,
+        conv: v.sessions ? round1(v.bookings / v.sessions * 100) : 0,
+        revenue: Math.round(v.revenue * 100) / 100,
+      })).sort((a, b) => b.sessions - a.sessions);
+      if (limit) rows = rows.slice(0, limit);
+      return rows;
+    }
+    const byDevice = breakdown(s => s.device);
+    const bySource = breakdown(s => s.source, 12);
+    const byBrowser = breakdown(s => s.browser, 8);
+    const byCity = breakdown(s => s.city, 12);
+    const byState = breakdown(s => s.state, 8);
+    const byZip = breakdown(s => s.zip, 15);
+
+    // ── Time patterns (Mountain Time) ───────────────────────────────────────
+    const byHour = Array.from({ length: 24 }, (_, h) => ({ hour: h, sessions: 0, bookings: 0 }));
+    const DOWS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const byDow = DOWS.map(d => ({ day: d, sessions: 0, bookings: 0 }));
+    const byDate = {};
+    for (const s of sess) {
+      if (s.firstTs === null) continue;
+      byHour[tzHour(s.firstTs)].sessions++;
+      const dw = byDow.find(x => x.day === tzDow(s.firstTs));
+      if (dw) dw.sessions++;
+      const ds = tzDate(s.firstTs);
+      if (!byDate[ds]) byDate[ds] = { date: ds, sessions: 0, bookings: 0 };
+      byDate[ds].sessions++;
+      if (s.booked && s.bookedTs) {
+        byHour[tzHour(s.bookedTs)].bookings++;
+        const bw = byDow.find(x => x.day === tzDow(s.bookedTs));
+        if (bw) bw.bookings++;
+        const bds = tzDate(s.bookedTs);
+        if (!byDate[bds]) byDate[bds] = { date: bds, sessions: 0, bookings: 0 };
+        byDate[bds].bookings++;
+      }
+    }
+    const timeline = Object.values(byDate).sort((a, b) => a.date.localeCompare(b.date));
+
+    // ── Session timing ──────────────────────────────────────────────────────
+    const durations = sess
+      .filter(s => s.eventCount > 1 && s.lastTs > s.firstTs)
+      .map(s => Math.min((s.lastTs - s.firstTs) / 1000, 7200));
+    const timesToBook = bookings
+      .filter(s => s.bookedTs && s.bookedTs > s.firstTs)
+      .map(s => Math.min((s.bookedTs - s.firstTs) / 1000, 7200));
+
+    // ── Repeat visitors ─────────────────────────────────────────────────────
+    const byVisitor = {};
+    for (const s of sess) (byVisitor[s.visitor] = byVisitor[s.visitor] || []).push(s);
+    const visitors = Object.keys(byVisitor).length;
+    const repeatVisitorSessions = Object.values(byVisitor).filter(a => a.length > 1);
+    const repeatVisitors = repeatVisitorSessions.length;
+    const bookingsFromRepeat = repeatVisitorSessions.reduce((n, a) => n + a.filter(s => s.booked).length, 0);
+
+    // ── Answers: what people picked on each question + conversion per answer ─
+    const answersMap = {};
+    for (const s of sess) {
+      for (const a of new Set(s.answers)) {
+        const ci = a.indexOf(':');
+        if (ci < 1) continue;
+        const q = a.slice(0, ci), ans = a.slice(ci + 1);
+        if (!ans) continue;
+        if (!answersMap[q]) answersMap[q] = {};
+        if (!answersMap[q][ans]) answersMap[q][ans] = { picked: 0, booked: 0 };
+        answersMap[q][ans].picked++;
+        if (s.booked) answersMap[q][ans].booked++;
+      }
+    }
+    const answers = Object.entries(answersMap).map(([question, opts]) => ({
+      question,
+      options: Object.entries(opts).map(([answer, v]) => ({
+        answer, ...v,
+        conv: v.picked ? round1(v.booked / v.picked * 100) : 0,
+      })).sort((a, b) => b.picked - a.picked).slice(0, 20),
+    }));
+
+    // ── Errors ──────────────────────────────────────────────────────────────
+    const allErrors = sess.flatMap(s => s.errors.map(e => ({ ...e, session: s.id })));
+    allErrors.sort((a, b) => new Date(b.at) - new Date(a.at));
+    const errorsByStep = {};
+    for (const e of allErrors) {
+      const k = e.step || 'unknown';
+      errorsByStep[k] = (errorsByStep[k] || 0) + 1;
+    }
+    const failedNeverBooked = sess.filter(s => s.failed && !s.booked).length;
+
+    // ── Abandoned carts (saw a price, never booked) ─────────────────────────
+    const abandoned = sess.filter(s => s.priceShown && !s.booked);
+    const lostValue = abandoned.reduce((n, s) => n + (s.lastPrice || 0), 0);
+
+    // ── Recent sessions feed ────────────────────────────────────────────────
+    // Sessions under 10 seconds (someone glanced at the ZIP box and left) are
+    // noise in this feed, so they're left out — feed only: totals, funnel and
+    // bounce counts above still include them. A booked session always stays.
+    const recentSessions = [...sess]
+      .filter(s => s.booked || (s.lastTs - s.firstTs) / 1000 >= 10)
+      .sort((a, b) => b.lastTs - a.lastTs)
+      .slice(0, 30)
+      .map(s => ({
+        when: new Date(s.lastTs).toISOString(),
+        device: s.device, source: s.source, browser: s.browser, customer: s.customer, coupon: s.coupon, couponSeen: s.couponSeen,
+        city: s.city, zip: s.zip,
+        furthest: s.booked ? 'Booked' : (STEPS[s.maxStep]?.label || '—'),
+        booked: s.booked,
+        value: s.booked ? s.bookedValue : s.lastPrice,
+        durationSec: s.lastTs > s.firstTs ? Math.round((s.lastTs - s.firstTs) / 1000) : 0,
+        isRepeat: (byVisitor[s.visitor] || []).length > 1,
+        hadError: s.errors.length > 0,
+      }));
+
+    res.json({
+      widget: WIDGET,
+      rangeDays: days,
+      timezone: TZ,
+      lastUpdated: new Date().toISOString(),
+      totals: {
+        sessions: totalSessions,
+        visitors,
+        repeatVisitors,
+        bookings: bookings.length,
+        bookingsFromRepeat,
+        // Owner 2026-10-01: count from ZIP entry, not from page load. A booking
+        // always counts (some flows skip the ZIP step).
+        zipSessions: sess.filter(s => s.zipEntered || s.booked).length,
+        conversion: sess.filter(s => s.zipEntered || s.booked).length ? round1(bookings.length / sess.filter(s => s.zipEntered || s.booked).length * 100) : 0,
+        priceShown: sess.filter(s => s.priceShown).length,
+        priceToBooking: sess.filter(s => s.priceShown).length
+          ? round1(bookings.length / sess.filter(s => s.priceShown).length * 100) : 0,
+        revenue: Math.round(revenue * 100) / 100,
+        avgTicket: bookings.length ? Math.round(revenue / bookings.length * 100) / 100 : 0,
+        abandonedCarts: abandoned.length,
+        lostValue: Math.round(lostValue * 100) / 100,
+        medianSessionSec: median(durations) !== null ? Math.round(median(durations)) : null,
+        medianTimeToBookSec: median(timesToBook) !== null ? Math.round(median(timesToBook)) : null,
+        bounces: sess.filter(s => s.maxStep <= 0 && !s.booked).length,
+        zipServed, zipUnserved,
+        bookingFailures: allErrors.filter(e => e.type === 'booking_failed').length,
+        failedNeverBooked,
+      },
+      funnel,
+      byDevice, bySource, byBrowser, byCity, byState, byZip,
+      byHour, byDow, timeline,
+      answers,
+      unservedZips: Object.entries(unservedZips).map(([zip, count]) => ({ zip, count }))
+        .sort((a, b) => b.count - a.count).slice(0, 15),
+      errors: { recent: allErrors.slice(0, 20), byStep: errorsByStep },
+      recentSessions,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+}

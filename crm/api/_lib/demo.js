@@ -1,0 +1,42 @@
+// api/_lib/demo.js
+// Demo / sandbox mode. When DEMO_MODE=1 (set only on the demo Vercel project),
+// the paid integrations — Stripe, SMS, email — are FAKED so a prospective buyer
+// can click every button without any real account, charge, text, or email going
+// out. Env-gated: production (no DEMO_MODE) is completely unaffected by this file.
+export function demoMode() {
+  const v = (process.env.DEMO_MODE || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
+// Canned, path-appropriate fake Stripe responses so every payment flow (save
+// card, charge, refund, disputes, balance) returns a believable success shape
+// without touching Stripe. Mirrors just the fields our code reads.
+export function demoStripeResponse(path, method = 'POST', body = null) {
+  const p = String(path || '');
+  const card = { brand: 'visa', last4: '4242', exp_month: 12, exp_year: 2030 };
+  if (p.startsWith('/balance')) {
+    // Fake "money in the account" for the Revenue-box payout figure.
+    return { available: [{ currency: 'usd', amount: 812300 }], pending: [{ currency: 'usd', amount: 154200 }] };
+  }
+  if (p.startsWith('/payment_intents')) {
+    // GET (refund lookup) has no body to read an amount from — fake a charge
+    // comfortably above any demo ticket price so the refund-amount check passes.
+    if (method === 'GET') return { id: 'pi_demo', status: 'succeeded', amount: 999999, latest_charge: { id: 'ch_demo', amount: 999999, amount_refunded: 0 } };
+    return { id: 'pi_demo', status: 'succeeded', amount: (body && body.amount) || 0, charges: { data: [{ id: 'ch_demo', payment_method_details: { card } }] } };
+  }
+  if (p.startsWith('/charges'))         return { id: 'ch_demo', status: 'succeeded', amount: (body && body.amount) || 0, paid: true };
+  if (p.startsWith('/refunds'))         return { id: 're_demo', status: 'succeeded', amount: (body && body.amount) || 0 };
+  if (p.startsWith('/disputes'))        return { data: [] };
+  if (p.startsWith('/payment_methods')) {
+    // `customer` marks the pm as attached — retrieveCard callers treat an
+    // unattached pm as "no card on file", so the demo pm must look attached.
+    if (/\/payment_methods\/[^/]+$/.test(p)) return { id: 'pm_demo', card, customer: 'cus_demo' };
+    return { data: [{ id: 'pm_demo', card, customer: 'cus_demo' }] };
+  }
+  if (p.startsWith('/customers')) {
+    if (method === 'GET' && /\/customers\?/.test(p)) return { data: [{ id: 'cus_demo', invoice_settings: { default_payment_method: 'pm_demo' } }] };
+    if (/\/customers\/[^/?]+/.test(p))              return { id: 'cus_demo', invoice_settings: { default_payment_method: 'pm_demo' } };
+    return { id: 'cus_demo', invoice_settings: { default_payment_method: 'pm_demo' } };
+  }
+  return { id: 'demo', object: 'demo' };
+}
