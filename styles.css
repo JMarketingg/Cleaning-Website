@@ -822,3 +822,80 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .brand-name { font-size: 1.25rem; }
   .brand-sub { font-size: 0.66rem; letter-spacing: 0.04em; }
 }
+
+/* Booking page */
+.bk-hero { background: var(--cream); padding-block: 64px 24px; text-align: center; }
+.bk-hero .lead { margin-inline: auto; }
+.bk-section { padding-top: 16px; }
+.bk-card {
+  background: var(--white);
+  border: 1px solid var(--beige);
+  border-radius: 20px;
+  box-shadow: var(--shadow-lg);
+  padding: 32px;
+  max-width: 640px;
+  margin: 0 auto;
+}
+.bk-progress { height: 6px; background: var(--beige); border-radius: 999px; overflow: hidden; }
+.bk-progress span { display: block; height: 100%; width: 0; background: var(--forest); border-radius: 999px; transition: width 0.2s ease; }
+.bk-count { margin: 14px 0 6px; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.bk-step { border: 0; margin: 0; padding: 0; min-width: 0; }
+.bk-question { display: block; padding: 0; font-size: 1.5rem; font-weight: 800; color: var(--evergreen); line-height: 1.25; margin-bottom: 6px; }
+.bk-question:focus { outline: none; }
+.bk-hint { color: var(--muted); font-size: 0.95rem; margin: 0 0 18px; }
+.bk-hint:empty { display: none; }
+.bk-sub { font-weight: 700; color: var(--evergreen); margin: 6px 0 10px; }
+.bk-options { display: grid; gap: 10px; margin-bottom: 18px; }
+.bk-two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.bk-row { grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); }
+.bk-option { position: relative; display: block; cursor: pointer; }
+.bk-option input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.bk-option span {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+  padding: 12px 16px;
+  border: 1.5px solid var(--beige);
+  border-radius: 12px;
+  background: var(--cream);
+  font-weight: 600;
+  color: var(--evergreen);
+}
+.bk-option:hover span { border-color: var(--sage); }
+.bk-option input:checked + span { border-color: var(--forest); background: var(--white); box-shadow: inset 0 0 0 1.5px var(--forest); }
+.bk-option input:focus-visible + span { outline: 3px solid var(--forest); outline-offset: 3px; }
+.bk-field { display: grid; gap: 6px; font-weight: 700; color: var(--evergreen); margin-bottom: 16px; }
+.bk-optional { font-weight: 500; color: var(--muted); }
+.bk-field input, .bk-field textarea {
+  font: inherit;
+  font-weight: 400;
+  color: var(--evergreen);
+  background: var(--white);
+  border: 1.5px solid var(--sage);
+  border-radius: 10px;
+  padding: 12px 14px;
+  min-height: 50px;
+  width: 100%;
+}
+.bk-field textarea { resize: vertical; }
+.bk-error { color: #8A2B1D; font-weight: 700; margin: 0; }
+.bk-error:not(:empty) { margin-top: 4px; }
+.bk-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
+.bk-nav .btn { min-width: 130px; }
+.bk-nav .btn[hidden] { display: none; }
+.bk-nav #bk-next { margin-left: auto; }
+.bk-summary { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0 0 22px; padding: 18px; background: var(--cream); border-radius: 12px; }
+.bk-summary dt { font-weight: 700; color: var(--evergreen); }
+.bk-summary dd { margin: 0; color: var(--evergreen); overflow-wrap: anywhere; }
+.bk-send { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+@media (max-width: 560px) {
+  .bk-card { padding: 22px; border-radius: 16px; }
+  .bk-two { grid-template-columns: 1fr; }
+  .bk-question { font-size: 1.3rem; }
+  .bk-summary { grid-template-columns: 1fr; gap: 2px; }
+  .bk-summary dd { margin-bottom: 8px; }
+  .bk-send .btn { width: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bk-progress span { transition: none; }
+}
