@@ -239,6 +239,33 @@
     }).catch(function (x) { v.innerHTML = '<div class="wrap">' + backBtn() + '<div class="empty">' + e(x.message) + '</div></div>'; });
   };
 
+
+  // ── Change password ───────────────────────────────────────────────────────
+  window.thRenderPassword = function () {
+    var v = view();
+    v.innerHTML = '<div class="wrap" style="max-width:480px;">' + backBtn() + '<h2 style="margin:0 0 4px;">🔒 Change password</h2>' +
+      '<div class="meta" style="margin-bottom:14px;">Pick a password only you know. Use at least 10 characters. A short sentence is easy to remember, for example <i>my mango shine 2027</i>.</div>' +
+      '<form id="pwForm" class="card" style="padding:16px;" autocomplete="off">' +
+      '<label class="meta" for="pwCur">Current password</label><input type="password" id="pwCur" autocomplete="current-password" style="width:100%;margin:4px 0 12px;">' +
+      '<label class="meta" for="pwNew">New password</label><input type="password" id="pwNew" autocomplete="new-password" style="width:100%;margin:4px 0 12px;">' +
+      '<label class="meta" for="pwNew2">Type the new password again</label><input type="password" id="pwNew2" autocomplete="new-password" style="width:100%;margin:4px 0 12px;">' +
+      '<label style="display:flex;gap:8px;align-items:center;font-size:14px;margin-bottom:12px;"><input type="checkbox" id="pwShow" style="width:auto;"> Show passwords</label>' +
+      '<button type="submit" class="btn" style="width:auto;">Save new password</button><div class="meta" id="pwMsg" style="margin-top:10px;"></div></form></div>';
+    var f = v.querySelector('#pwForm'), msg = v.querySelector('#pwMsg');
+    v.querySelector('#pwShow').onchange = function (ev) { ['pwCur', 'pwNew', 'pwNew2'].forEach(function (id) { v.querySelector('#' + id).type = ev.target.checked ? 'text' : 'password'; }); };
+    f.onsubmit = function (ev) {
+      ev.preventDefault();
+      var cur = v.querySelector('#pwCur').value, n1 = v.querySelector('#pwNew').value, n2 = v.querySelector('#pwNew2').value;
+      msg.style.color = '#b91c1c';
+      if (n1 !== n2) { msg.textContent = 'The two new passwords don’t match.'; return; }
+      if (n1.length < 10) { msg.textContent = 'Use at least 10 characters.'; return; }
+      msg.style.color = ''; msg.textContent = 'Saving…';
+      window.api('change_password', { method: 'POST', body: { current: cur, next: n1 } }).then(function () {
+        f.reset(); msg.style.color = '#15803d'; msg.textContent = '✓ Saved. Use your new password next time you sign in. The old one no longer works.';
+      }).catch(function (x) { msg.style.color = '#b91c1c'; msg.textContent = x.message; });
+    };
+  };
+
   function boot() {
     if (!document.getElementById('sideNav') || typeof window.api !== 'function') return;
     navButton('navQuotes', '📨', 'Quote Requests', 'schedule', renderQuotes);

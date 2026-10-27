@@ -13268,6 +13268,7 @@ async function renderOther(){
     payments:{t:'💳 Payments & QR codes',go:()=>window.thRenderPayments()},
     cleanerpay:{t:'💰 Cleaner Pay',go:()=>window.thRenderCleanerPay()},
     texts:{t:'💬 Text Messages',go:()=>window.thRenderTexts()},
+    password:{t:'🔒 Change password',go:()=>window.thRenderPassword(),own:1},
     siteanalytics:{t:'📈 Website Analytics',go:()=>{ location.href='/site-analytics.html'; }},
     pipeline:{t:'📈 Pipeline',go:()=>navTo('pipeline')},
     launch:{t:'🚀 Launch',go:()=>navTo('launch'),own:1},
@@ -13285,6 +13286,7 @@ async function renderOther(){
       ${otGroup('👥 PEOPLE',['technicians','secretaries','customers'])}
       ${otGroup('💲 MONEY & PRICING',['payments','cleanerpay','widget','coupons'])}
       ${otGroup('💬 CUSTOMERS',['texts'])}
+      ${otGroup('🔒 ACCOUNT',['password'])}
       ${otGroup('📣 MARKETING',['siteanalytics','launch','gadsnav'])}
       ${otGroup('📋 SALES & WORK',['pipeline','prospects','tasks'])}
       ${otGroup('🧰 TOOLS',['callhub','messages','notes'])}
@@ -24701,7 +24703,7 @@ function embedAuditorBoot(q){
 </script>
 <script src="/onway.js?v=1"></script>
 <script src="/clean-booking.js?v=5"></script>
-<script src="/th-extras.js?v=3"></script>
+<script src="/th-extras.js?v=4"></script>
 <script>
 (function(){ function t(){ try{ var el=document.getElementById('ctClock'); if(!el) return; var r=(typeof role!=='undefined')?role:''; el.style.display='none';
   document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }

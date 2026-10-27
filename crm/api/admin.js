@@ -354,6 +354,7 @@ export default async function handler(req, res) {
       case 'booking_mark_paid': return await bookingMarkPaid(req, res, db, auth, body);
       case 'booking_pay_link':  return await bookingPayLink(req, res, db, auth, body);
       case 'text_settings':     return await textSettingsAction(req, res, db, auth, body);
+      case 'change_password':   return await changePassword(req, res, db, auth, body);
       case 'cleaner_pay':       return await cleanerPay(req, res, db, auth);
       case 'cleaner_pay_mark':  return await cleanerPayMark(req, res, db, auth, body);
       case 'booking_confirm_text': return await bookingConfirmText(req, res, db, body);
@@ -754,6 +755,25 @@ function secretaryPhoneFor(scope) {
   return '';
 }
 
+async function ownerPasswordOk(password) {
+  const { data, error } = await serviceClient().rpc('th_owner_password_check', { p: password });
+  if (!error && data === 'ok') return true;
+  if (!error && data === 'bad') return false;
+  return !!process.env.ADMIN_PASSWORD && safeEqual(password, process.env.ADMIN_PASSWORD);
+}
+async function changePassword(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  const current = String(body.current || ''), next = String(body.next || '');
+  if (!(await ownerPasswordOk(current))) return res.status(400).json({ error: 'Your current password is not right.' });
+  if (next.length < 10) return res.status(400).json({ error: 'Use at least 10 characters.' });
+  if (next.length > 200) return res.status(400).json({ error: 'That password is too long.' });
+  if (next === current) return res.status(400).json({ error: 'Pick a password different from your current one.' });
+  const { error } = await db.rpc('th_owner_password_set', { p: next });
+  if (error) throw error;
+  return res.status(200).json({ ok: true });
+}
+
 async function login(req, res, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const password = (body.password || '').toString();
@@ -767,7 +787,7 @@ async function login(req, res, body) {
     role = 'owner'; scope = 'all';
   } else if (!password) {
     return res.status(400).json({ error: 'Password required' });
-  } else if (process.env.ADMIN_PASSWORD && safeEqual(password, process.env.ADMIN_PASSWORD)) {
+  } else if (await ownerPasswordOk(password)) {
     role = 'owner'; scope = 'all';
   } else if (process.env.TIDYHAUS_PASSWORD && safeEqual(password, process.env.TIDYHAUS_PASSWORD)) {
     role = 'secretary'; scope = 'tidyhaus';
