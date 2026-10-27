@@ -64,25 +64,21 @@
       <h1>TidyHaus Home Cleaning in <span class="hero-accent">Makati</span></h1>
       <p class="lead">A fresh, comfortable home makes all the difference. TidyHaus is a thoughtful home and condo cleaning service for Makati. Interested? Send us a message and tell us about your place.</p>
       <div class="hero-ctas">
-        <a class="btn btn-primary btn-lg" href="https://www.facebook.com/profile.php?id=61595598907795" target="_blank" rel="noopener noreferrer">
-          <svg class="btn-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 5h16a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H9l-5 4V6a1 1 0 0 1 1-1z"/></svg>
-          Message us on Facebook<span class="visually-hidden"> (opens in a new tab)</span>
-        </a>
-        <a class="btn btn-ghost btn-lg" href="#checklist">See what we'll clean</a>
+        <a class="btn btn-primary btn-lg" href="#checklist">See what we'll clean</a>
+        <form id="area-check" class="area-check hero-area" action="#areas">
+          <label for="area-select" class="area-check-label">Find your area</label>
+          <div class="area-check-row">
+            <select id="area-select" name="area">
+              <option value="">Pick your area</option>
+              <option value="makati">Makati</option>
+              <option value="bgc">BGC (Taguig)</option>
+              <option value="other">Somewhere else</option>
+            </select>
+            <button type="submit" class="btn btn-primary">Go</button>
+          </div>
+          <p id="area-result" class="area-result" role="status" aria-live="polite"></p>
+        </form>
       </div>
-      <form id="area-check" class="area-check" action="#areas">
-        <label for="area-select" class="area-check-label">Find your area</label>
-        <div class="area-check-row">
-          <select id="area-select" name="area">
-            <option value="">Pick your area</option>
-            <option value="makati">Makati</option>
-            <option value="bgc">BGC (Taguig)</option>
-            <option value="other">Somewhere else</option>
-          </select>
-          <button type="submit" class="btn btn-primary">Go</button>
-        </div>
-        <p id="area-result" class="area-result" role="status" aria-live="polite"></p>
-      </form>
     </div>
   </div>
   <div class="hero-media">

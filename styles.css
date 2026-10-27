@@ -286,7 +286,9 @@ a:hover { color: var(--evergreen); }
 .eyebrow-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sage); box-shadow: 0 0 0 4px rgba(132, 144, 120, 0.25); }
 .lead { font-size: 1.2rem; color: var(--muted); max-width: 50ch; margin-bottom: 28px; }
 
-.hero-ctas { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 28px; }
+.hero-ctas { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 16px; margin-bottom: 28px; }
+.hero-area { flex: 1 1 300px; max-width: 400px; padding: 14px 16px; }
+.hero-area .area-check-label { font-size: 0.95rem; margin-bottom: 8px; }
 .btn-lg { min-height: 56px; padding: 0 28px; font-size: 1.05rem; }
 .btn-icon { width: 20px; height: 20px; margin-right: 10px; fill: currentColor; flex: none; }
 .btn-ghost { background: var(--white); color: var(--forest); border-color: var(--forest); }
