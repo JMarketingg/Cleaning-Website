@@ -2608,7 +2608,7 @@
       <div id="nbSteps"></div>
       <div style="display:flex;align-items:center;justify-content:center;gap:8px;background:#fff;border-radius:10px;margin:10px 0 12px;padding:11px 13px;">
         <span style="font-size:14px;font-weight:500;color:#0f1b33;white-space:nowrap;">+ Travel</span>
-        <input id="nbTravelFee" placeholder="$0.00" inputmode="decimal" autocomplete="off" name="nb-travel-surcharge-do-not-autofill" style="width:90px;background:transparent;border:none;color:#0f1b33;font-size:14px;outline:none;text-align:center;">
+        <input id="nbTravelFee" placeholder="₱0.00" inputmode="decimal" autocomplete="off" name="nb-travel-surcharge-do-not-autofill" style="width:90px;background:transparent;border:none;color:#0f1b33;font-size:14px;outline:none;text-align:center;">
       </div>
       <div id="nbConvertSummary" style="display:none;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:8px;"></div>
       <div id="nbQuoteBox" style="border-radius:10px;padding:12px 14px;">
@@ -2686,7 +2686,7 @@
         <button type="button" class="nb-ups-add" id="nbUpsAddCustom">+ Something else…</button>
         <div class="nb-ups-foot">
           <span class="nb-ups-foot-lab">Projected ticket</span>
-          <span class="nb-ups-foot-val"><span id="nbUpsBase">$0</span> → <span id="nbUpsMax">$0</span> <span id="nbUpsUp" class="up"></span></span>
+          <span class="nb-ups-foot-val"><span id="nbUpsBase">₱0</span> → <span id="nbUpsMax">₱0</span> <span id="nbUpsUp" class="up"></span></span>
         </div>
         <div class="nb-ups-actions">
           <button type="button" class="btn" id="nbUpsSendWith">Send with recommendations</button>
@@ -2823,10 +2823,10 @@
           <button class="btn ghost sm" type="button" id="esAddLine">+ Add line item</button>
           <div class="es-tax-row">
             <label class="es-tax-toggle"><input type="checkbox" id="esTaxOn" checked> Apply sales tax (8.75%)</label>
-            <span id="esTaxAmt">$0.00</span>
+            <span id="esTaxAmt">₱0.00</span>
           </div>
-          <div class="es-sub-row"><span>Subtotal</span><span id="esSubtotal">$0.00</span></div>
-          <div class="es-total-row"><span>Estimated total</span><span class="amt" id="esTotal">$0.00</span></div>
+          <div class="es-sub-row"><span>Subtotal</span><span id="esSubtotal">₱0.00</span></div>
+          <div class="es-total-row"><span>Estimated total</span><span class="amt" id="esTotal">₱0.00</span></div>
         </div>
 
         <div class="es-sec" id="esUpsSec">
@@ -2857,7 +2857,7 @@
           <div class="es-prev-desc" id="esPvDesc"></div>
           <div class="es-prev-note" id="esPvNote"></div>
           <div id="esPvLines"></div>
-          <div class="es-prev-tot"><span>Total</span><span id="esPvTotal">$0.00</span></div>
+          <div class="es-prev-tot"><span>Total</span><span id="esPvTotal">₱0.00</span></div>
           <div id="esPvUps"></div>
           <div class="es-prev-times">
             <div class="es-prev-timeh" id="esPvTimeH">Pick your appointment time</div>
@@ -3224,7 +3224,7 @@ function avatar(t, sm){ return t ? `<span class="av${sm?' sm':''}" style="backgr
 function recSort(slots){ return [...slots].sort((a,b)=>(b.recommended?1:0)-(a.recommended?1:0)); }
 const REC_TAG='<span class="slot-rec">'+String.fromCodePoint(0x2B50)+' Recommended</span>';
 const is8pm=t=>/^\s*8(:00)?\s*PM/i.test(String(t||''));
-const BONUS8='<span class="slotbonus">+$75 bonus</span>';
+const BONUS8='<span class="slotbonus">+₱75 bonus</span>';
 const REC_TIP='<div class="slot-rec-tip">Offer '+String.fromCodePoint(0x2B50)+' times first.</div>';
 function dateHasRec(ds, rec, slotsByDate){
   if(!Array.isArray(rec)||!rec.length) return false;
@@ -4966,8 +4966,8 @@ function openBooking(b){
     const secId=sa.value||null;
     await updateBooking({ id:b.id, action:'assign', secondary_technician_id: secId });
     if(secId && !hasTwoPersonFee(b)){
-      if(confirm('This is now a two-person job.\n\nAdd the $70 two-person fee to the customer’s bill? It charges for the second cleaner and pays BOTH techs correctly.\n\n(Tap Cancel to add the helper with no extra charge.)')){
-        try{ await addTwoPersonFee(b); toast('Two-person fee added — $70 + tax'); refreshCurrent(); }
+      if(confirm('This is now a two-person job.\n\nAdd the ₱70 two-person fee to the customer’s bill? It charges for the second cleaner and pays BOTH techs correctly.\n\n(Tap Cancel to add the helper with no extra charge.)')){
+        try{ await addTwoPersonFee(b); toast('Two-person fee added — ₱70 + tax'); refreshCurrent(); }
         catch(e){ toast(e.message||'Could not add the fee'); }
       }
     }
@@ -5025,7 +5025,7 @@ function openBooking(b){
     const v=prompt(`How much would you like to refund? (max ₱${max.toFixed(2)})`);
     if(v==null) return;
     const amt=Number(v);
-    if(!v.trim()||!isFinite(amt)||amt<=0) return toast('Enter an amount greater than $0.');
+    if(!v.trim()||!isFinite(amt)||amt<=0) return toast('Enter an amount greater than ₱0.');
     if(amt>max+0.001) return toast(`Amount exceeds the refundable balance (₱${max.toFixed(2)}).`);
     await paymentAction(b.id,'refund',amt); close();
   };
@@ -5304,7 +5304,7 @@ function mountLineItemsEditor(b){
     const items=[...visible, ...hiddenItems];
     let confirmEmpty=false;
     if(!items.length && Array.isArray(b.line_items) && b.line_items.length){
-      if(!confirm('This will remove EVERY line item from this ticket and set its price to $0.\n\nAre you sure?')) return;
+      if(!confirm('This will remove EVERY line item from this ticket and set its price to ₱0.\n\nAre you sure?')) return;
       confirmEmpty=true;
     }
     const btn=document.getElementById('bkLiSave'); btn.disabled=true;
@@ -5745,7 +5745,7 @@ async function paymentAction(id, action, amount){
 
 const CHARGE_TERMS_VERSION='2026-07-01';
 const CHARGE_REFUND_POLICY=[
-  '1. Cancellations & rescheduling: You may cancel or reschedule at no charge up to 24 hours before your appointment. Cancellations inside 24 hours, or if our cleaner cannot access the property at the scheduled time, may incur a trip fee of up to $50.',
+  '1. Cancellations & rescheduling: You may cancel or reschedule at no charge up to 24 hours before your appointment. Cancellations inside 24 hours, or if our cleaner cannot access the property at the scheduled time, may incur a trip fee of up to ₱50.',
   '2. Payment: Payment is due upon completion of service. By signing, you confirm the work was completed to your satisfaction; charges for completed labor are final.',
   '3. Workmanship guarantee: If a mount we installed fails due to our workmanship within 30 days, we will return and correct it at no charge. This does not cover customer-supplied brackets or hardware, pre-existing wall or structural conditions, or damage from later modifications.',
   '4. Refund requests: If you are not satisfied, contact us within 3 days and we will first work to make it right. Any refund is limited to the labor performed and excludes brackets or materials already installed and any travel or trip fees.',
@@ -9585,7 +9585,7 @@ function renderPayrollData(d){
     if(t.is_office && t.read_only){
       html+=`<tr class="${i%2?'z':''}"><td colspan="6" style="padding:14px 12px;"><div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
         <div><div class="pr-name">${esc(t.name)} <span class="meta" style="font-weight:400;">(office · ${t.currency==='USD'?'USD':'PHP'})</span></div>
-        <div style="color:var(--mute);font-size:12.5px;margin-top:2px;">${t.flat_week?`${payFmtUSD(t.total||0)} a week`:t.currency==='USD'?`${t.work_days??0} day${t.work_days===1?'':'s'} worked × $227/7 days`:`${t.work_days??0} day${t.work_days===1?'':'s'} scheduled × ₱${Number(t.daily_rate||2000).toLocaleString()}/day`}</div>${payRevBonusHtml(t)}</div>
+        <div style="color:var(--mute);font-size:12.5px;margin-top:2px;">${t.flat_week?`${payFmtUSD(t.total||0)} a week`:t.currency==='USD'?`${t.work_days??0} day${t.work_days===1?'':'s'} worked × ₱227/7 days`:`${t.work_days??0} day${t.work_days===1?'':'s'} scheduled × ₱${Number(t.daily_rate||2000).toLocaleString()}/day`}</div>${payRevBonusHtml(t)}</div>
         <div style="font-weight:800;">${t.currency==='USD'?payFmtUSD(t.total||0):`₱${Number(t.total||0).toLocaleString()} <span style="font-size:12px;color:var(--mute);font-weight:400;">≈ ${payFmtUSD(t.usd_equivalent??0)} USD</span>`}</div>
       </div></td></tr>`;
       return;
@@ -9602,7 +9602,7 @@ function renderPayrollData(d){
       const rateRow=isPhp?`<div style="display:flex;align-items:center;gap:6px;margin-top:8px;padding-top:8px;border-top:1px dashed var(--line);">
             <span style="font-size:12px;color:var(--mute);">Exchange rate: ₱</span>
             <input type="number" step="0.01" min="0.01" class="office-fx-input" value="${t.fx_rate||''}" placeholder="56.50" style="width:70px;padding:5px 7px;border:1px solid var(--line);border-radius:6px;font-size:13px;text-align:right;">
-            <span style="font-size:12px;color:var(--mute);">= $1 USD</span>
+            <span style="font-size:12px;color:var(--mute);">= ₱1 USD</span>
             <button class="btn ghost sm office-fx-save" style="width:auto;padding:5px 9px;">Save rate</button>
             <span class="office-fx-status" style="font-size:12px;color:var(--mute);"></span>
           </div>`:'';
@@ -10132,7 +10132,7 @@ function shortDateBiz(iso){
 function reviewProgressChip(t){
   const done=Number(t.review_done)||0, total=Number(t.review_total)||5;
   if(t.review_bonus_at){
-    return `<span class="rvchip done" title="All ${total} Google reviews done. $100 added to payroll.">🎉 $100 earned ${esc(shortDateBiz(t.review_bonus_at))}</span>`;
+    return `<span class="rvchip done" title="All ${total} Google reviews done. ₱100 added to payroll.">🎉 ₱100 earned ${esc(shortDateBiz(t.review_bonus_at))}</span>`;
   }
   if(!done) return '';
   return `<span class="rvchip" title="${done} of ${total} Google reviews checked off">${done} of ${total} reviews</span>`;
@@ -10141,7 +10141,7 @@ async function sendReviewInvite(id, card, btn, biz){
   const t=techRoster.find(x=>x.id===id)||{};
   const name=t.name||'this technician';
   if(!t.phone){ toast(name+' has no phone number set'); return; }
-  const preview='Want a FREE $100 added to your payroll? Leave us a review. Tap the link, it signs you in and shows you exactly what to do: <their personal sign-in link>';
+  const preview='Want a FREE ₱100 added to your payroll? Leave us a review. Tap the link, it signs you in and shows you exactly what to do: <their personal sign-in link>';
   if(!confirm(`Text this to ${name} at ${t.phone}?\n\n"${preview}"`)) return;
   btn.disabled=true; const prev=btn.textContent; btn.textContent='Sending…';
   try{
@@ -10425,7 +10425,7 @@ async function renderTechnicians(){
           <button class="btn ghost sm" data-act="phone">Set phone</button>
           <button class="btn ghost sm" data-act="pin">Set PIN</button>
           <button class="btn ghost sm" data-act="toggle">${t.active?'Deactivate':'Activate'}</button>
-          ${role==='owner'?`<button class="btn ghost sm" data-act="reviewinvite" ${t.phone?'':'disabled title="No phone number set"'}>💵 ${t.review_invite_sent_at?`Invite sent ${shortDateBiz(t.review_invite_sent_at)} ✓`:'Send $100 review invite'}</button>`:''}
+          ${role==='owner'?`<button class="btn ghost sm" data-act="reviewinvite" ${t.phone?'':'disabled title="No phone number set"'}>💵 ${t.review_invite_sent_at?`Invite sent ${shortDateBiz(t.review_invite_sent_at)} ✓`:'Send ₱100 review invite'}</button>`:''}
           ${role==='owner'?reviewProgressChip(t):''}
         </div>
         <div class="actions" style="align-items:center;margin-top:8px;border-top:1px solid var(--line);padding-top:10px;">
@@ -10963,7 +10963,7 @@ function paintTasks(){
     ${isJoeyHome()?'<details class="tk-add-wrap" style="margin:12px 0;max-width:760px;"><summary style="cursor:pointer;padding:12px;border:1px solid var(--line);border-radius:10px;font-weight:700;">Add my own task</summary>':''}
     ${role==='owner'?'<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">':''}
     <div class="tk-add" style="max-width:760px;flex:1 1 420px;">
-      <input id="tkTitle" maxlength="300" placeholder="${role==='owner'?'What needs doing?':'Add my own task'}">
+      <input id="tkTitle" maxlength="300" placeholder="₱{role==='owner'?'What needs doing?':'Add my own task'}">
       ${role!=='owner'?'':`<div class="tk-colors">${TASK_ORDER.map(k=>`<button type="button" data-tk-color="${k}" class="${_tk.color===k?'on':''}" style="--c:${TASK_COL[k].bar};--ci:${TASK_COL[k].ink};">${TASK_COL[k].label}</button>`).join('')}</div>`}
       <div style="position:relative;"><input id="tkJob" placeholder="🔗 Link a job (customer name or phone)" value="${_tk.job?esc(_tk.job.label):''}" autocomplete="off"><div id="tkJobRes" class="tk-res"></div></div>
       <textarea id="tkNotes" rows="2" placeholder="Notes (optional)"></textarea>
@@ -12796,7 +12796,7 @@ function prHowTo(force){
     ['📞','Tap Call','It calls from the TidyHaus line for that city. Only 9–5 on weekdays, their time.'],
     ['💬','Use "Say this"','Mention our client (like Belmont Village). Tap the help buttons for quick answers.'],
     ['✅','Log the result','Tap what happened. Set a follow-up date. Most calls need one.'],
-    ['🧾','Wants a quote?','Build it in the CRM. Over $2,000 waits for Owner’s OK.'],
+    ['🧾','Wants a quote?','Build it in the CRM. Over ₱2,000 waits for Owner’s OK.'],
     ['💵','You earn 10%','Of every job they pay for, forever. It’s on your weekly pay.'],
   ];
   const o=document.createElement('div');
@@ -13639,7 +13639,7 @@ function renderMultiTvDiscountBody(){
     </div>
     <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;">
       <div style="font-weight:700;margin-bottom:10px;">Travel-fee cut</div>
-      ${field('$ off per TV when the travel fee is $0','mtvZeroFeePerTv',c.zero_fee_per_tv,1)}
+      ${field('$ off per TV when the travel fee is ₱0','mtvZeroFeePerTv',c.zero_fee_per_tv,1)}
       ${field('Travel fee that gets cut 100%','mtvFullCutFee',c.full_cut_fee,1)}
       <label style="display:block;font-size:12.5px;color:var(--ink-2);margin-bottom:12px;">Other travel fees that get a partial cut (comma-separated)
         <input class="search" type="text" value="${esc((c.partial_cut_fees||[]).join(', '))}" id="mtvPartialFees" style="margin:4px 0 0;max-width:220px;">
@@ -13741,10 +13741,10 @@ function renderWidgetPricingBody(){
     const changed=wpDirty.has(r.id);
     return `<td style="text-align:center;padding:6px 4px;border-top:1px solid var(--line);">
       <div style="display:inline-flex;align-items:center;background:var(--bg2,#f3f4f6);border:1px solid ${changed?'var(--accent,#2563eb)':'var(--line)'};border-radius:9px;overflow:hidden;">
-        <span style="padding:7px 2px 7px 9px;color:var(--mute);font-weight:700;font-size:13px;">$</span>
+        <span style="padding:7px 2px 7px 9px;color:var(--mute);font-weight:700;font-size:13px;">${r.option_id==='percent'?'%':'₱'}</span>
         <input type="number" min="0" step="1" data-wp-id="${r.id}" value="${val}"
           title="${esc(r.label)}"
-          style="border:none;background:none;width:62px;padding:7px 8px 7px 2px;font-size:14.5px;font-weight:800;text-align:right;${changed?'color:var(--accent,#2563eb);':''}">
+          style="border:none;background:none;width:78px;padding:7px 8px 7px 2px;font-size:14.5px;font-weight:800;text-align:right;${changed?'color:var(--accent,#2563eb);':''}">
       </div>
     </td>`;
   };
@@ -13752,7 +13752,7 @@ function renderWidgetPricingBody(){
   view.innerHTML=`<div class="wrap">
     ${backBtn}
     <h2 style="margin:0 0 4px;">💲 Cleaning Prices</h2>
-    <div class="sub" style="color:var(--mute);margin-bottom:16px;">Every price the public booking widget charges, all metros side by side. Changes go live for real customers within a minute.</div>
+    <div class="sub" style="color:var(--mute);margin-bottom:16px;">Your prices in pesos for Makati and BGC, side by side. Type a new number and tap Save. New bookings use it right away.</div>
 
     ${sectionOrder.map(sec=>`
       <div style="background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:14px;max-width:1180px;overflow-x:auto;">
@@ -18189,7 +18189,7 @@ function estCard(e){
   const fuStamps=[...String(e.notes||'').matchAll(/Reminder texted (\d{4}-\d{2}-\d{2}T[\d:.]+Z)(?: by ([^.\n]+))?/g)].map(m=>({at:m[1],by:m[2]||''})).filter(x=>Date.parse(x.at));
   const fuLast=fuStamps.length?fuStamps[fuStamps.length-1]:null;
   const followedLine=fuLast?`<div class="est-fu-line">↻ We followed up with customer at ${esc(fmtSentAt(fuLast.at))}${fuLast.by?` · ${esc(fuLast.by)}`:''}${fuStamps.length>1?` · ${fuStamps.length} follow-ups`:''}</div>`:'';
-  const autoLine=e.followup_emailed_at?`<div class="est-fu-line">✉ $20-off coupon email ${e.followup_sent_by?'sent by '+esc(e.followup_sent_by):'automatically sent'} · ${esc(fmtSentAt(e.followup_emailed_at))}</div>`:'';
+  const autoLine=e.followup_emailed_at?`<div class="est-fu-line">✉ ₱20-off coupon email ${e.followup_sent_by?'sent by '+esc(e.followup_sent_by):'automatically sent'} · ${esc(fmtSentAt(e.followup_emailed_at))}</div>`:'';
   const _sentAny=!!(e.texted_at||e.emailed_at||e.contacted_at);
   const missLine=t=>`<div class="est-sent-line" style="color:var(--mute);">✗ ${t}</div>`;
   const noTextLine=(_sentAny&&!e.texted_at&&e.texted_at!==undefined)?missLine(e.customer_phone?'Not texted':'Not texted — no phone on file'):'';
@@ -18241,7 +18241,7 @@ function estCard(e){
         ${/* Owner rule 2026-09-23: only after the original quote went out and
              before any coupon email has (by hand OR the 3-hour auto send --
              both stamp followup_emailed_at, so either one hides this). */
-          (canSend&&!isApproved&&(e.texted_at||e.emailed_at)&&!e.followup_emailed_at&&e.customer_email&&appConfig.email&&(Date.now()-Math.min(...[e.texted_at,e.emailed_at].filter(Boolean).map(x=>Date.parse(x))))>=3*3600000)?`<button class="btn sm" data-est-coupon="${e.id}" style="background:#15803d;border-color:#15803d;" title="Email the quote again with $20 off (only shows once the quote is 3 hours old and the automatic 3-hour email did not go out).">Send follow up email (Coupon)</button>`:''}
+          (canSend&&!isApproved&&(e.texted_at||e.emailed_at)&&!e.followup_emailed_at&&e.customer_email&&appConfig.email&&(Date.now()-Math.min(...[e.texted_at,e.emailed_at].filter(Boolean).map(x=>Date.parse(x))))>=3*3600000)?`<button class="btn sm" data-est-coupon="${e.id}" style="background:#15803d;border-color:#15803d;" title="Email the quote again with ₱20 off (only shows once the quote is 3 hours old and the automatic 3-hour email did not go out).">Send follow up email (Coupon)</button>`:''}
         ${(canSend&&isApproved&&(e.status==='booked'||e.booking_id))
           ? (e.booking_id?`<button class="btn sm" data-est-openjob="${esc(e.booking_id)}" title="This approval booked the job automatically — open it on the schedule">Open job →</button>`:`<span class="est-booked-tag">✓ Job booked</span>`)
           : (canSend&&isApproved)?`<button class="btn ${isApproved?'':'ghost'} sm" data-est-convert="${e.id}" title="${isApproved?'Create a booking from this approved estimate':'The customer has not approved this quote online yet — converting will ask you to confirm they approved it by phone'}">→ Convert to job${isApproved?'':' (unapproved)'}</button>`:''}
@@ -18523,7 +18523,7 @@ async function setEstimate(id, payload){
 }
 
 async function sendEstimateCoupon(estimateId, btn){
-  if(!confirm('Email this quote to the customer with $20 off? The automatic coupon email will not be sent after this.')) return;
+  if(!confirm('Email this quote to the customer with ₱20 off? The automatic coupon email will not be sent after this.')) return;
   const prev=btn?btn.textContent:'';
   if(btn){ btn.disabled=true; btn.textContent='Sending…'; }
   try{
@@ -20939,7 +20939,7 @@ function cwMoveLines(draft){
   ];
 }
 const CW_HELP={
-  else:{t:'Something else',rows:[['✍️','Manual entry (Handyman Tasks): type the job and price yourself.'],['🚚','Moving TVs: take TVs down at one place, put them up at another.'],['🛡️','Guaranteed dismount: free take-down for a past customer. Opens a booking with the $0 GDS line.'],['🔧','Dismount a TV: paid take-down only. $109 + travel fee.']]},
+  else:{t:'Something else',rows:[['✍️','Manual entry (Handyman Tasks): type the job and price yourself.'],['🚚','Moving TVs: take TVs down at one place, put them up at another.'],['🛡️','Guaranteed dismount: free take-down for a past customer. Opens a booking with the ₱0 GDS line.'],['🔧','Dismount a TV: paid take-down only. ₱109 + travel fee.']]},
   move:{t:'Moving TVs',rows:[['📍','Pickup ZIP (must be our area).'],['🔢','How many TVs to take down.'],['🏁','Drop-off ZIP. Miles fill in.'],['📺','Reinstall options, like a normal job.'],['🚫','Read the vehicle warning. Tick it.'],['✅','Book or send estimate.']]},
 };
 function cwHelpKey(k){ return `cwHelp:${k}:${userName||'me'}`; }
@@ -21611,7 +21611,7 @@ async function renderCallWiz(){
         <button type="button" class="btn ghost" id="cwElseManual" data-cwbusy>✍️ Manual entry (Handyman Tasks)</button>
         <button type="button" class="btn ghost" id="cwElseMove" data-cwbusy>🚚 Moving TVs</button>
         <button type="button" class="btn ghost" id="cwElseGds" data-cwbusy>🛡️ Guaranteed dismount</button>
-        <button type="button" class="btn ghost" id="cwElseDismount" data-cwbusy>🔧 Dismount a TV ($109 + travel)</button>
+        <button type="button" class="btn ghost" id="cwElseDismount" data-cwbusy>🔧 Dismount a TV (₱109 + travel)</button>
       </div>
       ${cwBackBtnHtml('Back')}` : `${cwBizPicker}
       ${callWizScript(`Hello, thank you for calling ${bizName}, how may I help you?`)}
@@ -23170,7 +23170,7 @@ function renderNoChargeStep(){
   if(!steps) return;
   steps.innerHTML=
     `<div class="nb-step-t">No Charge / Callback</div>`+
-    `<div class="nb-hint">$0 to the customer — for fixing something from a previous appointment.</div>`+
+    `<div class="nb-hint">₱0 to the customer — for fixing something from a previous appointment.</div>`+
     `<div style="margin-top:12px;">`+
       `<label style="display:block;font-size:12px;color:#9fb0c3;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">What needs to be fixed?</label>`+
       `<textarea class="search" style="margin:0;min-height:60px;resize:vertical;" id="nbNoChargeNote" placeholder="e.g. bracket came loose, re-level the TV"></textarea>`+
@@ -23502,7 +23502,7 @@ function nbRenderCustomLines(){
   wrap.innerHTML=nbCustomLines.map((l,i)=>`
     <div class="nb-custom-row" data-i="${i}" style="display:flex;gap:8px;align-items:center;margin-bottom:6px;">
       <input class="search nb-custom-label" style="margin:0;flex:1;min-width:0" placeholder="Custom line item" value="${esc(l.label)}">
-      <input class="search nb-custom-price" style="margin:0;width:110px;flex:none" placeholder="$ (−$ = discount)" inputmode="decimal" autocomplete="off" value="${esc(l.price)}">
+      <input class="search nb-custom-price" style="margin:0;width:110px;flex:none" placeholder="₱ (−$ = discount)" inputmode="decimal" autocomplete="off" value="${esc(l.price)}">
       ${nbCustomLines.length>1?`<button type="button" class="nb-custom-rm" aria-label="Remove line" style="flex:none;background:none;border:none;color:#8aa0c4;font-size:18px;cursor:pointer;padding:0 4px;">×</button>`:''}
     </div>`).join('');
   wrap.querySelectorAll('.nb-custom-label,.nb-custom-price').forEach(inp=>inp.addEventListener('input',e=>{
@@ -23931,7 +23931,7 @@ function nbGroupOptsHtml(g, atCap, sizeCreatesCount=false, only=null){
           : '';
         html+=`<div style="display:flex;gap:6px;align-items:center;">`+
               `<input type="text" class="search nb-other-note" style="margin:6px 0 2px;flex:1;min-width:0;" `+
-              `data-o="${o.id}" placeholder="${esc(nbNotePlaceholder(o))}" `+
+              `data-o="${o.id}" placeholder="₱{esc(nbNotePlaceholder(o))}" `+
               `value="${esc(nbOptionNotes[o.id]||'')}">`+
               priceBox+
               `</div>`;
@@ -24149,7 +24149,7 @@ function updateNbTotal(){
   const optionsTotal=selections.reduce((s,x)=>s+x.price*x.quantity,0);
   if(nbAssurionActive){
     document.getElementById('nbTotalDisplay').innerHTML=`
-      <div style="display:flex;justify-content:space-between;font-size:13px;color:#8aa0c4;padding:3px 0;"><span>Customer pays</span><span>$0.00</span></div>
+      <div style="display:flex;justify-content:space-between;font-size:13px;color:#8aa0c4;padding:3px 0;"><span>Customer pays</span><span>₱0.00</span></div>
       <div style="display:flex;justify-content:space-between;font-size:17px;font-weight:700;color:#eef2f7;border-top:1px solid rgba(255,255,255,.12);margin-top:8px;padding-top:8px;"><span>Steve's payout</span><span style="color:#4ade80;">₱${optionsTotal.toFixed(2)}</span></div>`;
     return;
   }
@@ -24400,7 +24400,7 @@ function toggleNbUpsellPanel(){
   if(!document.getElementById('nbPhone').value.trim() && !document.getElementById('nbEmail').value.trim()){ err.textContent='Enter a phone number or an email to send the estimate to'; return; }
   if(nbCollectSelections().length===0){ err.textContent='Select at least one service before sending an estimate'; return; }
   const unpriced=nbUnpricedOtherLabel();
-  if(unpriced){ err.textContent=`Enter a price for "${unpriced}" before sending, it's currently $0.`; return; }
+  if(unpriced){ err.textContent=`Enter a price for "${unpriced}" before sending, it's currently ₱0.`; return; }
   nbUpsSel={}; nbUpsCustom=[]; document.getElementById('nbUpsCustom').innerHTML='';
   nbUpsShown().forEach(c=>{ nbUpsSel[c.id]=!!c.defOn; });
   renderNbUpsChips();
@@ -24439,7 +24439,7 @@ document.getElementById('nbUpsAddCustom').addEventListener('click',()=>{
   const div=document.createElement('div');
   div.className='nb-ups-custom-row';
   div.innerHTML=`<input type="text" placeholder="Add-on name" data-i="${idx}" data-k="name">
-    <input type="text" class="amt" inputmode="decimal" placeholder="$" data-i="${idx}" data-k="price">`;
+    <input type="text" class="amt" inputmode="decimal" placeholder="₱" data-i="${idx}" data-k="price">`;
   wrap.appendChild(div);
   nbUpsCustom.push({id:'custom'+idx,name:'',price:0});
   div.querySelectorAll('input').forEach(inp=>inp.addEventListener('input',e=>{
@@ -24486,7 +24486,7 @@ document.getElementById('nbForm').addEventListener('submit',async e=>{
   const tvMountingErr=nbValidateTvMountingRequired();
   if(tvMountingErr){ err.textContent=tvMountingErr; return; }
   const unpriced=nbUnpricedOtherLabel();
-  if(unpriced){ err.textContent=`Enter a price for "${unpriced}" before creating this booking, it's currently $0.`; return; }
+  if(unpriced){ err.textContent=`Enter a price for "${unpriced}" before creating this booking, it's currently ₱0.`; return; }
   const noCharge=nbNoChargeActive;
   const travelFee=(assurion||gds||noCharge||nbCarriedTravelLine())?0:(parseFloat(document.getElementById('nbTravelFee').value)||0);
   if(travelFee!==0) selections.push({option_id:null,label:travelFee>0?'Travel':'Travel discount',price:travelFee,quantity:1});
@@ -24703,7 +24703,7 @@ function embedAuditorBoot(q){
 </script>
 <script src="/onway.js?v=1"></script>
 <script src="/clean-booking.js?v=5"></script>
-<script src="/th-extras.js?v=6"></script>
+<script src="/th-extras.js?v=7"></script>
 <script>
 (function(){ function t(){ try{ var el=document.getElementById('ctClock'); if(!el) return; var r=(typeof role!=='undefined')?role:''; el.style.display='none';
   document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }
