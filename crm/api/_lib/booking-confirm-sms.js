@@ -4,7 +4,7 @@ export function bookingConfirmMessage({ dateStr, timeWindow, techName }) {
   const when = timeWindow ? `${dateStr} between ${timeWindow}` : dateStr;
   const techLine = techName
     ? `${String(techName).trim().split(/\s+/)[0]} will text you when he's on the way.`
-    : `We'll text you when your tech is on the way.`;
+    : `We'll text you when your cleaner is on the way.`;
   return `You're booked for ${when}. ${techLine}`;
 }
 

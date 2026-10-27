@@ -50,7 +50,7 @@ export async function techIcs(db, techId) {
   const now = Date.now();
   const jobs = await techJobs(db, techId, new Date(now - 14 * 86400000).toISOString(), new Date(now + 120 * 86400000).toISOString());
   const stamp = icsTime(now);
-  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TidyHaus//Tech jobs//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+  const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TidyHaus//Cleaner jobs//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
     `X-WR-CALNAME:${icsText('My jobs')}`, 'X-PUBLISHED-TTL:PT15M', 'REFRESH-INTERVAL;VALUE=DURATION:PT15M'];
   for (const j of jobs) {
     const start = new Date(j.scheduled_at);

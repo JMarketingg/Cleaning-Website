@@ -9,7 +9,7 @@ function baseUrl() {
 }
 
 export function enRouteMessage(techName, bizName, etaMinutes, bizSlug) {
-  const who = (techName && String(techName).trim().split(/\s+/)[0]) || 'Your tech';
+  const who = (techName && String(techName).trim().split(/\s+/)[0]) || 'Your cleaner';
   return `${who} is on the way, about ${etaMinutes} min out. See you soon!`;
 }
 

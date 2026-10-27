@@ -907,9 +907,9 @@ export default async function handler(req, res) {
           text: enRouteMessage('Zach', 'TidyHaus', 15, 'tidyhaus') },
         { label: 'Customer · review request',
           text: reviewRequestSms({ slug: 'tidyhaus', name: 'TidyHaus', token: 'demo', clickUrl: 'https://tidyhaus-crm.vercel.app/api/book?action=review_click&token=demo&ch=sms' }) },
-        { label: 'Tech · new job assigned',
+        { label: 'Cleaner · new job assigned',
           text: 'You got a job! Wed, Jul 8, 2:00 PM. Address & details in the app: https://tidyhaus-crm.vercel.app/tech.html' },
-        { label: 'Tech · job canceled',
+        { label: 'Cleaner · job canceled',
           text: "❌ Job canceled: Wed, Jul 8 2:00 PM (Jane Doe). No action needed — your calendar's updated." },
       ];
 

@@ -577,7 +577,7 @@ export function appointmentReminderEmail(details = {}, brand = EMAIL_BRANDS['tid
     row('Date', details.dateLong ? esc(details.dateLong) : '') +
     row('Arrival window', details.timeWindow ? esc(details.timeWindow) : '') +
     row('Service', details.serviceName ? esc(details.serviceName) : '') +
-    row('Technician', details.technicianName ? esc(details.technicianName) : '') +
+    row('Cleaner', details.technicianName ? esc(details.technicianName) : '') +
     row('Address', addressLine ? (mapsUrl ? `<a href="${esc(mapsUrl)}" style="color:#ffffff;text-decoration:underline;">${esc(addressLine)}</a>` : esc(addressLine)) : '');
 
   let meetTechBlock = '';
@@ -1073,7 +1073,7 @@ export function receiptEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
             ${meta(heading + ' #', details.receiptNo)}
             ${meta('Service date', details.serviceDate)}
             ${isReceipt ? meta('Date paid', details.paidDate) : ''}
-            ${meta('Technician', details.technicianName)}
+            ${meta('Cleaner', details.technicianName)}
           </table>
         </td></tr>
 

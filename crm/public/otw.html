@@ -87,7 +87,7 @@
     <div id="bad" class="hide">
       <div class="eyebrow">TidyHaus</div>
       <h1>Link expired</h1>
-      <p class="err" id="badMsg">Open the tech app and tap "On My Way" there instead.</p>
+      <p class="err" id="badMsg">Open the cleaner app and tap "On My Way" there instead.</p>
     </div>
 
   </div>
@@ -105,9 +105,9 @@
     show('bad');
   }
 
-  if (!token) return fail('This link is missing its code. Open the tech app and tap "On My Way" there instead.');
+  if (!token) return fail('This link is missing its code. Open the cleaner app and tap "On My Way" there instead.');
 
-  // Read-only load. Nothing is sent to the customer until the tech taps.
+  // Read-only load. Nothing is sent to the customer until the cleaner taps.
   fetch('/api/book?action=otw_info&token=' + encodeURIComponent(token))
     .then(function(r){ return r.json(); })
     .then(function(d){
@@ -119,7 +119,7 @@
       }
       $('askName').textContent = d.customer || 'Your customer';
       $('askWhen').textContent = d.when ? ('Scheduled ' + d.when) : '';
-      // No text will go out for this job — say so BEFORE the tap, so the tech
+      // No text will go out for this job — say so BEFORE the tap, so the cleaner
       // doesn't assume the customer knows they're coming.
       if (d.sms_opt_out || !d.phone){
         $('askWarn').textContent = d.sms_opt_out
@@ -157,7 +157,7 @@
           btn.textContent = 'Send "on my way"';
           return fail(d && d.reason === 'not_assigned'
             ? 'This job is not assigned to you anymore. Check the app.'
-            : 'That did not go through. Open the tech app and tap "On My Way" there.');
+            : 'That did not go through. Open the cleaner app and tap "On My Way" there.');
         }
         var who = d.customer || 'The customer';
         var noText = !d.already && d.sms && !d.sms.sent;
@@ -189,7 +189,7 @@
 
   // "I'm running late" — secondary action, same token, same link. Does NOT
   // touch on_the_way_at/status and does NOT disable or hide the main
-  // "Send on my way" button: the tech can still tap that at any time, before
+  // "Send on my way" button: the cleaner can still tap that at any time, before
   // or after reporting late.
   $('lateBtn').addEventListener('click', function(){
     var btn = $('lateBtn');

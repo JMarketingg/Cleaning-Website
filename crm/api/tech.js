@@ -104,7 +104,7 @@ export default async function handler(req, res) {
       }
       case 'critical_handle': {
         const { data: me } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
-        await db.from('critical_alerts').update({ handled_by: (me && me.name ? me.name : 'Tech') + ' (tech)', handled_at: new Date().toISOString() }).eq('id', String((body && body.id) || '')).eq('technician_id', auth.tech_id).is('handled_at', null);
+        await db.from('critical_alerts').update({ handled_by: (me && me.name ? me.name : 'Cleaner') + ' (tech)', handled_at: new Date().toISOString() }).eq('id', String((body && body.id) || '')).eq('technician_id', auth.tech_id).is('handled_at', null);
         return res.status(200).json({ ok: true });
       }
       case 'jobs':             return await jobs(req, res, db, auth);
@@ -442,8 +442,8 @@ async function job(req, res, db, auth) {
       const { data: bs, error: bsErr } = await db.from('bookings').select('bracket_supplied_by').eq('id', id).maybeSingle();
       if (!bsErr) {
         const techs = [];
-        if (data.technician_id) techs.push({ id: data.technician_id, name: data.technician?.name || 'Technician' });
-        if (data.secondary_technician_id) techs.push({ id: data.secondary_technician_id, name: data.secondary_technician?.name || 'Technician' });
+        if (data.technician_id) techs.push({ id: data.technician_id, name: data.technician?.name || 'Cleaner' });
+        if (data.secondary_technician_id) techs.push({ id: data.secondary_technician_id, name: data.secondary_technician?.name || 'Cleaner' });
         const suppliedBy = bs?.bracket_supplied_by || null;
         shaped.bracket = {
           needed: true,
@@ -461,8 +461,8 @@ async function job(req, res, db, auth) {
     if (pf.tv_count > 0 && !(await allJobTechsExempt(db, data.technician_id, data.secondary_technician_id))) {
       if (data.secondary_technician_id) {
         pf.techs = [
-          { id: data.technician_id, name: data.technician?.name || 'Technician' },
-          { id: data.secondary_technician_id, name: data.secondary_technician?.name || 'Technician' },
+          { id: data.technician_id, name: data.technician?.name || 'Cleaner' },
+          { id: data.secondary_technician_id, name: data.secondary_technician?.name || 'Cleaner' },
         ].filter(t => t.id);
         try {
           const { data: bs } = await db.from('bookings').select('bracket_supplied_by').eq('id', id).maybeSingle();
@@ -785,7 +785,7 @@ async function jobLineItemsSave(req, res, db, auth, body) {
       const { data: who } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
       await db.from('booking_notes').insert({
         business_id: bizId, booking_id: id,
-        author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Technician', body: removed,
+        author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Cleaner', body: removed,
       });
     } catch (e) { console.warn(`[tech line_items] bracket-removal note failed for booking ${id}:`, e.message); }
   }
@@ -886,7 +886,7 @@ async function status(req, res, db, auth, body) {
 
   await db.from('booking_status_events').insert({
     booking_id: id, business_id: jobBizId, technician_id: auth.tech_id,
-    status: next, note: body.note || 'Updated by technician',
+    status: next, note: body.note || 'Updated by cleaner',
   });
 
   if (next === 'completed' && (platesAnswer != null || !existing.metadata?.wire_plate_deducted_at)) {
@@ -918,7 +918,7 @@ async function status(req, res, db, auth, body) {
           const { data: who } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
           await db.from('booking_notes').insert({
             business_id: jobBizId, booking_id: id,
-            author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Technician',
+            author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Cleaner',
             body: `Wire plates used: ${platesAnswer}. Ticket: ${ticket}.`,
           });
         }
@@ -949,7 +949,7 @@ async function status(req, res, db, auth, body) {
       if (note) {
         await db.from('booking_notes').insert({
           business_id: jobBizId, booking_id: id,
-          author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Technician', body: note,
+          author_kind: 'technician', author_id: auth.tech_id, author_name: who?.name || 'Cleaner', body: note,
         });
       }
     } catch (e) {
@@ -1162,7 +1162,7 @@ async function jobBracketSetSupplier(req, res, db, auth, body) {
   if (error || !b) return res.status(404).json({ error: 'Job not found' });
 
   const jobTechs = [b.technician_id, b.secondary_technician_id].filter(Boolean);
-  if (!jobTechs.includes(supplierId)) return res.status(400).json({ error: 'Pick a technician who is on this job.' });
+  if (!jobTechs.includes(supplierId)) return res.status(400).json({ error: 'Pick a cleaner who is on this job.' });
 
   const { data: metaRow } = await db.from('bookings').select('metadata').eq('id', id).maybeSingle();
   const meta = metaRow?.metadata || {};
@@ -1219,7 +1219,7 @@ async function jobPayment(req, res, db, auth, body) {
       return res.status(403).json({ error: 'Same day only. Ask the office.' });
     }
     const { data: who } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
-    const r = await revertCash(db, b, { who: (who?.name || 'Tech') + ' (tech)', kind: 'technician', authorId: auth.tech_id, reason: body.reason });
+    const r = await revertCash(db, b, { who: (who?.name || 'Cleaner') + ' (tech)', kind: 'technician', authorId: auth.tech_id, reason: body.reason });
     if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
     return res.status(200).json(r);
   }
@@ -1494,7 +1494,7 @@ async function jobVideoAdd(req, res, db, auth, body) {
   const { data: tech } = await db.from('technicians').select('name').eq('id', auth.tech_id).single();
   const { data, error } = await db.from('booking_photos').insert({
     business_id: bizId, booking_id: id, technician_id: auth.tech_id,
-    uploaded_by_kind: 'technician', uploader_name: tech?.name || 'Technician',
+    uploaded_by_kind: 'technician', uploader_name: tech?.name || 'Cleaner',
     storage_path: path, url: videoPublicUrl(path), caption: 'Logo video', is_video: true,
   }).select('id, url, caption, uploader_name, created_at, is_video').single();
   if (error) { await deleteVideo(path); throw error; }
@@ -1516,7 +1516,7 @@ async function jobPhotoAdd(req, res, db, auth, body) {
 
   const { data, error } = await db.from('booking_photos').insert({
     business_id: bizId, booking_id: id, technician_id: auth.tech_id,
-    uploaded_by_kind: 'technician', uploader_name: tech?.name || 'Technician',
+    uploaded_by_kind: 'technician', uploader_name: tech?.name || 'Cleaner',
     storage_path: up.path, url: up.url, caption: (body.caption || '').toString().trim() || null,
   }).select('id, url, caption, uploader_name, created_at').single();
   if (error) { await deleteImage(up.path); throw error; }
@@ -1569,7 +1569,7 @@ async function jobNoteAdd(req, res, db, auth, body) {
   const { data: tech } = await db.from('technicians').select('name').eq('id', auth.tech_id).single();
   const { data, error } = await db.from('booking_notes').insert({
     business_id: bizId, booking_id: id,
-    author_kind: 'technician', author_id: auth.tech_id, author_name: tech?.name || 'Technician',
+    author_kind: 'technician', author_id: auth.tech_id, author_name: tech?.name || 'Cleaner',
     body: text,
   }).select('id, body, author_kind, author_name, created_at').single();
   if (error) throw error;
@@ -2242,7 +2242,7 @@ async function awardReviewBonusIfComplete(db, techId) {
 async function me(req, res, db, auth) {
   const { data: t, error } = await db.from('technicians')
     .select('id, name, status, active, businesses(slug, timezone)').eq('id', auth.tech_id).single();
-  if (error || !t) return res.status(404).json({ error: 'Technician not found' });
+  if (error || !t) return res.status(404).json({ error: 'Cleaner not found' });
   if (t.active === false) return res.status(401).json({ error: 'Unauthorized' });
   const raw = getBearer(req);
   const fresh = refreshToken(auth, { maxSeconds: TECH_SESSION_MAX });
@@ -2298,9 +2298,9 @@ const JOIN_OUTCOME = {
   expired:        [410, 'INVITE_EXPIRED', 'This invite expired. Ask whoever sent it to resend it.'],
   revoked:        [410, 'INVITE_REVOKED', 'This invite was canceled.'],
   area_inactive:  [410, 'INVITE_REVOKED', 'This invite is no longer valid. Ask for a new one.'],
-  used:           [409, 'INVITE_USED', 'This invite was already used. If that was you, open the tech app and sign in with your phone number and PIN.'],
+  used:           [409, 'INVITE_USED', 'This invite was already used. If that was you, open the cleaner app and sign in with your phone number and PIN.'],
   phone_mismatch: [409, 'PHONE_MISMATCH', 'This invite was sent to a different number. Use the number the text came to.'],
-  phone_in_use:   [409, 'PHONE_IN_USE', 'This number already has a technician account. Open the tech app and sign in instead.'],
+  phone_in_use:   [409, 'PHONE_IN_USE', 'This number already has a cleaner account. Open the cleaner app and sign in instead.'],
   past_profile:   [409, 'PAST_PROFILE', "This number is on an older technician profile with us. Text the office and they'll switch it back on."],
   bad_input:      [400, 'BAD_INPUT', 'Something in the form is not right. Check it and try again.'],
 };
@@ -2344,8 +2344,8 @@ async function joinComplete(req, res, body) {
   const { data: t, error: tErr } = await db.from('technicians')
     .select('id, name, status, active, phone, service_area_id, businesses ( slug, name, timezone )').eq('id', row.tech_id).single();
   if (tErr || !t) {
-    console.error('[join] new tech lookup failed:', tErr?.message);
-    return res.status(500).json({ error: 'Your account was created. Open the tech app and sign in with your phone number and PIN.' });
+    console.error('[join] new cleaner lookup failed:', tErr?.message);
+    return res.status(500).json({ error: 'Your account was created. Open the cleaner app and sign in with your phone number and PIN.' });
   }
   let slotCount = slots.length;
   if (outcome === 'joined') {
@@ -2401,7 +2401,7 @@ async function joinComplete(req, res, body) {
         welcomeFailed: welcome && !welcome.ok ? smsFailReason(welcome) : null,
       });
     } catch (e) { console.warn('[join] owner alert failed:', e.message); }
-    console.log(`[join] new tech ${t.id} ${slug}/${metro} ..${String(t.phone).slice(-4)} slots=${slots.length}`);
+    console.log(`[join] new cleaner ${t.id} ${slug}/${metro} ..${String(t.phone).slice(-4)} slots=${slots.length}`);
   }
   return res.status(200).json({ ok: true, token, technician, metro, unstaffed, slot_count: slotCount });
 }
@@ -2658,5 +2658,5 @@ async function jobReschedule(req, res, db, auth, body) {
   return await officeBookingUpdate(req, res, db, { role: 'technician', name: me?.name || actor }, {
     business: b.business.slug, id, action: 'reschedule', scheduled_date: date, scheduled_slot: slot,
     ...(body.force === true && { force_unavailable_ids: [auth.tech_id] }),
-  }, { biz: b.business, actor, techNote: { author_id: auth.tech_id, author_name: me?.name || 'Technician' } });
+  }, { biz: b.business, actor, techNote: { author_id: auth.tech_id, author_name: me?.name || 'Cleaner' } });
 }

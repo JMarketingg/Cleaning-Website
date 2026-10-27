@@ -1832,7 +1832,7 @@ async function travelFeesSave(req, res, db, auth, body) {
   const surcharge = Number(body.surcharge);
   const payout = Number(body.tech_payout);
   if (!Number.isFinite(surcharge)) return res.status(400).json({ error: 'Customer fee must be a number' });
-  if (!Number.isFinite(payout)) return res.status(400).json({ error: 'Tech payout must be a number' });
+  if (!Number.isFinite(payout)) return res.status(400).json({ error: 'Cleaner payout must be a number' });
   if (Math.abs(surcharge) > TRAVEL_FEE_CEILING || Math.abs(payout) > TRAVEL_FEE_CEILING) {
     return res.status(400).json({ error: `$${Math.max(Math.abs(surcharge), Math.abs(payout))} is above the $${TRAVEL_FEE_CEILING} sanity ceiling for a travel fee — double-check this isn't a typo.` });
   }
@@ -1857,7 +1857,7 @@ async function travelDistancePreview(req, res, db, auth, body) {
   const areaId = (body.area_id || '').toString();
   const originZip = (body.origin_zip || '').toString().replace(/\D/g, '').slice(0, 5);
   if (!areaId) return res.status(400).json({ error: 'area_id required' });
-  if (originZip.length !== 5) return res.status(400).json({ error: 'A 5-digit origin zip (where the tech lives) is required.' });
+  if (originZip.length !== 5) return res.status(400).json({ error: 'A 5-digit origin zip (where the cleaner lives) is required.' });
 
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) return res.status(503).json({ error: 'Google Maps key is not configured.' });
@@ -1969,7 +1969,7 @@ const LAUNCH_CHECKLIST_ITEMS = [
   { key: 'confirmation_email', label: 'Confirmation email sends' },
   { key: 'on_the_way_text',    label: 'On-the-way text sends' },
   { key: 'review_text',        label: 'Review request text sends' },
-  { key: 'tech_alert_correct_business', label: 'Technician alert names the correct business' },
+  { key: 'tech_alert_correct_business', label: 'Cleaner alert names the correct business' },
   { key: 'phone_live',     label: 'Dedicated phone number receiving calls/texts' },
   { key: 'gbp_created',    label: 'Google Business Profile created' },
   { key: 'gbp_verified',   label: 'GBP verified (postcard/video)' },
@@ -2686,11 +2686,11 @@ const TV_OPTION_GROUPS = [
     { label: 'Wall already has plug behind TV', price: 0, zbk: '1685657520215x846697647726538900', sort: 3 },
     { label: 'Wires hang under the TV',     price: 0,  zbk: '1696472636219x934279187941818400', sort: 4 },
   ]},
-  { key: 'lifting',   label: 'Second Technician (Large TVs)', min: 0, max: 1, sort: 6, options: [
+  { key: 'lifting',   label: 'Second Cleaner (Large TVs)', min: 0, max: 1, sort: 6, options: [
     { label: 'TV under 70" (no lifting fee)',        price: 0,  zbk: '1685657521270x971699776821509000', sort: 1 },
     { label: '70–85" — customer can help lift',      price: 0,  zbk: '1685657521270x242389337506608420', sort: 2 },
     { label: '2 technicians',                        price: 70, zbk: '1685657521270x264421370121691100', sort: 3 },
-    { label: '85"+ (second technician required)',    price: 70, zbk: '1747842781494x315473919196528640', sort: 4 },
+    { label: '85"+ (second cleaner required)',    price: 70, zbk: '1747842781494x315473919196528640', sort: 4 },
   ]},
   { key: 'dismount',  label: 'Dismount',                      min: 0, max: 1, sort: 7, options: [
     { label: 'Guaranteed Dismount Service (when upgrading later)', price: 35, zbk: '1685657521717x559414519649398460', sort: 1 },
@@ -2819,7 +2819,7 @@ async function availableSlots(req, res, db, auth) {
   const primaryRSS = rosterState && req.query.strict_roster === '1'
     ? {...rosterState, techs:rosterState.techs.filter(t=>t.status!=='off')} : rosterState;
 
-  if (req.query.strict_roster === '1' && !primaryRSS) throw new Error('Could not check the technician roster. Please retry.');
+  if (req.query.strict_roster === '1' && !primaryRSS) throw new Error('Could not check the cleaner roster. Please retry.');
   const primaryState = primaryRSS && (primaryAny || primaryRSS.state.has(techId) || req.query.strict_roster === '1')
     ? { ...primaryRSS, techs: primaryRSS.techs.filter(t => primaryAny || t.id === techId) } : null;
 
@@ -2878,7 +2878,7 @@ async function photoBonus(req, res, db, auth, body) {
   if (error) throw error;
   if (!ph) return res.status(404).json({ error: 'Photo not found' });
   const techId = ph.technician_id || ph.booking?.technician_id;
-  if (!techId) return res.status(400).json({ error: 'No tech on this photo' });
+  if (!techId) return res.status(400).json({ error: 'No cleaner on this photo' });
   const { data: t } = await db.from('technicians').select('business_id, business:businesses ( timezone )').eq('id', techId).maybeSingle();
   const tz = t?.business?.timezone || 'Asia/Manila';
   if (ph.booking_id) {
@@ -3504,7 +3504,7 @@ async function bookingCreate(req, res, db, auth, body) {
     }
     if (!technician_id) {
       if (body.require_available === true) return res.status(409).json({ code: 'slot_unavailable', error: 'That time is no longer available. Refresh the available times and choose another slot.' });
-      unassignedWarning = 'Heads up: no technician was still free for that slot, so this booking was created UNASSIGNED. Open the job and assign a tech (or move the time) — nobody is scheduled to show up yet.';
+      unassignedWarning = 'Heads up: no cleaner was still free for that slot, so this booking was created UNASSIGNED. Open the job and assign a cleaner (or move the time) — nobody is scheduled to show up yet.';
     }
   }
 
@@ -3531,14 +3531,14 @@ async function bookingCreate(req, res, db, auth, body) {
     const { data: secTech, error } = await db.from('technicians').select('name, active, status').eq('id', secondary_technician_id).maybeSingle();
     if (error) throw error;
     if (body.require_available === true && (!secTech || secTech.active === false || secTech.status === 'off')) {
-      return res.status(409).json({ code: 'slot_unavailable', error: 'The second technician is no longer available. Recheck the available times before booking.' });
+      return res.status(409).json({ code: 'slot_unavailable', error: 'The second cleaner is no longer available. Recheck the available times before booking.' });
     }
     if (secTech && isSecondaryIneligibleName(secTech.name)) {
-      return res.status(400).json({ error: `${secTech.name} can't be booked as a second technician. Pick another second tech or another time.` });
+      return res.status(400).json({ error: `${secTech.name} can't be booked as a second technician. Pick another second cleaner or another time.` });
     }
   }
   if (body.needs_lifting && !secondary_technician_id && !primaryBringsOwnSecond) {
-    return res.status(body.require_available === true ? 409 : 400).json({ code: 'slot_unavailable', error: 'This job requires a second technician, but no one from the chosen team is free for that time. Pick a specific second tech or another time.' });
+    return res.status(body.require_available === true ? 409 : 400).json({ code: 'slot_unavailable', error: 'This job requires a second cleaner, but no one from the chosen team is free for that time. Pick a specific second cleaner or another time.' });
   }
   if (secondary_technician_id && secondary_technician_id === technician_id) {
     return res.status(400).json({ error: 'The two technicians must be different.' });
@@ -3586,13 +3586,13 @@ async function bookingCreate(req, res, db, auth, body) {
       if (secondary_technician_id) {
         const taken2 = slotState.get(secondary_technician_id).booked;
         if (taken2.has(conflictSlot)) {
-          return res.status(409).json({ code: 'slot_unavailable', error: 'The second technician is already booked for this time slot. Choose another time or technician.' });
+          return res.status(409).json({ code: 'slot_unavailable', error: 'The second cleaner is already booked for this time slot. Choose another time or technician.' });
         }
         if (!forcedIds.has(String(secondary_technician_id))) {
           const keys2 = slotState.get(secondary_technician_id).keys;
           if (!keys2.has(conflictSlot)) {
             const { data: t2 } = await db.from('technicians').select('name').eq('id', secondary_technician_id).maybeSingle();
-            return res.status(409).json({ error: `${t2?.name || 'The second technician'} isn't scheduled to work that day/time — they may have requested it off. Pick another technician or time, or confirm to book anyway.`, code: 'tech_unavailable', tech_id: secondary_technician_id });
+            return res.status(409).json({ error: `${t2?.name || 'The second cleaner'} isn't scheduled to work that day/time — they may have requested it off. Pick another technician or time, or confirm to book anyway.`, code: 'tech_unavailable', tech_id: secondary_technician_id });
           }
         }
       }
@@ -3685,7 +3685,7 @@ async function bookingCreate(req, res, db, auth, body) {
     if (!missing) break;
     if (missing === 'idempotency_key' && idempotencyKey) break;
     if (missing === 'secondary_technician_id' && wantedSecondTech) {
-      return res.status(503).json({ error: 'This database can\'t store a second technician yet (missing the two-technician upgrade). Apply migration 0019_secondary_technician.sql in Supabase, then rebook. The booking was not created so the second tech isn\'t silently lost.' });
+      return res.status(503).json({ error: 'This database can\'t store a second cleaner yet (missing the two-technician upgrade). Apply migration 0019_secondary_technician.sql in Supabase, then rebook. The booking was not created so the second cleaner isn\'t silently lost.' });
     }
     console.warn(`[admin] bookings.${missing} not found, retrying without it`);
     delete insertObj[missing];
@@ -4168,13 +4168,13 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
         if (effSecondTech) {
           const taken2 = await bookedSlotKeysForTech(db, biz.id, effSecondTech, effDate, tz, id);
           if (taken2.has(slotKey)) {
-            return res.status(409).json({ error: 'The second technician is already booked for this time slot. Choose another time or technician.' });
+            return res.status(409).json({ error: 'The second cleaner is already booked for this time slot. Choose another time or technician.' });
           }
           if (!forcedIds.has(String(effSecondTech))) {
             const keys2 = await singleTechSlotKeys(db, effSecondTech, effDate, dow);
             if (!keys2.has(slotKey)) {
               const { data: t2 } = await db.from('technicians').select('name').eq('id', effSecondTech).maybeSingle();
-              return res.status(409).json({ error: `${t2?.name || 'The second technician'} isn't scheduled to work that day/time — they may have requested it off. Pick another technician or time, or confirm to book anyway.`, code: 'tech_unavailable', tech_id: effSecondTech });
+              return res.status(409).json({ error: `${t2?.name || 'The second cleaner'} isn't scheduled to work that day/time — they may have requested it off. Pick another technician or time, or confirm to book anyway.`, code: 'tech_unavailable', tech_id: effSecondTech });
             }
           }
         }
@@ -4436,8 +4436,8 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       const fmt = (iso) => iso ? new Date(iso).toLocaleString('en-US', { timeZone: notifyTz, weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : 'no time';
       await db.from('booking_notes').insert({
         business_id: biz.id, booking_id: id, author_kind: 'technician',
-        author_id: opts.techNote.author_id, author_name: opts.techNote.author_name || 'Technician',
-        body: `Rescheduled by ${opts.techNote.author_name || 'technician'} (${opts.actor}) in the tech app: ${fmt(existing.scheduled_at)} -> ${fmt(patch.scheduled_at)}.`,
+        author_id: opts.techNote.author_id, author_name: opts.techNote.author_name || 'Cleaner',
+        body: `Rescheduled by ${opts.techNote.author_name || 'technician'} (${opts.actor}) in the cleaner app: ${fmt(existing.scheduled_at)} -> ${fmt(patch.scheduled_at)}.`,
       }).then(({ error }) => { if (error) console.warn('[tech_reschedule] note failed:', error.message); });
     }
   }
@@ -4484,7 +4484,7 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
   }
   if (Number(body.li_rev) !== curRev) {
     return res.status(409).json({
-      error: 'This ticket was changed by someone else (another office member or the tech) after you opened it. Close the job, reopen it to see the latest items, then redo your edit.',
+      error: 'This ticket was changed by someone else (another office member or the cleaner) after you opened it. Close the job, reopen it to see the latest items, then redo your edit.',
       code: LI_CONFLICT_CODE,
     });
   }
@@ -4833,7 +4833,7 @@ async function bookingPayment(req, res, db, auth, body) {
     if (!fresh) return res.status(404).json({ error: 'Booking not found' });
     if (fresh.payment_status === 'paid') return res.status(400).json({ error: 'This booking is already paid.' });
     if (fresh.payment_status === 'charging') {
-      return res.status(409).json({ error: 'This booking is already being charged (maybe from the tech app) — check if it went through before trying again.' });
+      return res.status(409).json({ error: 'This booking is already being charged (maybe from the cleaner app) — check if it went through before trying again.' });
     }
     priorPaymentStatus = fresh.payment_status;
     const { data: locked, error: lockErr } = await db.from('bookings')
@@ -4842,7 +4842,7 @@ async function bookingPayment(req, res, db, auth, body) {
       .select('id').maybeSingle();
     if (lockErr) throw lockErr;
     if (!locked) {
-      return res.status(409).json({ error: 'This booking is already being charged (maybe from the tech app) — check if it went through before trying again.' });
+      return res.status(409).json({ error: 'This booking is already being charged (maybe from the cleaner app) — check if it went through before trying again.' });
     }
   }
 
@@ -6912,7 +6912,7 @@ async function reviewInviteSend(req, res, db, auth, body) {
   const { data: t, error } = await db.from('technicians')
     .select('id, name, phone, business_id, active').eq('id', id).eq('business_id', biz.id).maybeSingle();
   if (error) throw error;
-  if (!t) return res.status(404).json({ error: 'Technician not found' });
+  if (!t) return res.status(404).json({ error: 'Cleaner not found' });
   if (t.active === false) return res.status(400).json({ error: `${t.name} is deactivated. Reactivate them before sending a review invite.` });
   if (!t.phone) return res.status(400).json({ error: `${t.name} has no phone number set` });
 
@@ -7051,7 +7051,7 @@ async function techInviteCreate(req, res, db, auth, body) {
     if (oErr) throw oErr;
     const hits = (owners || []).filter(t => digits10(t.phone) === d10);
     const live = hits.find(t => t.active);
-    if (live) return res.status(409).json({ code: 'PHONE_IN_USE', error: `That number already belongs to ${live.name} (${live.businesses?.name || 'an active tech'}). They can already sign in to the tech app.` });
+    if (live) return res.status(409).json({ code: 'PHONE_IN_USE', error: `That number already belongs to ${live.name} (${live.businesses?.name || 'an active cleaner'}). They can already sign in to the cleaner app.` });
     const old = hits.find(t => !t.active && t.business_id === biz.id);
     if (old) return res.status(409).json({ code: 'PAST_PROFILE', error: `That number is on ${old.name}'s old profile. Tap "Show inactive techs", then Activate and Set PIN on their card instead of sending an invite.` });
   }
@@ -7128,7 +7128,7 @@ async function techInviteRevoke(req, res, db, auth, body) {
     .update({ status: 'revoked', revoked_at: new Date().toISOString(), revoked_by: adminAuthorName(auth) })
     .eq('id', String(body.id)).eq('business_id', biz.id).eq('status', 'pending').select('id');
   if (error) throw error;
-  if (!data || !data.length) return res.status(409).json({ error: 'That invite was already used or canceled. To stop a tech who joined, Deactivate them.' });
+  if (!data || !data.length) return res.status(409).json({ error: 'That invite was already used or canceled. To stop a cleaner who joined, Deactivate them.' });
   return res.status(200).json({ ok: true });
 }
 
@@ -7139,7 +7139,7 @@ async function technicianUpdate(req, res, db, auth, body) {
   if (!id) return res.status(400).json({ error: 'id required' });
 
   const { data: existing } = await db.from('technicians').select('id').eq('id', id).eq('business_id', biz.id).single();
-  if (!existing) return res.status(404).json({ error: 'Technician not found' });
+  if (!existing) return res.status(404).json({ error: 'Cleaner not found' });
 
   const patch = {};
   if (body.status !== undefined) patch.status = body.status;
@@ -7184,7 +7184,7 @@ async function technicianPhotoUpload(req, res, db, auth, body) {
   const id = body.id;
   if (!id) return res.status(400).json({ error: 'id required' });
   const { data: existing } = await db.from('technicians').select('id, photo_url').eq('id', id).eq('business_id', biz.id).single();
-  if (!existing) return res.status(404).json({ error: 'Technician not found' });
+  if (!existing) return res.status(404).json({ error: 'Cleaner not found' });
 
   const up = await uploadImage(body.image, `tech-photos/${biz.id}/${id}`);
   const { error } = await db.from('technicians').update({ photo_url: up.url }).eq('id', id).eq('business_id', biz.id);
@@ -7197,7 +7197,7 @@ async function techAvailability(req, res, db, auth) {
   const techId = (req.query.tech_id || '').toString();
   if (!techId) return res.status(400).json({ error: 'tech_id required' });
   const { data: tech } = await db.from('technicians').select('id').eq('id', techId).eq('business_id', biz.id).single();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
 
   const { data, error } = await db.from('technician_availability')
     .select('day_of_week, slot_key').eq('technician_id', techId);
@@ -7224,7 +7224,7 @@ async function techAvailabilitySet(req, res, db, auth, body) {
   const techId = (body.tech_id || '').toString();
   if (!techId) return res.status(400).json({ error: 'tech_id required' });
   const { data: tech } = await db.from('technicians').select('id').eq('id', techId).eq('business_id', biz.id).single();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
 
   let rows;
   try { rows = normalizeSlots(body.slots); }
@@ -7246,7 +7246,7 @@ async function techAvailabilityExceptionSet(req, res, db, auth, body) {
   const techId = (body.tech_id || '').toString();
   if (!techId) return res.status(400).json({ error: 'tech_id required' });
   const { data: tech } = await db.from('technicians').select('id').eq('id', techId).eq('business_id', biz.id).single();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
 
   let date, rows;
   try {
@@ -7519,17 +7519,17 @@ async function reviewSubmit(req, res, body) {
       customerName: booking.customer?.name || 'Customer',
       rating,
       feedback,
-      technicianName: booking.technician?.name || 'Technician',
+      technicianName: booking.technician?.name || 'Cleaner',
       serviceAreaName: booking.service_area?.name || 'Service Area',
     }).catch(err => console.warn('[review] email send failed:', err));
   }
 
   if (booking.technician?.phone && rating <= 4) {
-    const techName = booking.technician.name || 'Technician';
+    const techName = booking.technician.name || 'Cleaner';
     const msg = `${techName} you just received a bad review... Please check your profile to view.`;
     await sendSMS(booking.technician.phone, msg).catch(err => console.warn('[review] tech SMS send failed:', err));
   } else if (booking.technician?.phone && rating === 5) {
-    const techName = booking.technician.name || 'Technician';
+    const techName = booking.technician.name || 'Cleaner';
     const who = booking.customer?.name || 'A customer';
     const msg = `${techName}, ${who} just left you a 5-star review on ${booking.business?.name || 'the CRM'}! Nice work.`;
     await sendSMS(booking.technician.phone, msg).catch(err => console.warn('[review] tech SMS send failed:', err));
@@ -7538,7 +7538,7 @@ async function reviewSubmit(req, res, body) {
   if (rating <= 4) {
     const ownerPhone = process.env.OWNER_PHONE_NUMBER;
     if (ownerPhone) {
-      const techName = booking.technician?.name || 'Technician';
+      const techName = booking.technician?.name || 'Cleaner';
       const msg = `${techName} received a ${rating}-star review on ${booking.business?.name || 'a booking'}. Customer: ${booking.customer?.name || 'Unknown'}`;
       await sendSMS(ownerPhone, msg).catch(err => console.warn('[review] owner SMS send failed:', err));
     }
@@ -7845,7 +7845,7 @@ async function notificationResend(req, res, db, auth, body) {
 
   if (kind === 'tech_new_job') {
     const techId = body.technician_id || b.technician_id;
-    if (!techId) return res.status(400).json({ error: 'No technician assigned to this job.' });
+    if (!techId) return res.status(400).json({ error: 'No cleaner assigned to this job.' });
     if (!smsNotificationsOn()) return res.status(503).json({ error: 'Text notifications are turned off.' });
     await notifyTechAssigned(db, biz, techId, b.scheduled_at, tz, { bookingId: id });
     return res.status(200).json({ ok: true });
@@ -9264,7 +9264,7 @@ async function reviewAskRate(req, res, db, auth) {
   if (error) throw error;
   const name = new Map((techs || []).map(t => [t.id, t.name]));
   const rows = new Map();
-  const row = id => rows.get(id) || rows.set(id, { technician_id: id, name: name.get(id) || 'Technician', completed: 0, asked: 0, google: 0 }).get(id);
+  const row = id => rows.get(id) || rows.set(id, { technician_id: id, name: name.get(id) || 'Cleaner', completed: 0, asked: 0, google: 0 }).get(id);
   for (const j of jobs || []) { const r = row(j.technician_id); r.completed++; if (j.review_ask === 'now' || j.review_ask === 'later') r.asked++; }
   for (const g of gr || []) row(g.technician_id).google++;
   return res.status(200).json({ rows: [...rows.values()].sort((a, b) => b.completed - a.completed) });
@@ -9326,7 +9326,7 @@ async function googleReviewUpdate(req, res, db, auth, body) {
           ({ data: t } = await db.from('technicians').select('id, name, phone').eq('id', tid).eq('business_id', partner.id).maybeSingle());
         }
       }
-      if (!t) return res.status(404).json({ error: 'Technician not found' });
+      if (!t) return res.status(404).json({ error: 'Cleaner not found' });
       newTech = t;
       const { data: prior } = await db.from('google_reviews')
         .select('technician_id').eq('id', id).eq('business_id', biz.id).maybeSingle();
@@ -12162,7 +12162,7 @@ async function zbImport(req, res, db, body) {
   const techByCrew = {};
   for (const t of techs || []) if (t.zenbooker_provider_id) techByCrew[t.zenbooker_provider_id] = t.id;
   const techByName = {};
-  for (const t of techs || []) techByName[(t.name || '').toLowerCase()] = t.id;
+  for (const t of cleaners || []) techByName[(t.name || '').toLowerCase()] = t.id;
 
   const crewNames = body.crew_names || {};
   const neededCrews = [...new Set(rows.map(r => r.crew).filter(Boolean))];
@@ -12894,7 +12894,7 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
           ? Math.round(Number(b.amount_paid) || Number(b.price) || 0)
           : 0;
         const breakdown = [...(result.breakdown || [])];
-        if (collected > 0) breakdown.push({ label: `Cash collected from customer (kept by tech)`, amount: -collected });
+        if (collected > 0) breakdown.push({ label: `Cash collected from customer (kept by cleaner)`, amount: -collected });
         const tipShare = Number(result.tip) || 0;
         const ovr = b.metadata?.tech_pay_override?.[techId];
         if (ovr != null && Number.isFinite(Number(ovr))) {
@@ -12910,7 +12910,7 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
             const sz = /98/.test(x.label) ? '98' : /8[56]/.test(x.label) ? '85' : 'default';
             cut += (tvAdj[sz] ?? tvAdj.default) * q; tvs += q;
           }
-          if (cut) { breakdown.push({ label: `New tech rate (${tvs} TV${tvs === 1 ? '' : 's'})`, amount: cut }); result = { ...result, pay: result.pay + cut, total: result.total + cut }; }
+          if (cut) { breakdown.push({ label: `New cleaner rate (${tvs} TV${tvs === 1 ? '' : 's'})`, amount: cut }); result = { ...result, pay: result.pay + cut, total: result.total + cut }; }
         }
         const netPay = result.total - collected;
         techPayroll[techId].jobs.push({
@@ -12937,7 +12937,7 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
     for (const bns of bonuses || []) {
       if (bns.technician?.business_id !== biz.id) continue;
       const tId = bns.technician_id;
-      if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Technician', jobs: [], deferred: [], total: 0 };
+      if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Cleaner', jobs: [], deferred: [], total: 0 };
       const amt = Math.round(Number(bns.amount) || 0);
       techPayroll[tId].jobs.push({
         id: `review-bonus-${tId}`,
@@ -12971,7 +12971,7 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
       const detail=partsAdjustmentDetail(partsCorrections,bns,parsedWeek);
       if(amt<0 && String(bns.message||'').startsWith('Parts reimbursement correction') && !detail) continue;
       const tId = bns.technician_id;
-      if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Technician', jobs: [], deferred: [], total: 0 };
+      if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Cleaner', jobs: [], deferred: [], total: 0 };
       techPayroll[tId].jobs.push({
         id: `bonus-${bns.id}`,
         bonus: true,
@@ -14034,7 +14034,7 @@ async function techNotesAdd(req, res, db, auth, body) {
   if (targetType === 'tech') {
     const tid = (body.technician_id || '').toString();
     const { data: t } = await db.from('technicians').select('id').eq('id', tid).eq('active', true).maybeSingle();
-    if (!t) return res.status(400).json({ error: 'Pick a technician' });
+    if (!t) return res.status(400).json({ error: 'Pick a cleaner' });
     row.technician_id = t.id;
   } else if (targetType === 'city') {
     const city = (body.city || '').toString().trim();
@@ -14061,7 +14061,7 @@ async function techNotesList(req, res, db, auth) {
   if (ids.length) {
     const { data: ds } = await db.from('tech_note_dismissals')
       .select('note_id, dismissed_at, tech:technicians ( name )').in('note_id', ids);
-    (ds || []).forEach(d => { (dismissedBy[d.note_id] = dismissedBy[d.note_id] || []).push({ name: d.tech?.name || 'Tech', at: d.dismissed_at }); });
+    (ds || []).forEach(d => { (dismissedBy[d.note_id] = dismissedBy[d.note_id] || []).push({ name: d.tech?.name || 'Cleaner', at: d.dismissed_at }); });
   }
   const { data: roster } = await db.from('technicians')
     .select('id, name, area:service_areas ( name )').eq('active', true).order('name');
@@ -14110,7 +14110,7 @@ async function techNotesUpdate(req, res, db, auth, body) {
     patch.target_type = body.target_type; patch.technician_id = null; patch.city = null;
     if (body.target_type === 'tech') {
       const { data: t } = await db.from('technicians').select('id').eq('id', (body.technician_id || '').toString()).eq('active', true).maybeSingle();
-      if (!t) return res.status(400).json({ error: 'Pick a technician' });
+      if (!t) return res.status(400).json({ error: 'Pick a cleaner' });
       patch.technician_id = t.id;
     } else if (body.target_type === 'city') {
       const city = (body.city || '').toString().trim();
@@ -14923,7 +14923,7 @@ async function bracketConfirmInfo(req, res, db, auth) {
     const { data: c } = await db.from('bookings').select('secondary_technician_id, bracket_supplied_by').eq('id', id).maybeSingle();
     if (pf.tv_count > 0 && c?.secondary_technician_id && b.technician_id) {
       const { data: ts } = await db.from('technicians').select('id, name').in('id', [b.technician_id, c.secondary_technician_id]);
-      const nm = (tid) => (ts || []).find(t => t.id === tid)?.name || 'Technician';
+      const nm = (tid) => (ts || []).find(t => t.id === tid)?.name || 'Cleaner';
       pf.techs = [{ id: b.technician_id, name: nm(b.technician_id) }, { id: c.secondary_technician_id, name: nm(c.secondary_technician_id) }];
       pf.supplier = c.bracket_supplied_by || b.technician_id;
     }
@@ -14943,7 +14943,7 @@ async function bracketUpdate(req, res, db, auth, body) {
   if (!techId) return res.status(400).json({ error: 'technician_id required' });
 
   const { data: tech } = await db.from('technicians').select('id, business_id').eq('id', techId).single();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
   const techBizId = tech.business_id;
 
   let { data: inv } = await db.from('bracket_inventory')
@@ -15145,7 +15145,7 @@ async function bracketParseEmail(req, res, db, auth, body) {
     .select('id, name').eq('business_id', bizId).eq('active', true);
 
   const tech = (techs || []).find(t => t.name.toLowerCase().includes(techName.toLowerCase()));
-  if (!tech) return res.status(404).json({ error: `Technician "${techName}" not found` });
+  if (!tech) return res.status(404).json({ error: `Cleaner "${techName}" not found` });
 
   let existing = null;
   if (walmartOrderNum) {
@@ -15250,7 +15250,7 @@ async function bracketAssign(req, res, db, auth, body) {
 
   const { data: tech } = await db.from('technicians')
     .select('id, name, business_id').eq('id', techId).eq('active', true).maybeSingle();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
   const techBizId = tech.business_id;
 
   const flat = purchase.flat_qty || 0;
@@ -15382,7 +15382,7 @@ async function wirePlateAssign(req, res, db, auth, body) {
 
   const { data: tech } = await db.from('technicians')
     .select('id, name, business_id').eq('id', techId).eq('active', true).maybeSingle();
-  if (!tech) return res.status(404).json({ error: 'Technician not found' });
+  if (!tech) return res.status(404).json({ error: 'Cleaner not found' });
   const techBizId = tech.business_id;
 
   const plates = purchase.plates || 0;

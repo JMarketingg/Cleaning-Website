@@ -162,7 +162,7 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
       },
       {
         key: 'no_tech',
-        label: 'No technician assigned',
+        label: 'No cleaner assigned',
         test: (b) => !b.technician,
         detail: (b) => `${who(b)}'s job has nobody assigned yet.`,
       },
@@ -243,7 +243,7 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
       <table style="border-collapse:collapse;width:100%;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden;">
         <thead><tr style="background:#f9fafb;text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#6b7280;">
           <th style="padding:9px 10px;">Customer</th><th style="padding:9px 10px;">City</th>
-          <th style="padding:9px 10px;">Appointment</th><th style="padding:9px 10px;">Tech</th>
+          <th style="padding:9px 10px;">Appointment</th><th style="padding:9px 10px;">Cleaner</th>
           <th style="padding:9px 10px;">Booked by</th>
           <th style="padding:9px 10px;">Business</th>
           <th style="padding:9px 10px;text-align:right;">Total</th>

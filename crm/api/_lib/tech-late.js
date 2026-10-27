@@ -53,7 +53,7 @@ async function textOnDuty(db, slug, officePhone, msg, tag) {
 }
 
 function firstName(name) {
-  return (name || '').trim().split(/\s+/)[0] || 'Tech';
+  return (name || '').trim().split(/\s+/)[0] || 'Cleaner';
 }
 
 function baseUrl() {
@@ -200,7 +200,7 @@ export async function checkLateTechs(opts = {}) {
 
     const whenTxt = timeInTz(b.scheduled_at, tz) || 'scheduled';
     const techNames = techsWithPhone.map(t => firstName(t.name));
-    const namesJoined = techNames.length ? techNames.join(' and ') : 'The assigned tech';
+    const namesJoined = techNames.length ? techNames.join(' and ') : 'The assigned cleaner';
     const multi = techNames.length > 1;
 
     const stage3LateMinutes = Math.max(Math.round(STAGE3_AFTER_MS / MIN), Math.round(msSinceStart / MIN));

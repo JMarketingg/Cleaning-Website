@@ -218,10 +218,10 @@ function runSelfTests() {
      [true, 1], 'selection + hand-typed hardware IS a duplicate -> clamp');
   eq(names(canonicalizeLineItems([
     { name: 'Location-based pricing', kind: 'fee', line_total: 25 },
-    { name: 'Second Technician', kind: 'fee', line_total: 70 },
+    { name: 'Second Cleaner', kind: 'fee', line_total: 70 },
     { name: '33"–59"', kind: 'service', line_total: 109 },
-  ])), ['33"–59"', 'Second Technician', 'Location-based pricing'],
-     'location fee sits in the travel band, second tech stays with work');
+  ])), ['33"–59"', 'Second Cleaner', 'Location-based pricing'],
+     'location fee sits in the travel band, second cleaner stays with work');
 
   eq(names(recalcTaxLine([
     { name: '33"–59"', line_total: 220, taxable: true },

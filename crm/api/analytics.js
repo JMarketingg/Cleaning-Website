@@ -1164,7 +1164,7 @@ async function handleVoiceBotTurn(req, res) {
         const sizecat = answers.size && answers.size.sizecat;
         const needsLifting = sizecat && sizecat !== 'small' && (d.catalog.lifting || []).length;
         if (needsLifting) {
-          return goto('tv_lifting', { answers }, null, () => botMenuTwiml(action, "Since it's a larger TV, will you be able to help lift it, or should we send a second technician?"));
+          return goto('tv_lifting', { answers }, null, () => botMenuTwiml(action, "Since it's a larger TV, will you be able to help lift it, or should we send a second cleaner?"));
         }
         return goto('schedule_date', { answers }, null, (nn) => botAskDate(nn, action, session.business_slug));
       }
@@ -1172,10 +1172,10 @@ async function handleVoiceBotTurn(req, res) {
         const opts = botMenuOptionsFrom(d.catalog.lifting);
         let opt = botMatchMenu(opts, { digits, speech });
         if (!opt && speech) {
-          const picked = await botClaudeChoose('Will you be able to help lift the TV, or should we send a second technician?', speech, d.catalog.lifting.map(o => o.label));
+          const picked = await botClaudeChoose('Will you be able to help lift the TV, or should we send a second cleaner?', speech, d.catalog.lifting.map(o => o.label));
           if (picked) opt = { catalogOpt: d.catalog.lifting.find(o => o.label === picked) };
         }
-        if (!opt) return retry("Will you be able to help lift the TV, or would you like a second technician?");
+        if (!opt) return retry("Will you be able to help lift the TV, or would you like a second cleaner?");
         const answers = { ...d.answers, lifting: opt.catalogOpt };
         return goto('schedule_date', { answers }, null, (nn) => botAskDate(nn, action, session.business_slug));
       }

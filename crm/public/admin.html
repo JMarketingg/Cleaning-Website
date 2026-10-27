@@ -2493,7 +2493,7 @@
       <button data-nav="schedule" class="on"><span class="ic" data-ico="schedule">📅</span> Schedule</button>
       <button data-nav="estimates"><span class="ic" data-ico="estimate">🧾</span> Estimates <span class="nav-badge" id="estBadge" style="display:none;"></span></button>
       <button data-nav="customers"><span class="ic" data-ico="customers">👥</span> Customers</button>
-      <button data-nav="technicians" id="navTechnicians"><span class="ic" data-ico="wrench">🔧</span> Technicians</button>
+      <button data-nav="technicians" id="navTechnicians"><span class="ic" data-ico="wrench">🔧</span> Cleaners</button>
       <button data-nav="reviews" id="navReviews"><span class="ic" data-ico="star">⭐</span> Reviews</button>
       <button data-nav="callhub" id="navCallHub"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#fff" d="M8.6 5.5c.4 0 .7.2.9.6l1.1 2.5c.2.4.1.8-.2 1.1l-1 1c.6 1.4 1.8 2.7 3.3 3.4l1-1c.3-.3.7-.4 1.1-.2l2.5 1.1c.4.2.6.5.6.9v1.8c0 .8-.7 1.5-1.5 1.4C10.9 17.7 6.3 13.1 6 7c0-.8.6-1.5 1.4-1.5z"/></svg></span> <span id="navCallHubLabel">Calls</span> <span class="nav-badge" id="rcBadge" style="display:none;"></span><span class="nav-badge" id="critBadge" title="Critical calls" style="display:none;background:#dc2626;color:#fff;animation:navbadgepulse 1.4s infinite;"></span></button>
       <button data-nav="pipeline" id="navPipeline" style="display:none;"><span class="ic" data-ico="pipeline">📈</span> Pipeline <span class="nav-badge" id="plWhyBadge" style="display:none;"></span></button>
@@ -2623,7 +2623,7 @@
         <select class="search" style="margin:0" id="nbSecondTech"></select>
         <div id="nbSecondTechHint" style="font-size:12px;color:#9fb0c3;margin-top:5px;">Pick anyone from either company. Times shown only when both are available.</div>
       </div>
-      <div id="nbBringsOwnNote" style="display:none;font-size:12px;margin:8px 0 6px;padding:8px 10px;border-radius:8px;">This technician brings their own second person, so no second tech needs to be scheduled. The two-person fee still applies.</div>
+      <div id="nbBringsOwnNote" style="display:none;font-size:12px;margin:8px 0 6px;padding:8px 10px;border-radius:8px;">This technician brings their own second person, so no second cleaner needs to be scheduled. The two-person fee still applies.</div>
       <input type="hidden" id="nbDate">
       <div id="nbRequestedTimes" style="display:none;font-size:13px;padding:10px 12px;border-radius:8px;margin-bottom:8px;"></div>
       <div id="nbCalWrap" style="display:none;">
@@ -2678,8 +2678,8 @@
         <div class="nb-ups-sub">Tap to add it to the estimate. The customer chooses what to keep — it doesn't change this booking.</div>
         <div class="nb-ups-tech">
           <label class="fld" for="nbUpsTech" style="margin:0 0 6px;">Who goes on this job</label>
-          <select class="search" id="nbUpsTech" style="margin:0;"><option value="">Any tech (default)</option></select>
-          <div class="es-help" id="nbUpsTechHelp">The customer sees every tech's open times.</div>
+          <select class="search" id="nbUpsTech" style="margin:0;"><option value="">Any cleaner (default)</option></select>
+          <div class="es-help" id="nbUpsTechHelp">The customer sees every cleaner's open times.</div>
         </div>
         <div id="nbUpsChips" class="nb-ups-chips"></div>
         <div id="nbUpsCustom"></div>
@@ -2724,7 +2724,7 @@
   <div class="sheet" style="max-width:420px;">
     <h2>Reschedule</h2>
     <div class="sub" id="rsSub" style="font-size:13px;margin:-8px 0 16px;"></div>
-    <label class="rs-lbl" for="rsTech">1. Technician</label>
+    <label class="rs-lbl" for="rsTech">1. Cleaner</label>
     <select id="rsTech" class="search" style="margin:0 0 16px;"></select>
     <label class="rs-lbl" for="rsDate">2. New date</label>
     <input type="date" id="rsDate" class="search" style="margin:0 0 16px;">
@@ -2802,8 +2802,8 @@
 
         <div class="es-sec">
           <div class="es-h">Who goes on this job</div>
-          <select class="search" id="esTech" style="margin:0;"><option value="">Any tech (default)</option></select>
-          <div class="es-help" id="esTechHelp">The customer sees every tech's open times.</div>
+          <select class="search" id="esTech" style="margin:0;"><option value="">Any cleaner (default)</option></select>
+          <div class="es-help" id="esTechHelp">The customer sees every cleaner's open times.</div>
         </div>
 
         <div class="es-sec">
@@ -2861,7 +2861,7 @@
           <div id="esPvUps"></div>
           <div class="es-prev-times">
             <div class="es-prev-timeh" id="esPvTimeH">Pick your appointment time</div>
-            <div class="es-prev-timep" id="esPvTimeP">They choose from every tech's open times.</div>
+            <div class="es-prev-timep" id="esPvTimeP">They choose from every cleaner's open times.</div>
           </div>
         </div>
       </aside>
@@ -3202,14 +3202,14 @@ function jobClock(b){ return (b.slot_time||fmtClock(b.scheduled_at,jobTz(b)))+jo
 function bookingTz(b){
   if(b&&(b.tz||_areaTz[b.service_area_id])){ const t=b.tz||_areaTz[b.service_area_id]; return { tz:t, label:({'Asia/Manila':'Central time','Asia/Manila':'Manila time','Asia/Manila':'Pacific time','Asia/Manila':'Arizona time'})[t]||'' }; }
   const z=String((b&&b.postal_code)||'').trim();
-  if(/^8[01]/.test(z)) return { tz:'Asia/Manila',  label:'Mountain time' };
+  if(/^8[01]/.test(z)) return { tz:'Asia/Manila',  label:'Manila time' };
   if(/^7[3-8]/.test(z)) return { tz:'Asia/Manila', label:'Manila time'  };
   if(/^9[0-6]/.test(z)) return { tz:'Asia/Manila', label:'Manila time' };
   if(/^85/.test(z)) return { tz:'Asia/Manila', label:'Manila time' };
   const st=String((b&&b.state)||'').toUpperCase();
   if(st==='TX'||st==='OK') return { tz:'Asia/Manila', label:'Manila time' };
   if(st==='CA') return { tz:'Asia/Manila', label:'Manila time' };
-  if(st==='CO') return { tz:'Asia/Manila',  label:'Mountain time' };
+  if(st==='CO') return { tz:'Asia/Manila',  label:'Manila time' };
   return { tz:(current&&current.timezone)||'Asia/Manila', label:'' };
 }
 function fmtDateTimeTz(iso,tzName){ if(!iso) return '—'; try{ return new Date(iso).toLocaleString('en-PH',{timeZone:tzName,weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
@@ -3977,7 +3977,7 @@ function navTo(s){
   const greetEl=document.getElementById('greeting');
   if(!sched){ greetEl.classList.add('hidden'); if(greetingClock){ clearInterval(greetingClock); greetingClock=null; } }
   document.getElementById('bizName').textContent = current ? current.name : 'Schedule';
-  document.getElementById('mobTitle').textContent = ({schedule:'Schedule',estimates:'Estimates',brackets:'Bracket Inventory',customers:'Customers',technicians:'Technicians',reviews:'Reviews',callhub:'Calls',messages:'Messages',mycallperf:'My Call Performance',rankings:'Google Ranking',gallery:'Photos',analyticshub:'Analytics',payroll:'Payroll',myavailability:'My Availability',secretaries:'Virtual Assistants',other:'Other',launch:'Launch',gbplist:'Google Listings',notes:'Notes',myday:'Tasks',tasks:'Task',pipeline:'Pipeline',prospects:'Prospects',calendar:'Calendar',askandrew:(role==='owner'?'Ask':'Ask the Owner')})[s];
+  document.getElementById('mobTitle').textContent = ({schedule:'Schedule',estimates:'Estimates',brackets:'Bracket Inventory',customers:'Customers',technicians:'Cleaners',reviews:'Reviews',callhub:'Calls',messages:'Messages',mycallperf:'My Call Performance',rankings:'Google Ranking',gallery:'Photos',analyticshub:'Analytics',payroll:'Payroll',myavailability:'My Availability',secretaries:'Virtual Assistants',other:'Other',launch:'Launch',gbplist:'Google Listings',notes:'Notes',myday:'Tasks',tasks:'Task',pipeline:'Pipeline',prospects:'Prospects',calendar:'Calendar',askandrew:(role==='owner'?'Ask':'Ask the Owner')})[s];
   if(s==='messages') document.getElementById('mobTitle').textContent='';
   if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
   const view=document.getElementById('view');
@@ -4238,12 +4238,12 @@ function evtCard(b){
 function dollarSignSvg(){ return '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"></line><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"></path></svg>'; }
 function ghostEvtCard(g){
   const t=techCache.find(x=>x.id===g.technician_id);
-  const techName=t?.name||g.tech_name||'Tech';
+  const techName=t?.name||g.tech_name||'Cleaner';
   const start=fmtClock(g.scheduled_at,g.tz);
   const end=fmtClock(new Date(new Date(g.scheduled_at).getTime()+(g.duration_minutes||60)*60000).toISOString(),g.tz)+jobTzTag(g);
   const who=g.customer_name?` for ${esc(g.customer_name)}`:'';
   const canOpen=!!(g.booking_id&&g.open_slug&&businesses.concat(viewBusinesses).some(x=>x.slug===g.open_slug));
-  if(canOpen&&g.full) return `<div class="evt-ghost-open" data-ghost-id="${esc(g.booking_id)}" data-ghost-slug="${esc(g.open_slug)}">${evtCard({id:g.booking_id,_slug:g.open_slug,tz:g.tz,status:g.status,price:g.price,tip:g.tip,payment_status:g.payment_status,scheduled_at:g.scheduled_at,econ:g.econ||null,customer:{name:g.customer_name},technician:t||(g.technician_id?{id:g.technician_id,name:techName}:null),secondary_technician:g.second_technician_id?(techCache.find(x=>x.id===g.second_technician_id)||{id:g.second_technician_id,name:'Tech'}):null})}</div>`;
+  if(canOpen&&g.full) return `<div class="evt-ghost-open" data-ghost-id="${esc(g.booking_id)}" data-ghost-slug="${esc(g.open_slug)}">${evtCard({id:g.booking_id,_slug:g.open_slug,tz:g.tz,status:g.status,price:g.price,tip:g.tip,payment_status:g.payment_status,scheduled_at:g.scheduled_at,econ:g.econ||null,customer:{name:g.customer_name},technician:t||(g.technician_id?{id:g.technician_id,name:techName}:null),secondary_technician:g.second_technician_id?(techCache.find(x=>x.id===g.second_technician_id)||{id:g.second_technician_id,name:'Cleaner'}):null})}</div>`;
   if(canOpen) return `<div class="evt evt-ghost evt-ghost-open" data-ghost-id="${esc(g.booking_id)}" data-ghost-slug="${esc(g.open_slug)}" title="Open this ${esc(g.partner_company||'partner')} job${who}">
     <div class="ghost-t">${esc(start)} – ${esc(end)}</div>
     <div class="ghost-n">${esc(techName)} busy${who} <span class="ghost-tag">${esc((g.partner_company||'PARTNER').toUpperCase())}</span></div>
@@ -4305,7 +4305,7 @@ function dayGrid(ds){
   if(filterArea || jobSearchQuery) cols=cols.filter(t=>items.some(b=>b.technician_id===t.id||b.secondary_technician_id===t.id));
   const have=new Set(cols.map(t=>t.id));
   if(filterTech==='all') items.forEach(b=>[b.technician,b.secondary_technician].forEach(t=>{ if(t&&t.id&&!have.has(t.id)){ have.add(t.id); cols.push(t); } }));
-  if(filterTech==='all') ghosts.forEach(g=>{ if(g.technician_id&&!have.has(g.technician_id)){ have.add(g.technician_id); cols.push(techCache.find(t=>t.id===g.technician_id)||{id:g.technician_id,name:g.tech_name||'Tech'}); } });
+  if(filterTech==='all') ghosts.forEach(g=>{ if(g.technician_id&&!have.has(g.technician_id)){ have.add(g.technician_id); cols.push(techCache.find(t=>t.id===g.technician_id)||{id:g.technician_id,name:g.tech_name||'Cleaner'}); } });
   const unassigned=items.filter(b=>!b.technician_id);
   if(unassigned.length || filterTech==='unassigned') cols=cols.concat([{id:'__un',name:'Unassigned',un:true}]);
   if(!cols.length) return '<div class="dg-empty">No jobs for this day.</div>';
@@ -4361,9 +4361,9 @@ function listEcon(b){
       ? `<span class="ec-item"><label>Brackets</label> ${money(ec.bracket_cost)}</span>` : '';
     const cashRow = (ec.assigned && ec.cash_collected!=null)
       ? `<span class="ec-item"><label>Cash kept</label> −${money(ec.cash_collected)}</span>`+
-        `<span class="ec-item ec-profit${ec.net_tech_pay<0?' neg':''}"><label>Net to tech</label> ${money(ec.net_tech_pay)}</span>`
+        `<span class="ec-item ec-profit${ec.net_tech_pay<0?' neg':''}"><label>Net to cleaner</label> ${money(ec.net_tech_pay)}</span>`
       : '';
-    priv = `<span class="ec-item"><label>Tech Pay</label> ${payout}</span>`+
+    priv = `<span class="ec-item"><label>Cleaner Pay</label> ${payout}</span>`+
            brackets+
            cashRow+
            `<span class="ec-item ec-profit${profNeg}"><label>Profit</label> ${profit}</span>`;
@@ -4436,7 +4436,7 @@ async function renderAvailabilityGrid(dates){
   html+=`<div class="avb-legend">`+
     `<span class="avb-leg-item"><span class="avpill on" style="background:var(--accent)">8a</span> Available</span>`+
     `<span class="avb-leg-item"><span class="avpill on exc" style="background:var(--accent)">8a</span> One-time change</span>`+
-    `<span class="avb-leg-hint">Tap a technician to edit their schedule</span>`+
+    `<span class="avb-leg-hint">Tap a cleaner to edit their schedule</span>`+
   `</div>`;
   html+='<div class="avb-scroll"><div class="availboard">';
   html+='<div class="avb-cell avb-head avb-corner">Cleaner</div>';
@@ -4544,7 +4544,7 @@ function notificationLog(b){
   }
   for(const t of (b.tech_sms||[])){
     const who=t.tech_name?` — ${t.tech_name}`:'';
-    const label=(t.kind==='rescheduled'?'Tech notified: job moved':t.kind==='unassigned'?'Tech notified: job reassigned away':'Tech notified: new job')+who;
+    const label=(t.kind==='rescheduled'?'Cleaner notified: job moved':t.kind==='unassigned'?'Cleaner notified: job reassigned away':'Cleaner notified: new job')+who;
     const when=t.delivered_at||t.sent_at;
     const resendAttrs=t.technician_id?{kind:'tech_new_job',id:b.id,technician_id:t.technician_id}:null;
     if(t.status==='delivered') rows.push(notifPill(label,'✓','#4ade80','Delivered',when,resendAttrs));
@@ -4553,7 +4553,7 @@ function notificationLog(b){
     else rows.push(notifPill(label,'…','#fbbf24','Sending',when,resendAttrs));
   }
   if(b.technician_id && !(b.tech_sms||[]).some(t=>t.technician_id===b.technician_id)){
-    rows.push(notifPill(`Tech notified: new job${b.technician?.name?' — '+b.technician.name:''}`,'—','#9ca3af','No record',null,{kind:'tech_new_job',id:b.id,technician_id:b.technician_id}));
+    rows.push(notifPill(`Cleaner notified: new job${b.technician?.name?' — '+b.technician.name:''}`,'—','#9ca3af','No record',null,{kind:'tech_new_job',id:b.id,technician_id:b.technician_id}));
   }
   if(b.on_the_way_sms_status){
     const st=b.on_the_way_sms_status, when=b.on_the_way_sms_delivered_at||b.on_the_way_sms_sent_at;
@@ -4603,7 +4603,7 @@ document.getElementById('bkBody')?.addEventListener('click', async (e)=>{
   const btn=e.target.closest('.notif-resend-btn');
   if(!btn) return;
   const kind=btn.dataset.nrKind, id=btn.dataset.nrId, technicianId=btn.dataset.nrTechnicianId;
-  const LABELS={confirmation_email:'Confirmation email',tech_new_job:'Tech notification text',on_the_way_sms:'On the way text',review_sms:'Review request text',review_email:'Review request email'};
+  const LABELS={confirmation_email:'Confirmation email',tech_new_job:'Cleaner notification text',on_the_way_sms:'On the way text',review_sms:'Review request text',review_email:'Review request email'};
   const email=btn.dataset.nrEmail||'';
   if(kind==='confirmation_email'){
     if(!email) return;
@@ -4651,7 +4651,7 @@ async function addTwoPersonFee(b,_retried){
     unit_price: Number(li.price)||0,
     kind: li.kind||'service',
   }));
-  items.push({ name:'Second Technician', quantity:1, unit_price:70, kind:'fee' });
+  items.push({ name:'Second Cleaner', quantity:1, unit_price:70, kind:'fee' });
   if(hadTax){
     const base=items.reduce((s,it)=>s+(Number(it.unit_price)||0)*it.quantity,0);
     items.push({ name:'Tax (8.25%)', quantity:1, unit_price:Math.round(base*TAX_RATE*100)/100, kind:'fee' });
@@ -4865,7 +4865,7 @@ function openBooking(b){
     ${(()=>{ const en=b.metadata&&b.metadata.estimate_visit_notes; if(!en) return '';
       const row=(k,v)=>v?`<div style="margin-top:6px;"><b>${k}</b><div style="white-space:pre-wrap;">${esc(v)}</div></div>`:'';
       return `<div class="bk-d"><div class="bk-dtile">${bkIcon('note')}</div><div style="flex:1;">
-        <span class="bk-dl">Tech's estimate notes${en.by?' · '+esc(en.by):''}</span><div class="bk-dv">
+        <span class="bk-dl">Cleaner's estimate notes${en.by?' · '+esc(en.by):''}</span><div class="bk-dv">
         ${row('Customer\'s main goal',en.goal)}${row('Why an estimate / what\'s special',en.why)}${row('Parts needed',en.parts)}
         <div style="margin-top:6px;"><b>Labor price</b> ₱${esc(Number(en.labor||0).toFixed(2))}</div></div></div></div>`; })()}
     <div id="bkHistory"></div>
@@ -4884,7 +4884,7 @@ function openBooking(b){
       <div class="bk-minicard-head"><span class="bk-badge bk-badge-assign">👤</span><span class="bk-minicard-label">Assignment</span></div>
       <div class="bk-actions">
         <label class="bk-assign"><span class="bk-assign-label">Assign</span><select id="bkAssign" data-booking-id="${esc(b.id)}">${techOpts}</select></label>
-        ${showSecond?`<label class="bk-assign"><span class="bk-assign-label">2nd Tech</span><select id="bkSecondAssign">${secondTechOpts}</select></label>`:''}
+        ${showSecond?`<label class="bk-assign"><span class="bk-assign-label">2nd Cleaner</span><select id="bkSecondAssign">${secondTechOpts}</select></label>`:''}
       </div>
     </div>`:''}
     <div class="bk-minicard">
@@ -4963,7 +4963,7 @@ function openBooking(b){
     const secId=sa.value||null;
     await updateBooking({ id:b.id, action:'assign', secondary_technician_id: secId });
     if(secId && !hasTwoPersonFee(b)){
-      if(confirm('This is now a two-person job.\n\nAdd the $70 two-person fee to the customer’s bill? It charges for the second tech and pays BOTH techs correctly.\n\n(Tap Cancel to add the helper with no extra charge.)')){
+      if(confirm('This is now a two-person job.\n\nAdd the $70 two-person fee to the customer’s bill? It charges for the second cleaner and pays BOTH techs correctly.\n\n(Tap Cancel to add the helper with no extra charge.)')){
         try{ await addTwoPersonFee(b); toast('Two-person fee added — $70 + tax'); refreshCurrent(); }
         catch(e){ toast(e.message||'Could not add the fee'); }
       }
@@ -5678,7 +5678,7 @@ function officeAskBrackets(bc, warn){
       const ok=picks.every(Boolean) && (!needSup() || !!sup);
       m.innerHTML=`<div class="sheet" style="max-width:420px;">
         <h2>${n?'Bracket on each TV':'Wire plates used'}</h2>
-        ${n?`<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600;margin-bottom:10px;">Required. Tech didn't answer.</div>`:''}
+        ${n?`<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:8px 10px;font-size:13px;font-weight:600;margin-bottom:10px;">Required. Cleaner didn't answer.</div>`:''}
         ${picks.map((p,i)=>`<div style="margin-bottom:10px;">${n>1?`<div style="font-size:12px;font-weight:700;color:var(--mute);margin-bottom:4px;">TV ${i+1}</div>`:''}
           <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;">${OPTS.map(([k,l])=>`<button type="button" class="seg-btn${p===k?' active':''}" data-tv="${i}" data-k="${k}" style="${p===k?'background:var(--ink);color:#fff;border-color:var(--ink);':''}">${l}</button>`).join('')}</div></div>`).join('')}
         ${needSup()?`<div style="margin-bottom:10px;"><div style="font-size:12px;font-weight:700;color:var(--mute);margin-bottom:4px;">Whose stock?</div>
@@ -5742,7 +5742,7 @@ async function paymentAction(id, action, amount){
 
 const CHARGE_TERMS_VERSION='2026-07-01';
 const CHARGE_REFUND_POLICY=[
-  '1. Cancellations & rescheduling: You may cancel or reschedule at no charge up to 24 hours before your appointment. Cancellations inside 24 hours, or if our technician cannot access the property at the scheduled time, may incur a trip fee of up to $50.',
+  '1. Cancellations & rescheduling: You may cancel or reschedule at no charge up to 24 hours before your appointment. Cancellations inside 24 hours, or if our cleaner cannot access the property at the scheduled time, may incur a trip fee of up to $50.',
   '2. Payment: Payment is due upon completion of service. By signing, you confirm the work was completed to your satisfaction; charges for completed labor are final.',
   '3. Workmanship guarantee: If a mount we installed fails due to our workmanship within 30 days, we will return and correct it at no charge. This does not cover customer-supplied brackets or hardware, pre-existing wall or structural conditions, or damage from later modifications.',
   '4. Refund requests: If you are not satisfied, contact us within 3 days and we will first work to make it right. Any refund is limited to the labor performed and excludes brackets or materials already installed and any travel or trip fees.',
@@ -5808,7 +5808,7 @@ function openChargeFlowAdmin(b){
       ov.innerHTML=`
       <div style="padding:22px;max-width:520px;margin:0 auto;width:100%;overflow:auto;flex:1;text-align:center;box-sizing:border-box;">
         <h2 style="margin:18px 0 4px;">Add a tip?</h2>
-        <div style="color:var(--mute);margin-bottom:6px;">100% goes to the technician</div>
+        <div style="color:var(--mute);margin-bottom:6px;">100% goes to the cleaner</div>
         <div id="cfTotal" style="font-size:36px;font-weight:800;margin:16px 0;">${money(total())}</div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
           ${[20,30,50].map(p=>`<button class="btn ${tip===p?'':'ghost'}" data-tip="${p}" style="padding:20px 0;font-size:19px;">₱${p}</button>`).join('')}
@@ -6097,7 +6097,7 @@ function renderCustomerDetail(d){
     html += `<div class="empty" style="padding:14px 0;">No jobs yet.</div>`;
   } else {
     html += `<table style="width:100%;font-size:13px;border-collapse:collapse;"><thead><tr style="text-align:left;color:var(--mute);">
-        <th style="padding:5px 6px;">Date</th><th>Service</th><th>Tech</th><th style="text-align:right;">Price</th><th>Status</th><th>Review</th><th>GDS</th>
+        <th style="padding:5px 6px;">Date</th><th>Service</th><th>Cleaner</th><th style="text-align:right;">Price</th><th>Status</th><th>Review</th><th>GDS</th>
       </tr></thead><tbody>`;
     jobs.forEach((j,i)=>{
       const dt = j.scheduled_at ? payFmtDateUTC(j.scheduled_at.slice(0,10),{month:'short',day:'numeric',year:'numeric'}) : '—';
@@ -6287,7 +6287,7 @@ function drawGallery(){
   const totalKnown=galleryCounts ? PHOTO_CATS.reduce((n,c)=>n+(galleryCounts[c.key]||0),0) : null;
   const allCount=galleryCounts ? PHOTO_CATS.filter(c=>c.key!=='records').reduce((n,c)=>n+(galleryCounts[c.key]||0),0) : null;
   if(totalKnown===0 && galleryGroup!=='jiyah' && role!=='owner'){
-    view.innerHTML=`<div class="wrap">${switcher}<div class="empty">${crossBiz?'Nothing in TidyHaus’s To Post right now.':'No job photos yet. Technicians add photos to each job from their app.'}</div></div>`;
+    view.innerHTML=`<div class="wrap">${switcher}<div class="empty">${crossBiz?'Nothing in TidyHaus’s To Post right now.':'No job photos yet. Cleaners add photos to each job from their app.'}</div></div>`;
     view.querySelectorAll('[data-galbiz]').forEach(b=>b.addEventListener('click',()=>{ galleryBizSlug=b.dataset.galbiz==='ha'?'tidyhaus':null; renderGallery(); }));
     document.getElementById('galBizSel')?.addEventListener('change',e=>{ galleryBizSlug=e.target.value===current.slug?null:e.target.value; gallerySelected.clear(); renderGallery(); });
     return;
@@ -6619,9 +6619,9 @@ function insightsTechsHtml(techs){
       <td>${rev(t.review_avg_30d,t.review_n_30d)}</td>
     </tr>`;
   }).join('');
-  return `<div class="section card" data-ins-techs><h2 class="ins-h">Technicians <small>last 30 days</small></h2>
+  return `<div class="section card" data-ins-techs><h2 class="ins-h">Cleaners <small>last 30 days</small></h2>
     <div class="ins-tw"><table>
-      <thead><tr><th>Tech</th><th>Jobs</th><th>Revenue</th><th>Avg ticket</th><th>Cancel %</th><th>Late notices</th><th>Reviews</th></tr></thead>
+      <thead><tr><th>Cleaner</th><th>Jobs</th><th>Revenue</th><th>Avg ticket</th><th>Cancel %</th><th>Late notices</th><th>Reviews</th></tr></thead>
       <tbody>${rows}</tbody>
     </table></div></div>`;
 }
@@ -7064,7 +7064,7 @@ function anaRender(d){
   const brand=anaBrand();
   const t=d.totals;
   const upd=document.getElementById('anaUpdated');
-  if(upd) upd.textContent='Updated '+new Date(d.lastUpdated).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit',hour12:true})+' · times in Mountain Time · auto-refreshes';
+  if(upd) upd.textContent='Updated '+new Date(d.lastUpdated).toLocaleTimeString('en-PH',{timeZone:'Asia/Manila',hour:'numeric',minute:'2-digit',hour12:true})+' · times in Manila time · auto-refreshes';
 
   let html='';
   if(d.comparison){
@@ -8057,7 +8057,7 @@ async function renderFinances(){
   financeHubTab = await renderHub(FINANCE_TABS, financeHubTab, id=>{ financeHubTab=id; renderFinances(); }) || financeHubTab;
 }
 const FIN_CATEGORY_LABEL={
-  income:'Income', tech_payroll:'Tech Payroll', materials:'Materials', marketing:'Marketing',
+  income:'Income', tech_payroll:'Cleaner Payroll', materials:'Materials', marketing:'Marketing',
   software:'Software', insurance:'Insurance', fuel_vehicle:'Fuel/Vehicle', tax_set_aside:'Tax Set-Aside',
   personal_draw:'Personal Draw', fees_interest:'Fees/Interest', internal_transfer:'Internal Transfer',
   other:'Other', uncategorized:'Uncategorized',
@@ -8689,7 +8689,7 @@ function launchHaveHtml(key){
   const city=(_launchKeyCity||{})[key], hou=false;
   const techOk=techs.length>0;
   const adsCard=role==='owner'&&(!hou||key==='m:houston-ha')&&!['m:golden-ha','tvmountingdenver'].includes(key);
-  return `<div>${pill(techOk,'Tech')}${h.listing&&h.listing_url?`<a href="${esc(h.listing_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="text-decoration:none;">${pill(true,'Google listing ↗')}</a>`:pill(h.listing,'Google listing')}${adsCard?pill(h.ads,'Google Ads')+pill(!!trk,trk?'Calls tracked':'Calls not tracked'):''}</div>`;
+  return `<div>${pill(techOk,'Cleaner')}${h.listing&&h.listing_url?`<a href="${esc(h.listing_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="text-decoration:none;">${pill(true,'Google listing ↗')}</a>`:pill(h.listing,'Google listing')}${adsCard?pill(h.ads,'Google Ads')+pill(!!trk,trk?'Calls tracked':'Calls not tracked'):''}</div>`;
 }
 const ADS_TRACKING_NUMBER = { 'm:denver-ha':'+63 992 309 5621', 'm:houston-ha':'+63 992 309 5621', 'm:austin-ha':'+63 992 309 5621', 'm:okc-doms':'+63 992 309 5621', 'austin':'+63 992 309 5621' };
 async function gadsAddLogin(){ try{ const r=await api('gads_auth_url'); location.href=r.url; }catch(e){ toast(e.message||'Could not start'); } }
@@ -9413,7 +9413,7 @@ function renderPayrollData(d){
     </style>
     <div class="ap-grid">
       ${apSlugs.map(apPayRow).join('')}
-      ${apTile('Tech pay', 0, 'data-ap-field="tech_pay" class="ap-input"', ap.tech_pay, 'ap-save', 'ap-status ap-ts', 'data-ap-field="tech_pay"').replace('class="ap-tile"','class="ap-tile ap-tech"')}
+      ${apTile('Cleaner pay', 0, 'data-ap-field="tech_pay" class="ap-input"', ap.tech_pay, 'ap-save', 'ap-status ap-ts', 'data-ap-field="tech_pay"').replace('class="ap-tile"','class="ap-tile ap-tech"')}
     </div>
     ${apAddable.length?`<div style="display:flex; align-items:center; gap:8px; margin-bottom:14px;">
       <select id="apAddBiz" style="padding:7px 9px; border:1px solid var(--line); border-radius:8px; font-size:14px; background:#fff; color:var(--ink);">
@@ -9560,7 +9560,7 @@ function renderPayrollData(d){
     <div class="pr-kpi"><div class="v green">${payFmtUSD(total)}</div><div class="l">Total Payroll<br>(this week)</div></div>
     <div class="pr-kpi"><div class="v ink">${payFmtUSD(laborTotal)}</div><div class="l">Labor Pay</div></div>
     <div class="pr-kpi"><div class="v ink">${payFmtUSD(tipsTotal)}</div><div class="l">Tips</div></div>
-    <div class="pr-kpi"><div class="v blue">${techs.length}</div><div class="l">Technicians Paid</div></div>
+    <div class="pr-kpi"><div class="v blue">${techs.length}</div><div class="l">Cleaners Paid</div></div>
     <div class="pr-kpi"><div class="v blue">${jobsCount}</div><div class="l">Jobs Worked</div></div>
     <div class="pr-kpi"><div class="v ink">${payDateLbl}</div><div class="l">Pay Date<br>(Saturday + 9 days)</div></div>
   </div>`;
@@ -9641,8 +9641,8 @@ function renderPayrollData(d){
 
   const techsWithJobs = techs.filter(t=>t.jobs.length);
   if(techsWithJobs.length){
-    html+=`<div class="pr-sec">Per-Tech Job Breakdown</div>`;
-    html+=`<div class="pr-note">Every paid job per technician — customer, pay breakdown, and total pay. ⚠️ flags a job that needs review.</div>`;
+    html+=`<div class="pr-sec">Per-Cleaner Job Breakdown</div>`;
+    html+=`<div class="pr-note">Every paid job per cleaner — customer, pay breakdown, and total pay. ⚠️ flags a job that needs review.</div>`;
     for(const t of techsWithJobs){
       html+=`<div class="pr-sec" style="font-size:16px; margin-top:24px;">${esc(t.name)} <span class="meta">— ${realJobs(t)} job${realJobs(t)===1?'':'s'}${t.jobs.some(j=>j.bonus&&!j.adjustment)?' + bonus':''}, <span class="amt">${payFmtUSD(t.total)}</span></span></div>`;
       if(t.paid_snapshot) html+=`<div class="pr-note">Already paid ${payFmtUSD(t.paid_snapshot.amount)}. Corrected earnings ${payFmtUSD(t.total)}. ${t.paid_snapshot.corrections.map(c=>`${payFmtUSD(c.deduction)} recovery scheduled for week of ${esc(c.target_week)}.`).join(' ')}</div>`;
@@ -9671,7 +9671,7 @@ function renderPayrollData(d){
   }
 
   const deferRows=[];
-  for(const t of techs){
+  for(const t of cleaners){
     for(const j of (t.deferred||[])) deferRows.push({ tech:t.name, ...j });
   }
   if(deferRows.length){
@@ -9679,7 +9679,7 @@ function renderPayrollData(d){
     html+=`<div class="pr-sec">Awaiting Customer Payment (deferred)</div>`;
     html+=`<div class="pr-note">Work completed but not yet paid — tech pay is deferred until the customer pays.</div>`;
     html+=`<table class="pr-tbl"><thead><tr>
-        <th>Time</th><th>Customer</th><th>Service</th><th>Tech</th><th class="r">Outstanding</th>
+        <th>Time</th><th>Customer</th><th>Service</th><th>Cleaner</th><th class="r">Outstanding</th>
       </tr></thead><tbody>`;
     deferRows.forEach((j,i)=>{
       html+=`<tr class="${i%2?'z':''}">
@@ -10157,7 +10157,7 @@ function tinvCopy(text,msg){
 function techInviteMetroNote(m){
   if(!m) return '';
   if(m.unstaffed) return `${m.name} isn't taking online bookings yet. They can sign up now; automatic jobs start once you open ${m.name}.`;
-  if(m.techs.length) return `${m.name} already has ${m.techs.join(', ')}. A new tech gets first pick of automatic bookings until their weekly job count catches up, so some of those jobs will go to them. A max jobs per day eases them in.`;
+  if(m.techs.length) return `${m.name} already has ${m.techs.join(', ')}. A new cleaner gets first pick of automatic bookings until their weekly job count catches up, so some of those jobs will go to them. A max jobs per day eases them in.`;
   return `Nobody works ${m.name} yet, so once they sign up, online bookings there go to them.`;
 }
 function techInviteStateChip(i){
@@ -10180,10 +10180,10 @@ function techInviteTimeline(i){
 function techInviteBlockHtml(inv){
   if(role!=='owner') return '';
   if(!TECH_INVITE_SLUGS.includes(current.slug)){
-    return `<div class="meta" style="margin:0 0 12px;font-size:13px;">New technicians are invited from TidyHaus or Dom's. ${esc(current.name||'This brand')} books TidyHaus's techs.</div>`;
+    return `<div class="meta" style="margin:0 0 12px;font-size:13px;">New cleaners are invited from TidyHaus or Dom's. ${esc(current.name||'This brand')} books TidyHaus's techs.</div>`;
   }
   if(!inv||inv.error){
-    return `<div class="job" style="margin-bottom:14px;"><div class="meta">Technician invites couldn't load${inv&&inv.error?`: ${esc(inv.error)}`:''}.</div></div>`;
+    return `<div class="job" style="margin-bottom:14px;"><div class="meta">Cleaner invites couldn't load${inv&&inv.error?`: ${esc(inv.error)}`:''}.</div></div>`;
   }
   const rows=(inv.invites||[]).map(i=>{
     const live=i.state==='open'||i.state==='expired';
@@ -10200,9 +10200,9 @@ function techInviteBlockHtml(inv){
   }).join('');
   return `<div class="job" id="techInviteCard" style="margin-bottom:14px;">
     <div class="row" style="align-items:center;gap:12px;flex-wrap:wrap;">
-      <div style="flex:1;min-width:220px;"><div class="name">Invite a technician</div>
+      <div style="flex:1;min-width:220px;"><div class="name">Invite a cleaner</div>
         <div class="meta">Send someone a sign-up link. They create a login, pick their weekly times, and start getting jobs.</div></div>
-      <button class="btn sm" type="button" id="techInviteNew" style="width:auto;">+ Invite a technician</button>
+      <button class="btn sm" type="button" id="techInviteNew" style="width:auto;">+ Invite a cleaner</button>
     </div>
     ${rows?`<div style="margin-top:10px;">${rows}</div>`:''}
   </div>`;
@@ -10270,12 +10270,12 @@ function openTechInviteModal(){
   let created=false;
   const modal=document.createElement('div'); modal.className='modal';
   modal.innerHTML=`<div class="sheet" style="max-width:480px;">
-    <h2>Invite a technician</h2>
+    <h2>Invite a cleaner</h2>
     <p style="color:var(--mute);font-size:13px;margin:-6px 0 14px;line-height:1.5;">They get a link to create their login and pick the times they can work (about 2 minutes). When they tap Start they're live for jobs, and you get a text.</p>
     <div id="tinvForm">
       <div${metros.length===1?' style="display:none;"':''}>
         <label class="fld">Metro</label>
-        <select id="tinvArea" style="${inputCss}">${metros.map(m=>`<option value="${esc(m.id)}"${m.id===pick.id?' selected':''}>${esc(m.name)}${m.unstaffed?' (not taking online bookings yet)':m.techs.length?` (${m.techs.length} tech${m.techs.length===1?'':'s'})`:' (no techs yet)'}</option>`).join('')}</select>
+        <select id="tinvArea" style="${inputCss}">${metros.map(m=>`<option value="${esc(m.id)}"${m.id===pick.id?' selected':''}>${esc(m.name)}${m.unstaffed?' (not taking online bookings yet)':m.techs.length?` (${m.techs.length} tech${m.techs.length===1?'':'s'})`:' (no cleaners yet)'}</option>`).join('')}</select>
       </div>
       <div id="tinvNote" style="font-size:12.5px;color:var(--mute);line-height:1.5;margin:-4px 0 12px;"></div>
       <label class="fld">Their first name <span style="font-weight:400;color:var(--mute);">(optional, for "Hi Maria" in the text)</span></label>
@@ -10312,7 +10312,7 @@ function openTechInviteModal(){
     if(sendSms&&!phoneRaw){ err.textContent='Add their cell number to text the invite, or use "Just give me the link".'; return; }
     if(sendSms){
       const first=name.split(/\s+/)[0];
-      const preview=`${brand}: ${first?`Hi ${first}, you're`:"You're"} invited to join our technician team in ${m.name}. Create your login and pick the times you can work (about 2 min): <their sign-up link> Link expires <in 7 days>.`;
+      const preview=`${brand}: ${first?`Hi ${first}, you're`:"You're"} invited to join our cleaner team in ${m.name}. Create your login and pick the times you can work (about 2 min): <their sign-up link> Link expires <in 7 days>.`;
       if(!confirm(`Text this to ${tinvPhone(d10)}?\n\n"${preview}"`)) return;
     }
     const btns=modal.querySelectorAll('#tinvForm button'); btns.forEach(b=>b.disabled=true);
@@ -10336,7 +10336,7 @@ function openTechInviteModal(){
         </div>`;
       q('#tinvForm').style.display='none'; q('#tinvDone').style.display='';
       q('#tinvCopy').addEventListener('click',()=>tinvCopy(d.link,'Sign-up link copied'));
-      const sh=q('#tinvShare'); if(sh) sh.addEventListener('click',()=>navigator.share({ title:'Technician sign-up', text:`Here's your link to join our technician team in ${m.name}:`, url:d.link }).catch(()=>{}));
+      const sh=q('#tinvShare'); if(sh) sh.addEventListener('click',()=>navigator.share({ title:'Cleaner sign-up', text:`Here's your link to join our cleaner team in ${m.name}:`, url:d.link }).catch(()=>{}));
       q('#tinvClose').addEventListener('click',close);
     }catch(e){ busy=false; if(!modal.isConnected) return; err.textContent=e.message||'Could not create the invite'; btns.forEach(b=>b.disabled=false); }
   };
@@ -10462,7 +10462,7 @@ async function renderTechnicians(){
           <span class="meta" style="font-size:12px;color:var(--mute);">when several techs are free for the same slot</span>
         </div>`:''}
         </div>
-      </div>`).join('') + inactiveToggle || '<div class="empty">No technicians.</div>');
+      </div>`).join('') + inactiveToggle || '<div class="empty">No cleaners.</div>');
     const tgl=document.getElementById('toggleInactiveTechs');
     if(tgl) tgl.addEventListener('click',()=>{ showInactiveTechs=!showInactiveTechs; renderTechnicians(); });
     wireTechInviteBlock();
@@ -11967,7 +11967,7 @@ async function renderNotes(){
     <div class="sub" style="color:var(--mute);margin-bottom:14px;">Who is this note for?</div>
     <div class="notes-tabrow${role==='owner'?' three':''}">
       ${notesTabBtn('staff','🏢','For the office',role==='owner'?'Your office staff':'Owner or all staff',_notesTab==='staff')}
-      ${notesTabBtn('tech','🔧','For the techs','One tech, a city, or everyone',_notesTab==='tech')}
+      ${notesTabBtn('tech','🔧','For the cleaners','One cleaner or everyone',_notesTab==='tech')}
       ${role==='owner'?notesTabBtn('red','🚨','Red alert','Steps the office must do',_notesTab==='red'):''}
       ${isJoeyHome()?notesTabBtn('web','🌐','Website edit','Change on a website',false):''}
     </div>
@@ -12115,7 +12115,7 @@ async function renderTechNotesPane(){
           </select>
         </div>
         <div style="flex:1;min-width:170px;" id="tnWhoWrap">
-          <label for="tnWho" id="tnWhoLabel" style="${NOTE_LABEL_CSS}">TECHNICIAN</label>
+          <label for="tnWho" id="tnWhoLabel" style="${NOTE_LABEL_CSS}">CLEANER</label>
           <select id="tnWho" style="${NOTE_FIELD_CSS}"></select>
         </div>
         <div style="flex:1;min-width:150px;">
@@ -12136,7 +12136,7 @@ async function renderTechNotesPane(){
   const fillWho=()=>{
     const t=typeEl.value;
     whoWrap.style.display=t==='all'?'none':'';
-    document.getElementById('tnWhoLabel').textContent=t==='city'?'CITY':'TECHNICIAN';
+    document.getElementById('tnWhoLabel').textContent=t==='city'?'CITY':'CLEANER';
     whoEl.innerHTML=t==='city'
       ? cities.map(c=>{ const n=techs.filter(x=>x.city===c).length; return `<option value="${esc(c)}">${esc(c)} (${n} tech${n===1?'':'s'})</option>`; }).join('')
       : techs.map(x=>`<option value="${esc(x.id)}">${esc(x.name)} — ${esc(x.business_name)}${x.city?' · '+esc(x.city):''}</option>`).join('');
@@ -12170,7 +12170,7 @@ async function renderTechNotesPane(){
       if(editing){
         const r=await api('tech_notes_update',{ method:'POST', body:{ id:editing, ...payload } });
         editCtl.stop(); clearForm(); await loadTechNotesRecent();
-        toast(r.reshown?'Note updated — it will show again for every tech':'Note updated');
+        toast(r.reshown?'Note updated — it will show again for every cleaner':'Note updated');
       } else {
         await api('tech_notes_add',{ method:'POST', body:payload });
         clearForm(); await loadTechNotesRecent();
@@ -13231,7 +13231,7 @@ async function renderOther(){
     const tile=(nav,ic,t,d)=>`<div data-othernav="${nav}" style="cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;"><div><div style="font-weight:700;">${ic} ${t}</div><div style="color:var(--mute);font-size:13px;margin-top:2px;">${d}</div></div><span style="color:var(--mute);font-size:20px;">›</span></div>`;
     view.innerHTML=`<div class="wrap"><h2 style="margin:0 0 16px;">Other</h2><div style="display:flex;flex-direction:column;gap:10px;max-width:520px;">
       ${tile('customers','👥','Customers','Look up any customer and their jobs.')}
-      ${tile('technicians','🔧','Technicians','Every company’s techs and their schedules.')}
+      ${tile('technicians','🔧','Cleaners','Every company’s techs and their schedules.')}
       ${tile('gallery','📷','Photos','Job photos from the techs.')}
       ${tile('brackets','📦','Bracket Inventory','Brackets on hand with each tech.')}
       ${tile('myavailability','🗓️','My Availability','Your work and off days.')}
@@ -13248,7 +13248,7 @@ async function renderOther(){
     messages:{t:'Messages',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#fff" d="M12 5.5c-3.9 0-7 2.6-7 5.8 0 1.9 1.1 3.5 2.8 4.6-.1 1-.6 1.9-1.3 2.6 1.6 0 3-.6 4-1.4.5.1 1 .1 1.5.1 3.9 0 7-2.6 7-5.9s-3.1-5.8-7-5.8z"/></svg>',go:()=>navTo('messages'),own:1},
     askandrew:{t:'Ask',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg>',go:()=>navTo('askandrew'),own:1},
     brackets:{t:'📦 Bracket Inventory',go:()=>navTo('brackets'),own:1},
-    technicians:{t:'🔧 Technicians',go:()=>navTo('technicians'),own:1},
+    technicians:{t:'🔧 Cleaners',go:()=>navTo('technicians'),own:1},
     customers:{t:'👥 Customers',go:()=>navTo('customers'),own:1},
     payroll:{t:'💰 Payroll',go:()=>navTo('payroll'),own:1},
     reviews:{t:'⭐ Reviews',go:()=>navTo('reviews'),own:1},
@@ -13501,13 +13501,13 @@ function renderTravelFeesBody(){
           <label style="font-size:12px;color:var(--ink-2);">Customer pays
             <input class="search" type="number" step="5" value="${t.surcharge}" data-tfsur style="margin:2px 0 0;width:92px;">
           </label>
-          <label style="font-size:12px;color:var(--ink-2);">Tech gets
+          <label style="font-size:12px;color:var(--ink-2);">Cleaner gets
             <input class="search" type="number" step="5" value="${t.tech_payout}" data-tfpay style="margin:2px 0 0;width:92px;">
           </label>
           <div data-tfnote style="font-size:12px;color:var(--mute);min-width:78px;">${free?'no travel fee':'keeps '+money(t.surcharge-t.tech_payout)}</div>
           <button type="button" class="btn ghost sm" style="width:auto;" data-tfzips="${esc(key)}">${showing?'Hide':'Zips'}</button>
         </div>
-        ${unpaid?`<div style="font-size:12px;color:#b45309;margin-top:6px;">⚠ The customer is charged ${money(t.surcharge)} for this drive but the tech is paid nothing for it.</div>`:''}
+        ${unpaid?`<div style="font-size:12px;color:#b45309;margin-top:6px;">⚠ The customer is charged ${money(t.surcharge)} for this drive but the cleaner is paid nothing for it.</div>`:''}
         ${showing?`<div style="margin-top:9px;display:flex;flex-wrap:wrap;gap:4px;max-height:190px;overflow:auto;">
             ${t.zips.map(z=>`<span style="font-size:11.5px;font-family:ui-monospace,monospace;background:var(--line2);border-radius:5px;padding:3px 6px;">${esc(z.postal_code)}</span>`).join('')}
           </div>`:''}
@@ -13529,7 +13529,7 @@ function renderTravelFeesBody(){
     <button class="btn ghost sm" onclick="renderOther()" style="margin-bottom:10px;width:auto;">← Other</button>
     <h2 style="margin:0 0 4px;">🚗 Travel Fees</h2>
     <div class="sub" style="color:var(--mute);margin-bottom:16px;max-width:640px;line-height:1.6;">
-      What each zip adds to a booking for the drive, and what the tech is paid for it.
+      What each zip adds to a booking for the drive, and what the cleaner is paid for it.
       Editing a tier changes every zip in it. Changes take effect on the next booking — nothing already booked is repriced.
     </div>
     <div id="tfErr" style="color:#b91c1c;font-size:13px;margin-bottom:10px;"></div>
@@ -13915,7 +13915,7 @@ const RC_OUTCOMES=[
   { v:'dnc',      tone:'bad',  label:'Do not contact' },
 ];
 const RC_TAGS={
-  issue:['Tech was late','Wall damage','Cable/wire issue','Mount not level','Price complaint','Rude or unprofessional','Had to come back'],
+  issue:['Cleaner was late','Wall damage','Cable/wire issue','Mount not level','Price complaint','Rude or unprofessional','Had to come back'],
 };
 function rcScript(r){
   const first=String(r.customer_name||'').trim().split(/\s+/)[0]||'there';
@@ -14025,17 +14025,10 @@ async function renderLaCalls(){
   </div>`;
 }
 const ANALYTICS_TABS=[
-  { id:'insights', label:'Insights', screen:'insights', show:()=>role==='owner', render:()=>renderInsights() },
-  { id:'capacity', label:'Capacity', screen:'capacity', show:()=>role==='owner', render:()=>renderCapacity() },
-  { id:'phonedesk', label:'Phone Desk', screen:'phonedesk', show:()=>role==='owner', render:()=>renderPhoneDesk() },
-  { id:'overview', label:'Overview', screen:'analyticsoverview', show:()=>role==='owner', render:()=>renderAnalyticsOverview() },
   { id:'bookings', label:'Bookings', screen:'analytics',    show:()=>role==='owner', render:()=>renderAnalytics() },
-  { id:'handyman', label:'Handyman', screen:'handyman',      show:()=>role==='owner' && HANDYMAN_SLUGS.has(current?.slug), render:()=>renderHandymanAnalytics() },
-  { id:'website',  label:'Website',  screen:'webanalytics',  show:()=>role==='owner', render:()=>renderWebAnalytics() },
-  { id:'la',       label:'LA',       screen:'lacalls',       show:()=>role==='owner', render:()=>renderLaCalls() },
-  { id:'askq', get label(){ return _askOpen?`Ask Owner (${_askOpen} to answer)`:'Ask'; }, screen:'askq', show:()=>role==='owner', render:()=>renderAskLog() },
+  { id:'website',  label:'Website',  screen:'webanalytics',  show:()=>role==='owner', render:()=>{ document.getElementById('view').innerHTML='<iframe src="/site-analytics.html?embed=1" title="Website analytics" style="width:100%;height:calc(100vh - 120px);min-height:600px;border:0;"></iframe>'; } },
 ];
-let callHubTab=null, analyticsHubTab='insights';
+let callHubTab=null, analyticsHubTab='bookings';
 let _callPageRequest=0;
 let _hubScrollKey='';
 function onScreen(name){
@@ -14280,7 +14273,7 @@ async function renderCapacity(){
   if(!cities.length){ view.innerHTML='<div class="wrap"><div class="empty">No active technicians.</div></div>'; return; }
   const utilClass=u=>u==null?'':u<30?'bad':u<60?'hot':'good';
   let h='<div class="cap-wrap">';
-  h+=`<p class="cap-note"><b>Idle time</b> is bookable slots a tech offered but nobody booked. A slot is one of the five arrival windows. Manila counts TidyHaus and Dom's techs together, since they share one crew. ${esc(capData.note||'')}</p>`;
+  h+=`<p class="cap-note"><b>Idle time</b> is bookable slots a cleaner offered but nobody booked. A slot is one of the five arrival windows. Manila counts TidyHaus and Dom's techs together, since they share one crew. ${esc(capData.note||'')}</p>`;
   cities.forEach(c=>{
     const l4=c.last4||{}, avgIdle=l4.weeks?Math.round(l4.idle/l4.weeks):0, avgOff=l4.weeks?Math.round(l4.offered/l4.weeks):0;
     h+=`<div class="cap-city"><h3>${esc(c.name)}</h3><div class="cap-sub">${c.techs.map(t=>esc(t.name)+(t.status==='off'?' (off)':'')).join(', ')}</div>`;
@@ -14308,7 +14301,7 @@ async function renderCapacity(){
           `<td><span class="cap-bar"><i style="width:${w.util||0}%"></i></span>${w.util==null?'–':w.util+'%'}</td></tr>`;
       }).join('')+'</tbody></table></div>';
 
-    h+='<div class="cap-h">By technician, last 4 weeks</div><div class="avb-scroll"><table class="cap-table"><thead><tr><th>Tech</th><th>Offered</th><th>Used</th><th>Idle</th><th>Used %</th></tr></thead><tbody>'+
+    h+='<div class="cap-h">By technician, last 4 weeks</div><div class="avb-scroll"><table class="cap-table"><thead><tr><th>Cleaner</th><th>Offered</th><th>Used</th><th>Idle</th><th>Used %</th></tr></thead><tbody>'+
       c.per_tech.map(t=>`<tr><td><b>${esc(t.name)}</b>${t.status==='off'?' <span class="avb-offtag">OFF</span>':''}</td><td>${t.offered}</td><td>${t.used}</td><td>${t.idle}</td><td>${t.util==null?'–':t.util+'%'}</td></tr>`).join('')+
       '</tbody></table></div>';
     h+='</div>';
@@ -17657,7 +17650,7 @@ async function renderReviews(){
       })),
     ];
 
-    const techOptsFor=(sel)=>`<option value="">— credit a tech —</option>`+revTechs.map(t=>`<option value="${esc(t.id)}" ${t.id===sel?'selected':''}>${esc(t.name)}</option>`).join('');
+    const techOptsFor=(sel)=>`<option value="">— credit a cleaner —</option>`+revTechs.map(t=>`<option value="${esc(t.id)}" ${t.id===sel?'selected':''}>${esc(t.name)}</option>`).join('');
     function reviewCard(r){
       const initial=(String(r.customer_name||'?').trim().charAt(0)||'?').toUpperCase();
       const rating=Math.round(Number(r.rating)||0);
@@ -17798,9 +17791,9 @@ async function renderReviews(){
     paintReviewRequests(gByBooking);
     if(role==='owner') api('review_ask_rate').then(r=>{
       const el=document.getElementById('raRate'); if(!el||!(r.rows||[]).length) return;
-      el.innerHTML=`<div class="sec-h" style="margin:26px 0 10px;font-weight:800;">Review rate by tech · 30 days</div>
+      el.innerHTML=`<div class="sec-h" style="margin:26px 0 10px;font-weight:800;">Review rate by cleaner · 30 days</div>
         <div class="rs-card"><table style="width:100%;border-collapse:collapse;font-size:14px;">
-          <tr style="text-align:left;color:#7a8694;font-size:12.5px;"><th style="padding:6px 4px;">Tech</th><th style="padding:6px 4px;">Asked</th><th style="padding:6px 4px;">Google reviews</th></tr>
+          <tr style="text-align:left;color:#7a8694;font-size:12.5px;"><th style="padding:6px 4px;">Cleaner</th><th style="padding:6px 4px;">Asked</th><th style="padding:6px 4px;">Google reviews</th></tr>
           ${r.rows.map(x=>`<tr style="border-top:1px solid #e7e9ee;"><td style="padding:7px 4px;">${esc(x.name)}</td><td style="padding:7px 4px;">${x.asked}/${x.completed}</td><td style="padding:7px 4px;">${x.google}</td></tr>`).join('')}
         </table></div>`;
     }).catch(()=>{});
@@ -18243,7 +18236,7 @@ function estCard(e){
         ${(canSend&&isApproved&&(e.status==='booked'||e.booking_id))
           ? (e.booking_id?`<button class="btn sm" data-est-openjob="${esc(e.booking_id)}" title="This approval booked the job automatically — open it on the schedule">Open job →</button>`:`<span class="est-booked-tag">✓ Job booked</span>`)
           : (canSend&&isApproved)?`<button class="btn ${isApproved?'':'ghost'} sm" data-est-convert="${e.id}" title="${isApproved?'Create a booking from this approved estimate':'The customer has not approved this quote online yet — converting will ask you to confirm they approved it by phone'}">→ Convert to job${isApproved?'':' (unapproved)'}</button>`:''}
-        ${e.broker_eligible?`<button class="btn ghost sm" data-est-broker="${e.id}" title="No techs in this market. Collect subcontractor bids and set what we sell it for.">🤝 ${e.broker_company_name?'Brokering':'Get this estimate filled'}</button>`:''}
+        ${e.broker_eligible?`<button class="btn ghost sm" data-est-broker="${e.id}" title="No cleaners in this market. Collect subcontractor bids and set what we sell it for.">🤝 ${e.broker_company_name?'Brokering':'Get this estimate filled'}</button>`:''}
         ${/* Owner 2026-09-29: hidden once a quote is built -- the next step is sending it */''}${(!engaged&&!hasQuote&&e.status!=='out_of_area')?`<button class="btn ghost sm" data-est-decline="${e.id}" style="color:#b91c1c;" title="Tell the customer this is outside what we do, and send a list of what we handle">🚫 Not a fit</button>`:''}
         ${(!engaged&&!hasQuote&&e.source==='manual')?`<button class="btn ghost sm" data-est-del="${e.id}" title="Delete">Delete</button>`:''}
       </span>
@@ -18418,7 +18411,7 @@ async function esLoadTechs(selectedId){
   const sel = document.getElementById('esTech');
   const paint = (own, partner, partnerName) => {
     const lbl = t => t.name + (t.area_name ? ' (' + t.area_name + ')' : '');
-    let html = '<option value="">Any tech (default)</option>';
+    let html = '<option value="">Any cleaner (default)</option>';
     html += own.map(t => '<option value="' + esc(t.id) + '">' + esc(lbl(t)) + '</option>').join('');
     if (partner.length) html += '<optgroup label="' + esc(partnerName || 'Partner company') + ' (borrowed)">' + partner.map(t => '<option value="' + esc(t.id) + '">' + esc(lbl(t)) + '</option>').join('') + '</optgroup>';
     sel.innerHTML = html;
@@ -18440,7 +18433,7 @@ async function esLoadTechs(selectedId){
     _esTechRoster = { own, partner, partnerName: (b.partner && b.partner.name) || '' };
     _esTechRosterFor = current.slug;
     paint(own, partner, _esTechRoster.partnerName);
-  } catch (err) { /* leave "Any tech" only; saving still works */ }
+  } catch (err) { /* leave "Any cleaner" only; saving still works */ }
 }
 function esTechFirst(){
   const sel = document.getElementById('esTech');
@@ -18451,7 +18444,7 @@ function esTechFirst(){
 function esTechChanged(){
   const help = document.getElementById('esTechHelp'), first = esTechFirst();
   if (first) { help.textContent = 'The customer will only see ' + first + "'s open times, and the job is assigned to " + first + '.'; help.classList.add('pick'); }
-  else { help.textContent = "The customer sees every tech's open times."; help.classList.remove('pick'); }
+  else { help.textContent = "The customer sees every cleaner's open times."; help.classList.remove('pick'); }
   esRenderPreview();
 }
 function esRenderPreview(){
@@ -18475,7 +18468,7 @@ function esRenderPreview(){
     : '';
   const first = esTechFirst();
   $('esPvTimeH').textContent = first ? 'Pick a time with ' + first : 'Pick your appointment time';
-  $('esPvTimeP').textContent = first ? "Only " + first + "'s open times are offered." : "They choose from every tech's open times.";
+  $('esPvTimeP').textContent = first ? "Only " + first + "'s open times are offered." : "They choose from every cleaner's open times.";
 }
 ['esService','esDesc','esCustNote'].forEach(id => document.getElementById(id).addEventListener('input', esRenderPreview));
 document.getElementById('esTech').addEventListener('change', esTechChanged);
@@ -18629,7 +18622,7 @@ async function reloadBrokerPanel(){
 
 function paintBrokerPanel(d){
   const m=brokerModalEl();
-  m.querySelector('#brkArea').innerHTML=`No techs in <b>${esc(d.area.name)}</b>, so this one gets subbed out. Call around, then type what each company charges.`;
+  m.querySelector('#brkArea').innerHTML=`No cleaners in <b>${esc(d.area.name)}</b>, so this one gets subbed out. Call around, then type what each company charges.`;
 
   const missing=d.sections.some(s=>!d.spec[s.key]);
   const customLines=d.custom||[];
@@ -18895,7 +18888,7 @@ function openAssignModal(purchaseId, orderNum){
   const modal=document.createElement('div'); modal.className='modal';
   modal.innerHTML=`<div class="sheet">
     <h2>Assign order${orderNum?` #${esc(orderNum)}`:''}</h2>
-    <p style="color:var(--mute);font-size:13px;margin:-4px 0 12px;">Stock adds when the tech taps Received.</p>
+    <p style="color:var(--mute);font-size:13px;margin:-4px 0 12px;">Stock adds when the cleaner taps Received.</p>
     <label class="fld">Cleaner</label>
     <select id="modalAssignTech" style="width:100%;padding:9px;border:1px solid var(--line);border-radius:8px;font-size:14px;margin-bottom:12px;">
       <option value="">Select technician…</option>${opts}
@@ -18946,7 +18939,7 @@ async function setWirePlateStatus(id, status){
 }
 async function confirmAssign(purchaseId){
   const sel=document.getElementById('modalAssignTech'); const techId=sel?sel.value:'';
-  if(!techId){ toast('Pick a technician first'); return; }
+  if(!techId){ toast('Pick a cleaner first'); return; }
   try{
     const r=await api('bracket_assign',{ method:'POST', body:{ business:current.slug, purchase_id:purchaseId, technician_id:techId }});
     toast('✓ Assigned to '+(r.technician_name||'technician'));
@@ -18969,7 +18962,7 @@ async function renderBrackets(){
 
     let html=`<div class="wrap">${syncStatHtml()}
       <div class="bracket-section">
-        <h3>Current Inventory by Technician</h3>
+        <h3>Current Inventory by Cleaner</h3>
         <table class="bracket-table">
           <thead>
             <tr>
@@ -19213,7 +19206,7 @@ async function renderBrackets(){
     if(pending.length){
       const techOpts=(inv.inventory||[]).map(t=>`<option value="${esc(t.technician_id)}">${esc(t.technician_name)}</option>`).join('');
       html+=`<div class="bracket-section" style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px 18px;">
-        <h3 style="border-bottom-color:#fde68a;">📦 Unassigned Walmart Orders — Assign to a Technician</h3>`;
+        <h3 style="border-bottom-color:#fde68a;">📦 Unassigned Walmart Orders — Assign to a Cleaner</h3>`;
       for(const d of pending){
         const parts=[];
         if(d.flat) parts.push(`${d.flat} Flat`);
@@ -19252,7 +19245,7 @@ async function renderBrackets(){
 async function assignBracketDelivery(purchaseId){
   const sel=document.getElementById('assignTech_'+purchaseId);
   const techId=sel?sel.value:'';
-  if(!techId){ toast('Pick a technician first'); return; }
+  if(!techId){ toast('Pick a cleaner first'); return; }
   try{
     const r=await api('bracket_assign',{
       method:'POST',
@@ -19266,7 +19259,7 @@ async function assignBracketDelivery(purchaseId){
 }
 
 async function removeWirePlateOrder(purchaseId, orderNum){
-  if(!confirm('Remove this Amazon plate order from tracking'+(orderNum?` (order ${orderNum})`:'')+'?\nThis deletes the order record; if it was already credited to a tech, those plates are subtracted back.')) return;
+  if(!confirm('Remove this Amazon plate order from tracking'+(orderNum?` (order ${orderNum})`:'')+'?\nThis deletes the order record; if it was already credited to a cleaner, those plates are subtracted back.')) return;
   try{
     const r=await api('wire_plate_remove',{ method:'POST', body:{ business:current.slug, purchase_id:purchaseId, amazon_order_num:orderNum }});
     toast(`Removed ${r.removed||1} order record(s)`);
@@ -19276,7 +19269,7 @@ async function removeWirePlateOrder(purchaseId, orderNum){
 async function assignWirePlateDelivery(purchaseId){
   const sel=document.getElementById('wpAssignTech_'+purchaseId);
   const techId=sel?sel.value:'';
-  if(!techId){ toast('Pick a technician first'); return; }
+  if(!techId){ toast('Pick a cleaner first'); return; }
   try{
     const r=await api('wire_plate_assign',{
       method:'POST',
@@ -19465,7 +19458,7 @@ async function saveAppleTvBracketArrival(){
   const techId=document.getElementById('atvArrTech').value;
   const qty=parseInt(document.getElementById('atvArrQty').value);
   const note=document.getElementById('atvArrNote').value.trim();
-  if(!techId){ toast('Pick a technician'); return; }
+  if(!techId){ toast('Pick a cleaner'); return; }
   if(isNaN(qty)||qty<1){ toast('Enter how many arrived (at least 1)'); return; }
   const techName=(window._bracketInv||[]).find(t=>t.technician_id===techId)?.technician_name||'that tech';
   try{
@@ -21586,7 +21579,7 @@ async function renderCallWiz(){
       try{ when=new Date(draft.prefDate+'T12:00:00').toLocaleDateString('en-PH',{weekday:'long',month:'long',day:'numeric'}); }catch(_){ when=draft.prefDate; }
       if(draft.selectedSlot&&draft.selectedSlot.label) when+=', '+draft.selectedSlot.label;
     }
-    const line=`${cn?cn+', your':'Your'} appointment has been booked${when?' for '+when:''}. You will receive a confirmation text here shortly${draft._doneEmail?' and an email with more information about the appointment':''}. ${tn||'Your technician'} will send an on-the-way text when ${tn?'he is':'they are'} en route to your place. Did you have any other questions?`;
+    const line=`${cn?cn+', your':'Your'} appointment has been booked${when?' for '+when:''}. You will receive a confirmation text here shortly${draft._doneEmail?' and an email with more information about the appointment':''}. ${tn||'Your cleaner'} will send an on-the-way text when ${tn?'he is':'they are'} en route to your place. Did you have any other questions?`;
     body.innerHTML=`${callWizScript(line)}
       <button type="button" class="btn ghost" style="width:100%;margin-bottom:8px;" id="cwDoneAsk">🤖 Ask Owner</button>
       <button type="button" class="btn" style="width:100%;" id="cwDoneClose">Done — close</button>`;
@@ -22003,7 +21996,7 @@ async function renderCallWiz(){
     document.getElementById('cwHrsPlus').addEventListener('click', ()=>setHrs(1));
     document.getElementById('cwDescNext').addEventListener('click', ()=>{
       callWiz.handymanDesc=document.getElementById('cwDesc').value.trim();
-      if(!callWiz.handymanDesc){ err.textContent='Write down what they need done first — the tech reads this at the door.'; return; }
+      if(!callWiz.handymanDesc){ err.textContent='Write down what they need done first — the cleaner reads this at the door.'; return; }
       callWiz.step='schedule'; renderCallWiz();
     });
     cwWireBack(()=>{
@@ -22027,7 +22020,7 @@ async function renderCallWiz(){
     if(!callWiz.availDates) callWiz.availDates=new Set();
     body.innerHTML=`${callWizScript("What's a good day for you?")}
       <div style="display:flex;align-items:center;gap:6px;margin:-2px 0 8px;font-size:11.5px;color:var(--mute);">
-        <label for="cwTechPick" style="white-space:nowrap;">Select the technician</label>
+        <label for="cwTechPick" style="white-space:nowrap;">Select the cleaner</label>
         <select id="cwTechPick" disabled style="flex:none;max-width:180px;font-size:11.5px;padding:3px 6px;border-radius:6px;border:1px solid var(--line);color:var(--ink-2);background:#fff;">
           <option value="">Auto-assign</option>${draft.technicianId?`<option value="${esc(draft.technicianId)}" selected>${esc((draft._scheduleTechnicians||[]).find(t=>t.id===draft.technicianId)?.name||'Selected technician')}</option>`:''}
         </select>
@@ -22129,8 +22122,8 @@ async function renderCallWiz(){
         const R=callWiz.calReason;
         note.innerHTML = !R ? '' :
           R==='zip_not_covered' ? `<b>We don't cover ${esc(callWiz.zip||'that zip')} yet.</b> Take their details and send an estimate — the office can follow up if we open the area.`
-          : R==='area_unstaffed' ? `<b>No technician in ${esc(area)} yet.</b> This zip is on the map but unstaffed, so there's nothing to book. Send an estimate instead.`
-          : R==='no_techs_in_area' ? `<b>No technician is assigned to ${esc(area)}.</b> Nothing can be booked here until someone covers it — send an estimate and tell the office.`
+          : R==='area_unstaffed' ? `<b>No cleaner in ${esc(area)} yet.</b> This zip is on the map but unstaffed, so there's nothing to book. Send an estimate instead.`
+          : R==='no_techs_in_area' ? `<b>No cleaner is assigned to ${esc(area)}.</b> Nothing can be booked here until someone covers it — send an estimate and tell the office.`
           : R==='technician_unavailable' ? '<b>This technician is not available in this service area.</b> Choose Auto-assign or another technician.'
           : R==='error' ? `<b>Couldn't load the calendar.</b> ${esc(callWiz.calError||'')} <button type="button" class="btn ghost sm" id="cwCalRetry" style="margin-top:8px;">Retry calendar</button>`
           : `<b>Nothing open in ${esc(callWiz.calMonth.toLocaleDateString('en-PH',{month:'long'}))}.</b> Try the next month with ›, or send an estimate.`;
@@ -22793,7 +22786,7 @@ async function openNewBooking(prefill){
     renderNbServices('');
     nbOwnTechs = tech.technicians || [];
     nbPartner = null;
-    if(!prefillHasZip) nbLoadPartnerTechs().catch(err=>{ const e=document.getElementById('nbErr'); if(e && !e.textContent) e.textContent=err.message||'Could not load the technician list — reopen the form.'; });
+    if(!prefillHasZip) nbLoadPartnerTechs().catch(err=>{ const e=document.getElementById('nbErr'); if(e && !e.textContent) e.textContent=err.message||'Could not load the cleaner list — reopen the form.'; });
   }catch(err){ if(nbOpenStale()) return; document.getElementById('nbErr').textContent=err.message; }
   if(nbOpenStale()) return;
   if(prefill){
@@ -22943,7 +22936,7 @@ const NB_STEPS=[
         return false;
       }catch(e){ return false; }
     } },
-  { label:'Technician', done:()=>{ const el=document.getElementById('nbTech'); return !!el && !!el.value; } },
+  { label:'Cleaner', done:()=>{ const el=document.getElementById('nbTech'); return !!el && !!el.value; } },
   { label:'Date & time', done:()=>{ const el=document.getElementById('nbDate'); return !!el && !!el.value; } },
   { label:'Customer details', done:()=>{
       const v=id=>{ const el=document.getElementById(id); return el ? el.value.trim() : ''; };
@@ -23013,12 +23006,12 @@ async function nbLoadPartnerTechs(){
 }
 function nbTechOptionsHtml(excludeNames = []){
   const anyCross = (nbPartner && nbIsManila())
-    ? `<option value="any:cross" style="font-weight:800;">Any Technician</option>` : '';
+    ? `<option value="any:cross" style="font-weight:800;">Any Cleaner</option>` : '';
   return anyCross + nbPoolList().map(g=>{
     const techs = g.pool==='own' ? nbFilterOwn(g.techs) : g.techs;
     if(!techs.length) return '';
     return `<optgroup label="${esc(g.name)} Team">`+
-      `<option value="any:${g.pool}">Any ${esc(g.name)} Technician</option>`+
+      `<option value="any:${g.pool}">Any ${esc(g.name)} Cleaner</option>`+
       techs.filter(t=> !excludeNames.some(n=> t.name.toLowerCase() === n.toLowerCase()))
         .map(t=>{
           const sameMetro=nbAreaName && t.area_name && t.area_name.toLowerCase()===nbAreaName.toLowerCase();
@@ -23221,7 +23214,7 @@ function nbAvailabilityBlockedReason(){
   const sec=nbParseTech(document.getElementById('nbSecondTech').value);
   const samePerson = prim && sec && prim.id!=='any' && sec.id!=='any' && sec.id===prim.id;
   if(mode==='mandatory'){
-    if(!sec) return 'Select the second technician — this job needs two.';
+    if(!sec) return 'Select the second cleaner — this job needs two.';
     if(samePerson) return 'The two technicians must be different.';
   } else if(mode==='optional' && sec){
     if(samePerson) return 'The two technicians must be different.';

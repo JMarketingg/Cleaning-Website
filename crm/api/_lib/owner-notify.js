@@ -155,7 +155,7 @@ export async function sendOwnerBookingAlert(d = {}) {
       ['Address', addr],
       ['Service', d.serviceName],
       ['When', when],
-      ['Technician', d.technicianName || 'Unassigned'],
+      ['Cleaner', d.technicianName || 'Unassigned'],
       ['Total', d.price != null ? money(d.price) : null],
     ].filter(r => r[1]);
     const tbl = rows.map(([k, v]) => `<tr><td style="padding:3px 14px 3px 0;color:#6b7280;font-weight:600;white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:3px 0;color:#111;">${escHtml(String(v))}</td></tr>`).join('');
@@ -221,12 +221,12 @@ export async function sendCardSaveFailedAlert(d = {}) {
 export async function sendUnassignedBookingAlert(d = {}) {
   try {
     if (!emailNotificationsOn()) {
-      console.error('[owner-notify] UNASSIGNED BOOKING but email notifications are OFF; booking', d.bookingId, 'has no technician and nobody was alerted');
+      console.error('[owner-notify] UNASSIGNED BOOKING but email notifications are OFF; booking', d.bookingId, 'has no cleaner and nobody was alerted');
       return;
     }
     const cfg = emailConfig(d.slug);
     if (!cfg.apiKey) {
-      console.error('[owner-notify] UNASSIGNED BOOKING but no email API key for', d.slug, '; booking', d.bookingId, 'has no technician and nobody was alerted');
+      console.error('[owner-notify] UNASSIGNED BOOKING but no email API key for', d.slug, '; booking', d.bookingId, 'has no cleaner and nobody was alerted');
       return;
     }
 
@@ -248,12 +248,12 @@ export async function sendUnassignedBookingAlert(d = {}) {
     const tbl = rows.map(([k, v]) => `<tr><td style="padding:3px 14px 3px 0;color:#6b7280;font-weight:600;white-space:nowrap;vertical-align:top;">${k}</td><td style="padding:3px 0;color:#111;">${escHtml(String(v))}</td></tr>`).join('');
     const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;color:#111;line-height:1.5;">
       <h2 style="margin:0 0 4px;color:#b91c1c;">⚠ A job was booked with NO technician</h2>
-      <p style="margin:0 0 14px;color:#374151;">Two customers grabbed the same time at once and no other tech was free, so this booking saved without anyone assigned. The customer already has a confirmation email for this window. Open the job and assign a tech, or call the customer to reschedule, right away.</p>
+      <p style="margin:0 0 14px;color:#374151;">Two customers grabbed the same time at once and no other cleaner was free, so this booking saved without anyone assigned. The customer already has a confirmation email for this window. Open the job and assign a cleaner, or call the customer to reschedule, right away.</p>
       <table style="border-collapse:collapse;">${tbl}</table>
       ${d.bookingId ? `<p style="margin:10px 0 0;font-size:12px;color:#6b7280;">Booking #${escHtml(d.bookingId)}</p>` : ''}
     </div>`;
     for (const to of recipients) {
-      await sendEmail({ slug: d.slug, to, subject: `⚠ NO TECH on a new booking: ${d.customerName || 'a customer'}${d.whenStr ? ` (${d.whenStr})` : ''}`, html, replyTo: cfg.from });
+      await sendEmail({ slug: d.slug, to, subject: `⚠ NO CLEANER on a new booking: ${d.customerName || 'a customer'}${d.whenStr ? ` (${d.whenStr})` : ''}`, html, replyTo: cfg.from });
     }
   } catch (e) {
     console.warn('[owner-notify] non-fatal:', e.message);
@@ -287,7 +287,7 @@ export async function sendReviewCallComplaintAlert(d = {}) {
       ['Phone', d.phone],
       ['Email', d.email],
       ['Job', d.serviceName],
-      ['Technician', d.techName],
+      ['Cleaner', d.techName],
       ['Job date', d.whenStr],
       ['Logged by', d.loggedBy],
       ['What they said', (d.tags || []).join(', ')],
@@ -413,21 +413,21 @@ export function maybeSendLeadGenBookingAlert({ slug, businessName, customerName,
 
 export async function sendReviewBonusEarnedAlert({ techName, amount }) {
   try {
-    await sendOwnerAlertEmail(`${techName || 'A technician'} earned the $${Number(amount) || 100} review bonus`,
-      `${techName || 'A technician'} just finished all 5 Google reviews. `
+    await sendOwnerAlertEmail(`${techName || 'A cleaner'} earned the $${Number(amount) || 100} review bonus`,
+      `${techName || 'A cleaner'} just finished all 5 Google reviews. `
       + `A $${Number(amount) || 100} bonus has been added to their payroll for this week.`);
   } catch (e) { console.warn('[review-bonus] alert error:', e.message); }
 }
 
 export async function sendTechJoinedAlert({ techName, company, metro, slotCount, unstaffed, payrollNote, welcomeFailed }) {
   try {
-    let msg = `New tech joined: ${techName}, ${company} - ${metro}. `;
+    let msg = `New cleaner joined: ${techName}, ${company} - ${metro}. `;
     msg += unstaffed
       ? `${metro} isn't taking online bookings yet, so no automatic jobs reach them until you open it. `
       : `LIVE for jobs now, ${slotCount} time slot${slotCount === 1 ? '' : 's'} a week. `;
-    msg += 'Not who you invited? Deactivate them on the Technicians tab.';
+    msg += 'Not who you invited? Deactivate them on the Cleaners tab.';
     if (payrollNote) msg += ` PAYROLL: ${payrollNote}`;
     if (welcomeFailed) msg += ` Heads up: our welcome text to them failed (${welcomeFailed}), so job texts may not reach them either.`;
-    await sendOwnerAlertEmail(`New tech joined: ${techName}`, msg);
+    await sendOwnerAlertEmail(`New cleaner joined: ${techName}`, msg);
   } catch (e) { console.warn('[tech-join] alert error:', e.message); }
 }

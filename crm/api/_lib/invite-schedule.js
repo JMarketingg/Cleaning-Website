@@ -32,7 +32,7 @@ export async function runScheduledInvites(db, { dryRun = false } = {}) {
     if (dryRun) { out.nudged.push(inv.invitee_name); continue; }
     const where = [inv.businesses?.name, inv.service_areas?.name].filter(Boolean).join(' · ');
     await db.from('assistant_tasks').insert({
-      title: `${inv.invitee_name || 'New tech'} hasn't signed up (${where})`,
+      title: `${inv.invitee_name || 'New cleaner'} hasn't signed up (${where})`,
       color: 'red',
       notes: `Texted 24h ago. Call ${inv.invitee_phone}. Link: ${inviteLink(inv.code)}`,
       created_by: 'System',

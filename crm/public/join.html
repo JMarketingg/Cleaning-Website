@@ -6,20 +6,20 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="no-referrer">
 <meta name="theme-color" content="#0A1628">
-<title>Technician sign-up</title>
-<meta property="og:title" content="Technician sign-up">
+<title>Cleaner sign-up</title>
+<meta property="og:title" content="Cleaner sign-up">
 <meta property="og:description" content="Create your login and pick the times you can work.">
 <link rel="icon" type="image/svg+xml" href="/favicon-tech.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <!--
-  Technician sign-up (migration 0111). The owner texts a would-be tech a
-  /join?c=<code> link from the dashboard's Technicians tab. This page walks
+  Cleaner sign-up (migration 0111). The owner texts a would-be tech a
+  /join?c=<code> link from the dashboard's Cleaners tab. This page walks
   them through: create a login (name, phone, 4-digit PIN) -> pick the weekly
   times they can work -> Start. NOTHING is saved until Start, which commits the
   whole account in one database transaction (api/tech.js join_complete ->
-  app.claim_tech_invite) and then signs them straight into the tech app by
+  app.claim_tech_invite) and then signs them straight into the cleaner app by
   writing the same localStorage session tech.html's own login writes.
   Styling mirrors tech.html's tokens so it reads as the app they're about to
   use; a Dom's invite switches to Dom's blue, like tech.html's body.doms.
@@ -114,7 +114,7 @@
     <div class="ic" id="deadIc">🔗</div>
     <h2 id="deadT">This link isn't valid</h2>
     <p id="deadP"></p>
-    <a class="btn hidden" id="deadApp" href="/tech.html">Open the tech app</a>
+    <a class="btn hidden" id="deadApp" href="/tech.html">Open the cleaner app</a>
     <button class="btn ghost hidden" id="deadRetry" type="button">Try again</button>
   </div>
 
@@ -126,7 +126,7 @@
     <ol class="steps">
       <li><span class="n">1</span><div><b>Create your login</b><span class="t">Your phone number and a 4-digit PIN.</span></div></li>
       <li><span class="n">2</span><div><b>Pick when you can work</b><span class="t">Tap the times you're free each week. You can change them anytime.</span></div></li>
-      <li><span class="n">3</span><div><b>Start</b><span class="t">We text you every time you're booked. The address and details are in the tech app.</span></div></li>
+      <li><span class="n">3</span><div><b>Start</b><span class="t">We text you every time you're booked. The address and details are in the cleaner app.</span></div></li>
     </ol>
     <div class="note hidden" id="wUnstaffed"><span data-metro></span> isn't open for online bookings yet. Sign up now and we'll text you as soon as jobs start.</div>
     <button class="btn" type="button" id="btnGo">Get started</button>
@@ -136,7 +136,7 @@
   <form id="vAccount" class="hidden" novalidate>
     <div class="step">Step 1 of 3</div>
     <h2>Create your login</h2>
-    <p class="lead">This is how you'll sign in to the tech app.</p>
+    <p class="lead">This is how you'll sign in to the cleaner app.</p>
     <div class="field"><label for="fName">Full name</label>
       <input type="text" id="fName" autocomplete="name" placeholder="First and last name" maxlength="60"></div>
     <div class="field"><label for="fPhone">Mobile number</label>
@@ -197,7 +197,7 @@
     <div class="info"><b class="h">How jobs reach you</b><p id="dJobs"></p></div>
     <div class="info"><b class="h">Your times</b><p id="dTimes"></p></div>
     <div class="info"><b class="h">Your login</b><p id="dLogin"></p></div>
-    <a class="btn" id="dApp" href="/tech.html" style="margin-top:8px;">Open the tech app</a>
+    <a class="btn" id="dApp" href="/tech.html" style="margin-top:8px;">Open the cleaner app</a>
   </div>
 
 </div>
@@ -243,8 +243,8 @@ const DEAD={
   invalid:{ic:'🔗',t:"This link isn't valid",p:"Make sure you opened the whole link from the text. If it still doesn't work, ask whoever sent it for a new one."},
   expired:{ic:'⏰',t:'This invite expired',p:'Ask whoever sent it to resend it. It takes them one tap.'},
   revoked:{ic:'🚫',t:'This invite was canceled',p:"If you think that's a mistake, ask whoever sent it for a new link."},
-  joined:{ic:'✅',t:"You're already signed up",p:'This invite has been used. Open the tech app and sign in with your phone number and 4-digit PIN.',app:true},
-  phone_in_use:{ic:'📱',t:'This number already has an account',p:'Open the tech app and sign in with your phone number and PIN instead.',app:true},
+  joined:{ic:'✅',t:"You're already signed up",p:'This invite has been used. Open the cleaner app and sign in with your phone number and 4-digit PIN.',app:true},
+  phone_in_use:{ic:'📱',t:'This number already has an account',p:'Open the cleaner app and sign in with your phone number and PIN instead.',app:true},
   past_profile:{ic:'🗂️',t:"You're already in our system",p:"This number is on an older technician profile. Text the office and they'll switch it back on for you."},
   offline:{ic:'📶',t:"Couldn't load your invite",p:'Check your signal and try again.',retry:true},
 };
@@ -280,7 +280,7 @@ function shortSlot(s){ return hm(s.start)+'-'+hm(s.end); }
   $('phHelp').textContent=info.phone_locked
     ? `Use the number this invite was sent to (ends in ${info.phone_last4}). Jobs are texted here, and it's also your login.`
     : "Jobs are texted here, and it's also your login.";
-  $('tzHelp').textContent=`Tap every time you can take jobs each week (${info.metro} time). You can change this anytime in the tech app.`;
+  $('tzHelp').textContent=`Tap every time you can take jobs each week (${info.metro} time). You can change this anytime in the cleaner app.`;
   $('btnStart').textContent=info.unstaffed?'Finish sign-up':'Start getting jobs';
   renderDays(); restoreDraft();
   show('vWelcome');
@@ -320,7 +320,7 @@ function checkAccount(){
 $('fConsent').addEventListener('change',()=>$('consentBox').classList.remove('bad'));
 $('vAccount').addEventListener('submit',e=>{ e.preventDefault(); if(checkAccount()){ saveDraft(); show('vTimes'); } });
 
-// ── Step 2: weekly times (the same 5 fixed slots as the tech app) ───────────
+// ── Step 2: weekly times (the same 5 fixed slots as the cleaner app) ───────────
 function renderDays(){
   $('days').innerHTML=ORDER.map(d=>`<div class="day"><h3><span>${esc(info.days[d])}</span><span class="cnt" data-cnt="${d}"></span></h3>
     <div class="chips">${info.slots.map(s=>`<button type="button" class="slotchip" data-k="${d}:${esc(s.key)}"><span class="box"></span><span>${esc(s.label)}</span>${s.bonus?`<span class="slotbonus">+$${esc(s.bonus)} bonus</span>`:''}</button>`).join('')}</div></div>`).join('');
@@ -371,7 +371,7 @@ function renderReview(){
   $('rTimes').innerHTML=`${sel.size} a week<small>${lines.map(esc).join('<br>')}</small>`;
   $('rNext').textContent=info.unstaffed
     ? `${info.metro} isn't open for online bookings yet. Your account and times are saved when you tap the button, and we'll text you as soon as jobs start.`
-    : `When you tap Start you're on the ${info.metro} schedule. Customers can book you in any of the times you picked, and we text you every job. The address and details are in the tech app.`;
+    : `When you tap Start you're on the ${info.metro} schedule. Customers can book you in any of the times you picked, and we text you every job. The address and details are in the cleaner app.`;
   $('revErr').textContent='';
 }
 
@@ -401,7 +401,7 @@ $('btnStart').addEventListener('click',async()=>{
 });
 
 // Signed in: write the exact session tech.html's own login writes
-// (ha_tech_token + ha_tech_info), so "Open the tech app" lands on Jobs with no
+// (ha_tech_token + ha_tech_info), so "Open the cleaner app" lands on Jobs with no
 // second sign-in. If storage is blocked, fall back to the existing ?login=
 // magic-link hand-off, which tech.html validates and strips from the URL.
 function finish(d){
@@ -414,9 +414,9 @@ function finish(d){
   $('dPillT').textContent=d.unstaffed?`${d.metro||info.metro} opens for online bookings soon`:`Live for jobs in ${d.metro||info.metro}`;
   $('dJobs').innerHTML=d.unstaffed
     ? `We'll text <b>${esc(fmtPhone(p10))}</b> as soon as ${esc(d.metro||info.metro)} opens. After that you get a "You got a job!" text every time you're booked.`
-    : `Every time you're booked we text <b>${esc(fmtPhone(p10))}</b> "You got a job!". Open the tech app to see the address and details.`;
-  $('dTimes').textContent=`${d.slot_count||sel.size} time${(d.slot_count||sel.size)===1?'':'s'} a week. Change them anytime under My Availability in the tech app.`;
-  $('dLogin').textContent='Your phone number + your 4-digit PIN. Tip: add the tech app to your home screen. iPhone: Share, then Add to Home Screen. Android: the ⋮ menu, then Add to Home screen.';
+    : `Every time you're booked we text <b>${esc(fmtPhone(p10))}</b> "You got a job!". Open the cleaner app to see the address and details.`;
+  $('dTimes').textContent=`${d.slot_count||sel.size} time${(d.slot_count||sel.size)===1?'':'s'} a week. Change them anytime under My Availability in the cleaner app.`;
+  $('dLogin').textContent='Your phone number + your 4-digit PIN. Tip: add the cleaner app to your home screen. iPhone: Share, then Add to Home Screen. Android: the ⋮ menu, then Add to Home screen.';
   show('vDone');
 }
 </script>

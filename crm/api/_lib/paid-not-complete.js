@@ -47,7 +47,7 @@ export async function checkPaidNotComplete(opts = {}) {
     let anySent = false;
     for (const t of techs) {
       const name = (t.name || '').trim().split(/\s+/)[0] || 'Hey';
-      const msg = `${name}, this job is marked paid but not Complete yet${b.customer?.name ? ` (${b.customer.name})` : ''}. Open the tech app and tap Complete to close it out.`;
+      const msg = `${name}, this job is marked paid but not Complete yet${b.customer?.name ? ` (${b.customer.name})` : ''}. Open the cleaner app and tap Complete to close it out.`;
       const r = await sendSMSResult(t.phone, msg);
       if (r.ok) anySent = true;
       else console.warn('[paid_not_complete] SMS failed', b.id, t.name, r.error || r.skipped);

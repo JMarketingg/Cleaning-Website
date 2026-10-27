@@ -56,7 +56,7 @@ export function fmtExpiry(iso, tz) {
 
 export function inviteSmsText({ brand, name, metro, link, expiresLabel }) {
   const who = firstName(name) ? `Hi ${firstName(name)}, you're` : "You're";
-  return `${brand}: ${who} invited to join our technician team in ${metro}. `
+  return `${brand}: ${who} invited to join our cleaner team in ${metro}. `
     + `Create your login and pick the times you can work (about 2 min): ${link} `
     + (expiresLabel ? `Link expires ${expiresLabel}.` : '');
 }
@@ -66,7 +66,7 @@ export function welcomeSmsText({ brand, name, metro, unstaffed }) {
     ? `We're getting ${metro} ready for online bookings and will text you here as soon as jobs start.`
     : `You can now get jobs in ${metro} during the times you picked. We'll text this number every time you're booked.`;
   return `${brand}: You're in, ${firstName(name)}! ${middle} `
-    + `Tech app: ${appBaseUrl()}/tech.html (sign in with this number + your 4-digit PIN).`;
+    + `Cleaner app: ${appBaseUrl()}/tech.html (sign in with this number + your 4-digit PIN).`;
 }
 
 export async function sendTechSms(db, { kind, technicianId = null, businessId = null, phone, message }) {

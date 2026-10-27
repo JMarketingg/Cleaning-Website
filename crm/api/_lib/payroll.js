@@ -349,7 +349,7 @@ function computeJobPayInner(job, techName) {
       const amt = parseInt(m[1], 10);
       return { pay: amt, breakdown: [{ label: 'Assurion (per job note)', amount: amt }], flags, state: 'paid' };
     }
-    flags.push('Assurion job but no "Tech pay:" note found');
+    flags.push('Assurion job but no "Cleaner pay:" note found');
   }
 
   const state = paymentState(job);
@@ -532,7 +532,7 @@ function computeJobPayInner(job, techName) {
     const finalPay = share + afterHoursBonus + travelHalf;
     return { pay: round2(finalPay), tip: tipShare, breakdown: newBreakdown, flags, state: state === 'partial' ? 'partial' : 'paid' };
   } else {
-    if (feeBonus) breakdown.push({ label: `Second Technician bonus ($${feeBonus})`, amount: feeBonus });
+    if (feeBonus) breakdown.push({ label: `Second Cleaner bonus ($${feeBonus})`, amount: feeBonus });
     if (afterHoursBonus) breakdown.push({ label: 'After-Hours bonus (8 PM)', amount: afterHoursBonus });
     if (travelPayout) breakdown.push({ label: 'Travel payout', amount: travelPayout });
     pay += feeBonus + afterHoursBonus + travelPayout;
@@ -579,7 +579,7 @@ function runSelfTests() {
   eq(computeJobPay(job({ line_items: julianaItems }), 'Juan').pay, 212, 'Juan 70-85 + outdoor + soundbar (160) + $52 travel (80% of $65) = 212');
   eq(computeJobPay(job({ line_items: julianaItems }), 'Juan').flags.length, 0, 'Juliana job: no unmatched/review flags');
   eq(computeJobPay(job({ line_items: julianaItems }), 'Kregg').pay, 202, 'Other tech same job = 150 base + $52 travel = 202');
-  eq(computeJobPay(job({ line_items: julianaItems, second_tech: true }), 'Juan').pay, 106, 'Juan WITH a real second tech splits like anyone else: (160+52)/2 = 106');
+  eq(computeJobPay(job({ line_items: julianaItems, second_tech: true }), 'Juan').pay, 106, 'Juan WITH a real second cleaner splits like anyone else: (160+52)/2 = 106');
   eq(computeJobPay(job({ line_items: julianaItems, second_tech: true }), 'Kregg').pay, 101, 'Two techs: base 150 split = 75 + travel $52 SPLIT = 26 -> 101');
   eq(computeJobPay(job({ line_items: julianaItems, second_tech: true, is_secondary: true }), 'Kregg').pay, 101, 'Second of two techs: 75 base share + 26 travel half = 101');
   eq(computeJobPay(job({ line_items: [
@@ -589,21 +589,21 @@ function runSelfTests() {
 
   eq(computeJobPay(job({ line_items: [
     { name: '60"–69"', line_total: 119 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
-  ] }), 'Kregg').pay, 130, 'Solo + Second Technician line: 70 base + full 60 = 130');
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
+  ] }), 'Kregg').pay, 130, 'Solo + Second Cleaner line: 70 base + full 60 = 130');
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
-  ] }), 'Kregg').pay, 65, 'Two techs + Second Technician: (70 + 60) ÷ 2 = 65');
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
+  ] }), 'Kregg').pay, 65, 'Two techs + Second Cleaner: (70 + 60) ÷ 2 = 65');
   eq(computeJobPay(job({ second_tech: true, is_secondary: true, line_items: [
     { name: '60"–69"', line_total: 119 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
   ] }), 'Steve').pay, 65, 'Second of two techs: (70 + 60) ÷ 2 = 65');
   const renita = { second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: '70"–85"', line_total: 149 },
     { name: 'Soundbar Installation', quantity: 2, unit_price: 60, line_total: 120 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
   ] };
   eq(computeJobPay(job({ ...renita }), 'Kregg').pay, 140, 'Renita: Kregg = (70+80+70+60=280) ÷ 2 = 140');
   eq(computeJobPay(job({ ...renita, is_secondary: true }), 'Steve').pay, 140, 'Renita: Steve = 280 ÷ 2 = 140');
@@ -611,12 +611,12 @@ function runSelfTests() {
     { name: '60"–69"', line_total: 119 },
     { name: '70"–85"', line_total: 149 },
     { name: 'Soundbar Installation', line_total: 60 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
   ] }), 'Kregg').pay, 122.5, 'Odd pool ($245) still splits to the cent = 122.50');
   const twoLeg = { second_tech: true, line_items: [
     { name: '70"–85"', line_total: 149 },
     { name: '70"–85"', line_total: 149 },
-    { name: 'Second Technician', line_total: 70, kind: 'fee' },
+    { name: 'Second Cleaner', line_total: 70, kind: 'fee' },
   ] };
   eq(computeJobPay(job({ ...twoLeg }), 'Kregg').pay, 110, 'Two techs: (160 + 60) ÷ 2 = 110');
   eq(computeJobPay(job({ ...twoLeg, is_secondary: true }), 'Steve').pay, 110, 'Second tech: (160 + 60) ÷ 2 = 110');
@@ -676,7 +676,7 @@ function runSelfTests() {
 
   eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: 'Tv recycle', quantity: 1, unit_price: 75, line_total: 75 },
-  ] }), 'Kregg').pay, 75, 'Tv recycle = $75 to the tech');
+  ] }), 'Kregg').pay, 75, 'Tv recycle = $75 to the cleaner');
   eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: 'Tv recycle', quantity: 2, unit_price: 75, line_total: 150 },
   ] }), 'Kregg').pay, 150, 'Tv recycle ×2 = $150');
@@ -752,7 +752,7 @@ function runSelfTests() {
     eq(r.pay, 80 + 170, 'mislabeled $350 "Samsung Frame TV" line = OneConnect box = flat $170 (not $15, not hourly)');
     eq(r.flags.length, 0, 'mislabeled $350 "Samsung Frame TV" line: no review flag');
     eq(computeJobPay(job({ line_items: [{ name: '60"-69"', line_total: 119 },
-      { name: 'Install OneConnect Box', line_total: 350 }] }), 'Kregg').pay, 70 + 170, 'OneConnect box = $170 for every tech');
+      { name: 'Install OneConnect Box', line_total: 350 }] }), 'Kregg').pay, 70 + 170, 'OneConnect box = $170 for every cleaner');
   }
   eq(computeJobPay(job({ line_items: [{ name: '60"-69"', line_total: 119 },
     { name: 'Samsung Frame TV', line_total: 25 }] }), 'Juan').pay, 95, 'a real $25 Samsung Frame in-box bracket line still pays its flat $15');
@@ -795,7 +795,7 @@ function runSelfTests() {
 
   eq(computeJobPay(job({ line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Zach').pay, 50, 'tilting Other adds 0');
   eq(computeJobPay(job({ scheduled_at: '2026-08-10T18:00:00Z', line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Juan').pay, 85, 'PRE-2026-08-16 tilting Juan adds 35');
-  eq(computeJobPay(job({ line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Juan').pay, 50, 'post-cutoff tilting adds $0 for Juan, same as every other tech');
+  eq(computeJobPay(job({ line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Juan').pay, 50, 'post-cutoff tilting adds $0 for Juan, same as every other cleaner');
 
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Hide wires BEHIND the wall', line_total: 60 }] }), 'Steve').pay, 95, 'behind-wall other = 60+35');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Hide wires BEHIND the wall', line_total: 60 }] }), 'Juan').pay, 105, 'behind-wall Juan = 60+45');
@@ -812,7 +812,7 @@ function runSelfTests() {
   ] }), 'Steve').pay, 182, 'handyman 2h labor line + travel fee + tax -> 2h*65=130 + $52 travel share = 182, not inflated by folding the fee/tax into "hours"');
   const handymanTwoTech = { service_name: 'Handyman Services', subtotal: 75, second_tech: true, line_items: [
     { name: 'Handyman Labor', quantity: 2, unit_price: 85, line_total: 170 },
-    { name: 'Second Technician', line_total: 70 },
+    { name: 'Second Cleaner', line_total: 70 },
   ] };
   eq(computeJobPay(job({ ...handymanTwoTech }), 'Kregg').pay, 95, 'two-tech handyman splits: (130+60)/2 = 95');
   eq(computeJobPay(job({ ...handymanTwoTech, is_secondary: true }), 'Steve').pay, 95, 'second of two-tech handyman also gets 95');
@@ -854,11 +854,11 @@ function runSelfTests() {
 
   eq(computeJobPay(job({ second_tech: true, tip: 20, line_items: [
     { name: '60"–69"', line_total: 119 },
-    { name: 'Second Technician', line_total: 70 }
+    { name: 'Second Cleaner', line_total: 70 }
   ] }), 'Kregg').total, 75, 'two techs (70/2 + 20/2 + 30 = 35 + 10 + 30)');
   eq(computeJobPay(job({ second_tech: true, tip: 20, line_items: [
     { name: '60"–69"', line_total: 119 },
-    { name: 'Second Technician', line_total: 70 }
+    { name: 'Second Cleaner', line_total: 70 }
   ] }), 'Kregg').tip, 10, 'two techs: tip split 50/50 = 10');
 
   eq(computeJobPay(job({ second_tech: true, line_items: [
@@ -868,41 +868,41 @@ function runSelfTests() {
 
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '70"–84"', line_total: 169 },
-    { name: 'Second Technician (Large TVs): 2 technicians', line_total: 70 }
+    { name: 'Second Cleaner (Large TVs): 2 technicians', line_total: 70 }
   ] }), 'Kregg').pay, 70, 'two techs, relabeled "2 technicians" line (80/2 + 30 = 40 + 30)');
-  eq(matchSize('Second Technician (Large TVs): 2 technicians'), null, '"2 technicians" is never read as a TV-size base line');
+  eq(matchSize('Second Cleaner (Large TVs): 2 technicians'), null, '"2 technicians" is never read as a TV-size base line');
 
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '33"–59"', line_total: 109 },
-    { name: 'Second Technician', line_total: 50 }
+    { name: 'Second Cleaner', line_total: 50 }
   ] }), 'Zach').pay, 30, 'two techs no bonus (60/2 = 30, no $30 bonus for <70)');
 
   eq(computeJobPay(job({ tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
-    { name: 'Second Technician', line_total: 70 }
+    { name: 'Second Cleaner', line_total: 70 }
   ] }), 'Juan').total, 230, 'Juan two-person NOT split (130 + 40 + 60)');
   eq(computeJobPay(job({ second_tech: true, tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
-    { name: 'Second Technician', line_total: 70 }
+    { name: 'Second Cleaner', line_total: 70 }
   ] }), 'Kregg').total, 115, 'Other tech two-person splits (130/2 + 40/2 + 30)');
   eq(computeJobPay(job({ line_items: [
     { name: '70"-85"', line_total: 149 },
-    { name: 'Second Technician', line_total: 70 },
+    { name: 'Second Cleaner', line_total: 70 },
   ] }), 'TK').pay, 140, 'TK two-person NOT split: 80 base + full 60 = 140');
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '70"-85"', line_total: 149 },
-    { name: 'Second Technician', line_total: 70 },
+    { name: 'Second Cleaner', line_total: 70 },
   ] }), 'Kregg').pay, 70, 'normal tech same job splits: 80/2 + 30 = 70');
   eq(computeJobPay(job({ second_tech: true, tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
-    { name: 'Second Technician', line_total: 70 }
-  ] }), 'TK').total, 115, 'TK WITH a real second tech splits like anyone else: (130+40+60)/2 = 115');
+    { name: 'Second Cleaner', line_total: 70 }
+  ] }), 'TK').total, 115, 'TK WITH a real second cleaner splits like anyone else: (130+40+60)/2 = 115');
 
   const localJob=(extra)=>job({ business_slug: 'doms', line_items: [
     { name: 'TV Size: 32–49 inch', quantity: 1, unit_price: 100, line_total: 100 },
     { name: 'Local travel credit', line_total: -20, kind: 'fee' },
   ], ...extra });
-  eq(computeJobPay(localJob({ travel_payout: -10 }), 'TK').pay - computeJobPay(localJob({ travel_payout: 0 }), 'TK').pay, -10, 'local credit + -$10 zip payout docks the tech $10');
+  eq(computeJobPay(localJob({ travel_payout: -10 }), 'TK').pay - computeJobPay(localJob({ travel_payout: 0 }), 'TK').pay, -10, 'local credit + -$10 zip payout docks the cleaner $10');
   eq(computeJobPay(job({ business_slug: 'doms', travel_payout: -10, line_items: [
     { name: 'TV Size: 32–49 inch', quantity: 1, unit_price: 100, line_total: 100 },
   ] }), 'TK').pay, computeJobPay(job({ business_slug: 'doms', travel_payout: 0, line_items: [
@@ -954,7 +954,7 @@ function runSelfTests() {
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'After-Hours Service Fee (8 PM)', kind: 'fee', line_total: 75 },
-    { name: 'Second Technician', line_total: 70 }
+    { name: 'Second Cleaner', line_total: 70 }
   ] }), 'Zach').pay, 140, '8pm two techs (70/2 + 30 + 75 = 35 + 30 + 75)');
 
   eq(computeJobPay(job({ created_at: '2026-10-23T00:00:00Z', line_items: [

@@ -167,7 +167,7 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
     if (!b || ['cancelled', 'no_show', 'completed'].includes(b.status) || !active(b) || b.metadata?.late_reported_at) continue;
     const { data: t } = await db.from('technicians').select('name').eq('id', l.technician_id).maybeSingle();
     const tz = jobTz(b);
-    const msg = `${first(t?.name) === 'Customer' ? 'Tech' : first(t?.name)} is late for ${clock(b.scheduled_at, tz)} job and hasn't replied - call him`;
+    const msg = `${first(t?.name) === 'Customer' ? 'Cleaner' : first(t?.name)} is late for ${clock(b.scheduled_at, tz)} job and hasn't replied - call him`;
     const recips = await leadAlertRecipients(db, b.business?.slug || '');
     if (dryRun) { out.late_alert.push({ to: recips.map(r => r.name), msg }); continue; }
     const sentTo = [];

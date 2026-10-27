@@ -380,7 +380,7 @@ export async function chargeCardOnFile({ bookingId, cents, tip, customerId, paym
   const chargeIdOf = piChargeId, fullyRefunded = piFullyRefunded, partlyRefunded = piPartlyRefunded;
   const normalize = (p) => ({ ...p, latest_charge: chargeIdOf(p) });
   const STILL_PROCESSING = 'A charge for this booking is still processing at the bank — wait a minute and check the booking before charging again.';
-  const IN_PROGRESS = 'This charge is already in progress from another device (office or tech app) — wait a moment and check whether it went through before trying again.';
+  const IN_PROGRESS = 'This charge is already in progress from another device (office or cleaner app) — wait a moment and check whether it went through before trying again.';
   const decide = (p) => {
     if (p.status === 'succeeded') {
       if (Number(p.amount) !== cents) throw fail(409, `Stripe holds a succeeded payment for this booking at a different amount ($${(Number(p.amount) / 100).toFixed(2)}, ${p.id}) — check Stripe before charging again.`);

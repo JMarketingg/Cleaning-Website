@@ -1306,7 +1306,7 @@ async function reportLate(req, res) {
     const techName = tokenTech === String(b.technician_id)
       ? b.technician?.name
       : (tokenTech === String(b.secondary_technician_id) ? b.secondary_technician?.name : null);
-    const techFirstName = (techName || '').trim().split(/\s+/)[0] || 'Your tech';
+    const techFirstName = (techName || '').trim().split(/\s+/)[0] || 'Your cleaner';
     const customerName = b.customer?.name || 'the customer';
     let tz = b.business?.timezone || 'Asia/Manila';
     if (b.service_area_id) {

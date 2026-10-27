@@ -42,13 +42,14 @@
       <option value="90">Last 90 days</option>
       <option value="365">Last 12 months</option>
     </select>
-    <a href="/admin.html" style="margin-left:10px;">← CRM</a>
+    <a href="/admin.html" id="backCrm" style="margin-left:10px;">← CRM</a>
   </div>
 </header>
 <main id="out"><div class="msg">Loading…</div></main>
 <script>
 (function(){
   var out=document.getElementById('out'), sel=document.getElementById('days');
+  if(/embed=1/.test(location.search)){ var bc=document.getElementById('backCrm'); if(bc) bc.remove(); }
   var token=''; try{ token=localStorage.getItem('ha_admin_token')||''; }catch(e){}
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   function n(v){ return Number(v||0).toLocaleString('en-PH'); }
