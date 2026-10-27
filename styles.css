@@ -957,10 +957,10 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .cta-band .btn-lg { width: 100%; }
 }
 
-/* Header before the fold: logo and quote button only */
-.site-header.menu-hidden .site-nav > :not(.btn),
-.site-header.menu-hidden .menu-toggle { display: none; }
+/* Phones, before the fold: header shows only the logo and quote button */
 @media (max-width: 860px) {
+  .site-header.menu-hidden .site-nav > :not(.btn),
+  .site-header.menu-hidden .menu-toggle { display: none; }
   .js .site-header.menu-hidden .site-nav {
     display: flex;
     width: auto;
