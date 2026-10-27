@@ -540,7 +540,7 @@ a:hover { color: var(--evergreen); }
 }
 .panel { border-radius: 8px; }
 .panel .check-list { gap: 14px; font-size: 1.05rem; }
-.checklist-img { width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: var(--radius); }
+.checklist-img { width: 100%; height: auto; aspect-ratio: 9 / 7; object-fit: cover; border-radius: var(--radius); }
 .js .panel-title {
   position: absolute; width: 1px; height: 1px; margin: -1px; overflow: hidden;
   clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap;
