@@ -478,6 +478,8 @@ a:hover { color: var(--evergreen); }
 }
 .approach-media img {
   width: 100%;
+  height: auto;
+  object-position: center 30%;
   aspect-ratio: 1 / 1;
   object-fit: cover;
   border-radius: 20px;
@@ -781,7 +783,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .services { grid-template-columns: 1fr; }
   .services-more { grid-template-columns: 1fr; gap: 20px; margin-top: 20px; }
   .approach-grid { grid-template-columns: 1fr; }
-  .approach-media img { aspect-ratio: 4 / 3; }
+  .approach-media img { aspect-ratio: 4 / 5; max-height: 560px; }
   .checklist-body { grid-template-columns: 1fr; padding: 28px; }
   .checklist-img { display: none; }
 }
