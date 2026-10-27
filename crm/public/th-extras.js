@@ -266,9 +266,65 @@
     };
   };
 
+
+  // ── What's new ────────────────────────────────────────────────────────────
+  function goNav(n) { return function () { if (typeof window.navTo === 'function') window.navTo(n); }; }
+  function goOther(k) { return function () { window.navTo('other'); setTimeout(function () { var t = document.querySelector('[data-ot="' + k + '"]'); if (t) t.click(); }, 50); }; }
+  var NEWS = [
+    { h: 'Your business', items: [
+      { t: 'TidyHaus only, Manila only', d: 'All the old TV-mounting companies, staff, phone numbers and cities are gone. Everything is in pesos (₱) and Manila time. Your areas are Makati and BGC.' },
+      { t: 'Technicians are now Cleaners', d: 'Every screen says Cleaner instead of Technician.', go: goOther('technicians') },
+      { t: 'Simpler menu', d: 'Pipeline, Prospects, Tasks, Launch and Google Ads moved into Other.', go: goNav('other') },
+      { t: 'Password', d: 'The CRM needs a password. You can pick your own here.', go: goOther('password'), btn: 'Change password' },
+    ] },
+    { h: 'Getting customers', items: [
+      { t: 'Quote Requests', d: 'Every request sent from the quote form on tidyhausph.com shows up here. Tap “Make booking” and the form fills itself in.', go: function () { var b = document.getElementById('navQuotes'); if (b) b.click(); } },
+      { t: 'Website analytics', d: 'Visitors, top pages, where they came from, clicks on Call and Facebook, and how far people get in the quote form.', go: function () { window.navTo('analyticshub'); setTimeout(function () { var b = document.querySelector('#hubNavigation [data-hub=website]'); if (b) b.click(); }, 300); } },
+      { t: 'Google Ranking', d: 'Tracks cleaning searches in Makati and BGC, like “condo cleaning makati”.', go: goNav('rankings') },
+    ] },
+    { h: 'Bookings', items: [
+      { t: 'Cleaning booking form', d: 'New Booking and Take a Call open one cleaning form: service, bedrooms and bathrooms, add-ons, how often, date and time. The price is worked out for you.', go: function () { window.openNewBooking(); }, btn: 'New booking' },
+      { t: 'Cleaning Prices', d: 'Placeholder prices for every service, size, add-on and repeat discount. Change any number and save.', go: goOther('widget') },
+      { t: 'Repeat bookings', d: 'Pick Weekly, Every 2 weeks or Monthly and the next visits are booked for you. The CRM keeps booking ahead every day. Stop a series from any of its bookings.' },
+      { t: 'Bookings report', d: 'Bookings made, money booked and earned, upcoming cleanings, popular services and days, repeat customers, and how many quote requests became bookings.', go: function () { window.navTo('analyticshub'); setTimeout(function () { var b = document.querySelector('#hubNavigation [data-hub=bookings]'); if (b) b.click(); }, 300); } },
+    ] },
+    { h: 'Getting paid', items: [
+      { t: 'Payments & QR codes', d: 'Upload your GCash, Maya or QR Ph code. Cleaners show it to the customer after the cleaning and tap how they paid. The office can mark a booking paid too.', go: goOther('payments') },
+      { t: 'Online payment links', d: 'Waiting for PayMongo sign-up. Once it’s set up, you can text customers a link to pay by QR Ph, GCash, Maya, GrabPay or card.', go: goOther('payments') },
+    ] },
+    { h: 'Cleaners', items: [
+      { t: 'New cleaner app', d: 'Cleaners sign in on their phone at tidyhaus-crm.vercel.app/tech.html to see their jobs, the address, the cleaning list, add before/after photos, get paid and mark the cleaning finished.' },
+      { t: 'Cleaning checklist', d: 'The same room-by-room list as your website. Cleaners tick each item. The booking shows how many are done.' },
+      { t: 'Cleaner Pay', d: 'What each cleaner earned this week (a share of each job, a minimum per job, plus tips). Mark each cleaner paid. Cleaners see their own pay in the app.', go: goOther('cleanerpay') },
+    ] },
+    { h: 'Texts to customers', items: [
+      { t: 'Text Messages', d: 'Booking confirmation, a reminder the evening before, and “on the way”. Switch each one on or off. Waiting for a Semaphore account before texts are sent.', go: goOther('texts') },
+    ] },
+  ];
+  window.thRenderNews = function () {
+    var v = view();
+    var html = NEWS.map(function (g, gi) {
+      return '<h3 style="margin:18px 0 8px;font-size:15px;text-transform:uppercase;letter-spacing:.04em;color:var(--mute);">' + e(g.h) + '</h3>' + g.items.map(function (it, ii) {
+        return '<div class="card" style="padding:12px 14px;margin-bottom:8px;display:flex;gap:12px;align-items:center;justify-content:space-between;flex-wrap:wrap;">' +
+          '<div style="flex:1 1 320px;"><b>' + e(it.t) + '</b><div class="meta" style="margin-top:2px;line-height:1.5;">' + e(it.d) + '</div></div>' +
+          (it.go ? '<button type="button" class="btn ghost sm" style="width:auto;" data-news="' + gi + ':' + ii + '">' + e(it.btn || 'Open') + ' →</button>' : '') + '</div>';
+      }).join('');
+    }).join('');
+    v.innerHTML = '<div class="wrap" style="max-width:760px;"><h2 style="margin:0 0 4px;">✨ What’s new in your CRM</h2>' +
+      '<div class="meta">Everything that was added or changed for TidyHaus. Tap Open to go there.</div>' + html + '</div>';
+    v.querySelectorAll('[data-news]').forEach(function (b) {
+      b.onclick = function () { var x = b.dataset.news.split(':'); NEWS[+x[0]].items[+x[1]].go(); };
+    });
+    try { localStorage.setItem('th_news_seen', '1'); } catch (_) {}
+    var bd = document.getElementById('navNewsBadge'); if (bd) bd.style.display = 'none';
+  };
+
   function boot() {
     if (!document.getElementById('sideNav') || typeof window.api !== 'function') return;
     navButton('navQuotes', '📨', 'Quote Requests', 'schedule', renderQuotes);
+    navButton('navNews', '✨', 'What’s new', 'other', window.thRenderNews);
+    var seen = null; try { seen = localStorage.getItem('th_news_seen'); } catch (_) {}
+    var nb = document.getElementById('navNewsBadge'); if (nb && !seen) { nb.textContent = 'new'; nb.style.display = ''; }
     loadQuoteBadge();
   }
   window.thBoot = boot;
