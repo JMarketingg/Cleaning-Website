@@ -141,8 +141,7 @@
       var payHtml=!pay?'':'<div class="card"><h2>Get paid · '+peso(pay.booking&&pay.booking.price)+'</h2>'+(paid?'<p style="margin:0;color:var(--ok);font-weight:700;">✓ Paid by '+esc(pay.methods[pay.booking.payment_method]||pay.booking.payment_method)+'</p>':
         '<p class="mute">Show the customer a QR code to scan, then tap how they paid.</p>'+
         (pay.qr.length?'<div class="qrs">'+pay.qr.map(function(q){ return '<button type="button" class="qrb" data-qr="'+esc(q.url)+'"><img src="'+esc(q.url)+'" alt="'+esc(q.label)+' QR"><span>'+esc(q.label)+'</span></button>'; }).join('')+'</div>':'<p class="mute">No QR codes yet. Ask the office to add them.</p>')+
-        '<div class="paybtns">'+['gcash','maya','qrph','cash','bank'].map(function(k){ return '<button type="button" class="btn ghost" data-paid="'+k+'">Paid by '+esc(pay.methods[k])+'</button>'; }).join('')+'</div>'+
-        (pay.paymongo_on?'<button type="button" class="btn ghost" id="plink">Text the customer a payment link</button>':''))+'</div>';
+        '<div class="paybtns">'+['gcash','maya','qrph','cash','bank'].map(function(k){ return '<button type="button" class="btn ghost" data-paid="'+k+'">Paid by '+esc(pay.methods[k])+'</button>'; }).join('')+'</div>')+'</div>';
       var lines=(j.line_items||[]).map(function(l){ return '<div><span>'+esc(l.name)+(Number(l.quantity)>1?' × '+esc(l.quantity):'')+'</span><span>'+(l.line_total!=null?peso(l.line_total):'')+'</span></div>'; }).join('');
       box.innerHTML='<button class="btn ghost" id="back">← My jobs</button>'+
         '<div class="card"><h2>'+esc(j.customer_name)+'</h2><div class="mute">'+esc(j.service||'Cleaning')+'</div>'+
@@ -170,7 +169,6 @@
       box.querySelectorAll('[data-qr]').forEach(function(b){ b.onclick=function(){ var o=document.createElement('div'); o.className='qrfull'; o.innerHTML='<img src="'+esc(b.dataset.qr)+'" alt="QR code"><p>Tap anywhere to close</p>'; o.onclick=function(){ o.remove(); }; document.body.appendChild(o); }; });
       box.querySelectorAll('[data-paid]').forEach(function(b){ b.onclick=function(){ if(!confirm('Did the customer pay '+peso(pay.booking.price)+' by '+pay.methods[b.dataset.paid]+'?')) return; b.disabled=true;
         api('job_mark_paid',{method:'POST',body:{id:id,method:b.dataset.paid}}).then(function(){ openJob(id); }).catch(function(x){ b.disabled=false; err.textContent=x.message; }); }; });
-      var pl=document.getElementById('plink'); if(pl) pl.onclick=function(){ pl.disabled=true; api('job_pay_link',{method:'POST',body:{id:id}}).then(function(r){ err.textContent=r.texted?'Payment link texted to the customer.':'Could not text it. Link: '+r.url; }).catch(function(x){ pl.disabled=false; err.textContent=x.message; }); };
       var clBoxes=box.querySelectorAll('[data-cl]'), clTimer=null;
       function clState(){ var d=[].filter.call(clBoxes,function(c){ return c.checked; }).map(function(c){ return c.dataset.cl; }); var cnt=document.getElementById('clCount'); if(cnt) cnt.textContent=d.length+' of '+clBoxes.length; return d; }
       clState();

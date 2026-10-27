@@ -112,10 +112,7 @@
         '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:12px;">' + (qr || '<div class="meta">No QR codes yet.</div>') + '</div>' +
         '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;"><select id="qrLabel" style="width:auto;"><option>GCash</option><option>Maya</option><option>QR Ph (any bank or e-wallet)</option><option>GoTyme</option><option>BPI</option><option>BDO</option><option>UnionBank</option></select>' +
         '<input type="file" id="qrFile" accept="image/*" style="width:auto;"><button class="btn sm" id="qrAdd" style="width:auto;">Add QR code</button></div><div class="meta" id="qrMsg" style="margin-top:6px;"></div></div>' +
-        '<div class="card" style="padding:14px;"><b>Online payment links (PayMongo)</b><div class="meta" style="margin:4px 0 8px;">Text the customer a link where they can pay by QR Ph, GCash, Maya, GrabPay or card. The booking is marked paid by itself.</div>' +
-        (d.paymongo_on ? '<div style="color:#15803d;font-weight:700;">✓ Turned on</div>' :
-          '<div style="font-weight:700;color:#b45309;">Not set up yet</div><ol class="meta" style="margin:6px 0 0 18px;padding:0;line-height:1.7;"><li>Make a free business account at paymongo.com and get it verified.</li><li>In PayMongo, open Developers and copy your <b>secret key</b>.</li><li>Add a webhook for the event <b>checkout_session.payment.paid</b> to <code>https://tidyhaus-crm.vercel.app/api/quote?action=paymongo_webhook</code> and copy its secret.</li><li>In Vercel → tidyhaus-crm → Settings → Environment Variables, add <b>PAYMONGO_SECRET_KEY</b> and <b>PAYMONGO_WEBHOOK_SECRET</b>, then redeploy. Or ask Claude to do it.</li></ol>') +
-        '</div></div>';
+        '</div>';
       v.querySelector('#qrAdd').onclick = function () {
         var f = v.querySelector('#qrFile').files[0], msg = v.querySelector('#qrMsg');
         if (!f) { msg.textContent = 'Pick the QR image first.'; return; }
@@ -144,20 +141,12 @@
       var opts = ['gcash', 'maya', 'qrph', 'cash', 'bank'].map(function (k) { return '<option value="' + k + '">' + e(d.methods[k]) + '</option>'; }).join('');
       box.innerHTML = '<div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"><span class="dim">💳 Not paid yet</span>' +
         '<select id="thPayM" style="width:auto;padding:4px 8px;">' + opts + '</select><button type="button" class="btn ghost sm" style="width:auto;" id="thPayMark">Mark paid</button>' +
-        (d.paymongo_on ? '<button type="button" class="btn ghost sm" style="width:auto;" id="thPayLink">Text payment link</button>' : '') + '</div><div class="dim" id="thPayMsg"></div>';
+        '</div><div class="dim" id="thPayMsg"></div>';
       box.querySelector('#thPayMark').onclick = function () {
         var method = box.querySelector('#thPayM').value;
         window.api('booking_mark_paid', { method: 'POST', body: { id: id, method: method } })
           .then(function () { box.innerHTML = '<span class="dim">💳 Paid · ' + e(d.methods[method]) + '</span>'; toast('Marked paid ✓'); if (typeof window.renderSchedule === 'function') window.renderSchedule(true); })
           .catch(function (x) { box.querySelector('#thPayMsg').textContent = x.message; });
-      };
-      var pl = box.querySelector('#thPayLink');
-      if (pl) pl.onclick = function () {
-        pl.disabled = true;
-        window.api('booking_pay_link', { method: 'POST', body: { id: id, text: true } }).then(function (r) {
-          box.querySelector('#thPayMsg').innerHTML = (r.texted ? 'Texted to the customer. ' : 'Not texted (texts are off). ') + '<a href="' + e(r.url) + '" target="_blank" rel="noopener">Open link</a>';
-          try { navigator.clipboard.writeText(r.url); } catch (_) {}
-        }).catch(function (x) { pl.disabled = false; box.querySelector('#thPayMsg').textContent = x.message; });
       };
     }).catch(function () {});
   }
@@ -290,7 +279,6 @@
     ] },
     { h: 'Getting paid', items: [
       { t: 'Payments & QR codes', d: 'Upload your GCash, Maya or QR Ph code. Cleaners show it to the customer after the cleaning and tap how they paid. The office can mark a booking paid too.', go: goOther('payments') },
-      { t: 'Online payment links', d: 'Waiting for PayMongo sign-up. Once it’s set up, you can text customers a link to pay by QR Ph, GCash, Maya, GrabPay or card.', go: goOther('payments') },
     ] },
     { h: 'Cleaners', items: [
       { t: 'New cleaner app', d: 'Cleaners sign in on their phone at tidyhaus-crm.vercel.app/tech.html to see their jobs, the address, the cleaning list, add before/after photos, get paid and mark the cleaning finished.' },

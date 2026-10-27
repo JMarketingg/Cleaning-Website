@@ -27,7 +27,7 @@ function jobStripePk(slug) {
   return STRIPE_PK_GLOBAL;
 }
 import { uploadImage, deleteImage, readPrivateImage, notePhotoContentType, signVideoUpload, videoPublicUrl, deleteVideo } from './_lib/storage.js';
-import { PAY_METHODS, paymongoOn, businessPaySettings, markPaid, createPaymongoLink } from './_lib/ph-payments.js';
+import { PAY_METHODS, businessPaySettings, markPaid } from './_lib/ph-payments.js';
 import { sendText, alreadySent } from './_lib/semaphore.js';
 import { textSettings, otwMessage } from './_lib/th-daily.js';
 import { checklistFor } from './_lib/th-checklist.js';
@@ -130,7 +130,6 @@ export default async function handler(req, res) {
       case 'job':              return await job(req, res, db, auth);
       case 'pay_info':         return await payInfo(req, res, db, auth);
       case 'job_mark_paid':    return await jobMarkPaid(req, res, db, auth, body);
-      case 'job_pay_link':     return await jobPayLink(req, res, db, auth, body);
       case 'job_otw_text':     return await jobOtwText(req, res, db, auth, body);
       case 'job_checklist':    return await jobChecklist(req, res, db, auth);
       case 'my_pay':           return await myPay(req, res, db, auth);
@@ -1517,7 +1516,7 @@ async function payInfo(req, res, db, auth) {
   try { await assertOwnedJob(db, auth, id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
   const { data: b } = await db.from('bookings').select('price, payment_status, payment_method, amount_paid').eq('id', id).maybeSingle();
   const { qr } = await businessPaySettings(db);
-  return res.status(200).json({ qr: qr.map(({ label, url }) => ({ label, url })), methods: PAY_METHODS, paymongo_on: paymongoOn(), booking: b });
+  return res.status(200).json({ qr: qr.map(({ label, url }) => ({ label, url })), methods: PAY_METHODS, booking: b });
 }
 async function jobMarkPaid(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -1526,17 +1525,6 @@ async function jobMarkPaid(req, res, db, auth, body) {
   const { data: me } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
   try { return res.status(200).json(await markPaid(db, body.id, body.method, { by: (me && me.name) || 'Cleaner' })); }
   catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-}
-async function jobPayLink(req, res, db, auth, body) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  try { await assertOwnedJob(db, auth, body.id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
-  let link; try { link = await createPaymongoLink(db, body.id); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-  let texted = false;
-  if (link.customer && link.customer.phone) {
-    const r = await sendText(link.customer.phone, `Hi ${String(link.customer.name || '').split(' ')[0] || 'there'}! Here's your TidyHaus payment link for ₱${link.amount.toLocaleString('en-PH')}. Pay by QR Ph, GCash, Maya or card: ${link.url}`, { kind: 'pay_link', bookingId: body.id, db });
-    texted = !!r.ok;
-  }
-  return res.status(200).json({ url: link.url, texted });
 }
 
 async function assertOwnedJob(db, auth, id) {

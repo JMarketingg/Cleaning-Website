@@ -87,7 +87,7 @@ function bookingStripePk(slug) {
   return STRIPE_PK_GLOBAL;
 }
 import { uploadImage, deleteImage, uploadPrivateImage, readPrivateImage, notePhotoContentType } from './_lib/storage.js';
-import { PAY_METHODS, paymongoOn, businessPaySettings, markPaid, createPaymongoLink } from './_lib/ph-payments.js';
+import { PAY_METHODS, businessPaySettings, markPaid } from './_lib/ph-payments.js';
 import { sendText, textsOn, alreadySent } from './_lib/semaphore.js';
 import { textSettings, confirmMessage } from './_lib/th-daily.js';
 import { weekPay, weekStartOf } from './_lib/th-pay.js';
@@ -352,7 +352,6 @@ export default async function handler(req, res) {
       case 'payment_qr_add':    return await paymentQrAdd(req, res, db, auth, body);
       case 'payment_qr_delete': return await paymentQrDelete(req, res, db, auth, body);
       case 'booking_mark_paid': return await bookingMarkPaid(req, res, db, auth, body);
-      case 'booking_pay_link':  return await bookingPayLink(req, res, db, auth, body);
       case 'text_settings':     return await textSettingsAction(req, res, db, auth, body);
       case 'change_password':   return await changePassword(req, res, db, auth, body);
       case 'cleaner_pay':       return await cleanerPay(req, res, db, auth);
@@ -3466,7 +3465,7 @@ async function quoteRequestSet(req, res, db, body) {
 
 async function paymentSettings(req, res, db) {
   const { qr } = await businessPaySettings(db);
-  return res.status(200).json({ qr, methods: PAY_METHODS, paymongo_on: paymongoOn(), texts_on: textsOn() });
+  return res.status(200).json({ qr, methods: PAY_METHODS, texts_on: textsOn() });
 }
 async function paymentQrAdd(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -3495,16 +3494,6 @@ async function bookingMarkPaid(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   try { return res.status(200).json(await markPaid(db, body.id, String(body.method || ''), { by: auth.role === 'owner' ? 'Owner' : (auth.name || 'Office') })); }
   catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-}
-async function bookingPayLink(req, res, db, auth, body) {
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  let link; try { link = await createPaymongoLink(db, body.id); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
-  let texted = false;
-  if (body.text && link.customer && link.customer.phone) {
-    const r = await sendText(link.customer.phone, `Hi ${String(link.customer.name || '').split(' ')[0] || 'there'}! Here's your TidyHaus payment link for ₱${link.amount.toLocaleString('en-PH')}. Pay by QR Ph, GCash, Maya or card: ${link.url}`, { kind: 'pay_link', bookingId: body.id, db });
-    texted = !!r.ok;
-  }
-  return res.status(200).json({ url: link.url, texted });
 }
 
 async function textSettingsAction(req, res, db, auth, body) {

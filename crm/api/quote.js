@@ -4,25 +4,12 @@ import { serviceClient } from './_lib/supabase.js';
 import { overSpeedLimit, clientIp } from './_lib/lead-guard.js';
 import { isBotUserAgent } from './_lib/bot-filter.js';
 import { notifyOwnerNewQuote } from './_lib/semaphore.js';
-import { markPaid, verifyPaymongoSignature } from './_lib/ph-payments.js';
 
 export const config = { api: { bodyParser: false } };
 function readRaw(req) {
   return new Promise((resolve, reject) => { let d = ''; req.on('data', (c) => { d += c; }); req.on('end', () => resolve(d)); req.on('error', reject); });
 }
 
-async function paymongoWebhook(req, res, raw) {
-  if (!verifyPaymongoSignature(raw, req.headers['paymongo-signature'])) return res.status(401).json({ error: 'Bad signature' });
-  let ev; try { ev = JSON.parse(raw); } catch { return res.status(400).end(); }
-  const type = ev?.data?.attributes?.type;
-  const session = ev?.data?.attributes?.data;
-  if (type === 'checkout_session.payment.paid' && session) {
-    const id = session.attributes?.metadata?.booking_id || session.attributes?.reference_number;
-    const paidCentavos = (session.attributes?.payments || []).reduce((t, p) => t + (Number(p.attributes?.amount) || 0), 0);
-    if (id) await markPaid(serviceClient(), id, 'paymongo', { by: 'PayMongo', amount: paidCentavos ? paidCentavos / 100 : null });
-  }
-  return res.status(200).json({ ok: true });
-}
 
 const ALLOWED_ORIGIN = /^https:\/\/((www\.)?tidyhausph\.com|tidyhaus[a-z0-9-]*\.vercel\.app)$/;
 const s = (v, n = 200) => (v == null || String(v).trim() === '' ? null : String(v).trim().slice(0, n));
@@ -42,10 +29,9 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
   if (req.method === 'OPTIONS') return res.status(204).end();
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (req.query.action !== 'paymongo_webhook' && isBotUserAgent(req.headers['user-agent'])) return res.status(200).json({ ok: true });
+  if (isBotUserAgent(req.headers['user-agent'])) return res.status(200).json({ ok: true });
 
   const raw = await readRaw(req);
-  if (req.query.action === 'paymongo_webhook') return paymongoWebhook(req, res, raw);
   let b = {};
   try { b = JSON.parse(raw || '{}') || {}; } catch { b = {}; }
   const name = s(b.name, 120);
