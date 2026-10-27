@@ -29789,7 +29789,11 @@ async function tryAutoLogin(){
     lsSet('ha_admin_config',JSON.stringify(appConfig||{}));
     lsSet('ha_admin_biz',JSON.stringify(businesses||[]));
     enterApp();
-  }catch(e){ if(e && e.status===401 && token) logout({reason:'expired'}); /* else: no session — show the login screen */ }
+  }catch(e){
+    if(e && e.status===401 && token){ logout({reason:'expired'}); return; }
+    // No password set on the server yet: sign in straight away, no login screen.
+    try{ const f=document.getElementById('loginForm'); const r=await api('login',{ method:'POST', body:{ password:'' } }); if(r && r.token){ document.getElementById('pw').value=''; f.dispatchEvent(new Event('submit',{cancelable:true})); } }catch(_){}
+  }
 }
 // Brand the login screen per dedicated entry link (/handy-andy, /heather,
 // /doms, /joey, or ?team=). Purely cosmetic — the password is what grants
