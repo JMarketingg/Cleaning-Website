@@ -73,14 +73,15 @@
       </div>
       <p class="hero-note">Messaging us is free, with no commitment.</p>
       <form id="area-check" class="area-check" action="#areas">
-        <label for="area-select" class="area-check-label">Do we clean in your area?</label>
+        <label for="area-select" class="area-check-label">Find your area</label>
         <div class="area-check-row">
           <select id="area-select" name="area">
-            <option value="">Pick your city</option>
-            <option value="makati">Makati</option>
-            <option value="other">Somewhere else</option>
+            <option value="">Pick your area</option>
+            <option value="makati" data-message="Yes, we clean in Makati.">Makati</option>
+            <option value="bgc" data-url="/bgc">BGC (Taguig)</option>
+            <option value="other" data-message="We'll check for you. Message us on Facebook and tell us where you are.">Somewhere else</option>
           </select>
-          <button type="submit" class="btn btn-primary">Check</button>
+          <button type="submit" class="btn btn-primary">Go</button>
         </div>
         <p id="area-result" class="area-result" role="status" aria-live="polite"></p>
       </form>
@@ -486,15 +487,15 @@
     var form = document.getElementById('area-check');
     var select = document.getElementById('area-select');
     var result = document.getElementById('area-result');
-    var messages = {
-      '': 'Pick your city to check.',
-      makati: "Yes, we cover Makati.",
-      other: "This page covers Makati. Message us on Facebook to ask about your area."
-    };
     form.addEventListener('submit', function (e) {
       e.preventDefault();
-      result.textContent = messages[select.value];
-      result.classList.toggle('is-yes', select.value === 'makati');
+      var option = select.options[select.selectedIndex];
+      if (option.dataset.url) {
+        window.location.href = option.dataset.url;
+        return;
+      }
+      result.textContent = option.dataset.message || 'Pick your area first.';
+      result.classList.toggle('is-yes', option.dataset.message !== undefined && option.value !== 'other');
     });
 
     var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));
