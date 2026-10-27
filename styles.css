@@ -956,3 +956,16 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .guarantee-box { flex-direction: column; padding: 24px; }
   .cta-band .btn-lg { width: 100%; }
 }
+
+/* Header before the fold: logo and quote button only */
+.site-header.menu-hidden .site-nav > :not(.btn),
+.site-header.menu-hidden .menu-toggle { display: none; }
+@media (max-width: 860px) {
+  .js .site-header.menu-hidden .site-nav {
+    display: flex;
+    width: auto;
+    flex-direction: row;
+    padding-bottom: 0;
+  }
+  .js .site-header.menu-hidden .site-nav .btn { margin: 0; }
+}

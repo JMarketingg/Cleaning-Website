@@ -480,6 +480,23 @@
       }
     });
 
+    // Above the fold the header only shows the logo and the quote button.
+    // The menu appears once the hero has scrolled out of view.
+    var header = document.querySelector('.site-header');
+    var hero = document.querySelector('.hero');
+    if (hero && 'IntersectionObserver' in window) {
+      header.classList.add('menu-hidden');
+      new IntersectionObserver(function (entries) {
+        var inView = entries[0].isIntersecting;
+        header.classList.toggle('menu-hidden', inView);
+        if (inView) {
+          closeMenus();
+          btn.setAttribute('aria-expanded', 'false');
+          nav.classList.remove('is-open');
+        }
+      }, { rootMargin: '-80px 0px 0px 0px' }).observe(hero);
+    }
+
     var form = document.getElementById('area-check');
     var select = document.getElementById('area-select');
     var result = document.getElementById('area-result');
