@@ -902,3 +902,55 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 @media (prefers-reduced-motion: reduce) {
   .bk-progress span { transition: none; }
 }
+
+/* Why choose */
+.why-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; }
+.why-card { background: var(--white); border: 1px solid var(--beige); border-radius: var(--radius); padding: 26px; box-shadow: var(--shadow); }
+.why-card h3 { font-size: 1.1rem; margin-bottom: 6px; }
+.why-card p { margin: 0; color: var(--muted); font-size: 0.97rem; }
+.why-icon, .guarantee-icon {
+  display: block; width: 52px; height: 52px; padding: 12px; margin-bottom: 16px; border-radius: 50%;
+  background: var(--cream); fill: none; stroke: var(--sage); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* Guarantee */
+.guarantee-box {
+  display: flex; gap: 24px; align-items: flex-start;
+  background: var(--white); border: 2px solid var(--forest); border-radius: 20px; padding: 32px;
+}
+.guarantee-box h2 { margin-bottom: 8px; }
+.guarantee-box p:last-child { margin: 0; color: var(--muted); font-size: 1.05rem; }
+.guarantee-icon { flex: none; width: 64px; height: 64px; padding: 14px; background: var(--beige); stroke: var(--forest); margin: 0; }
+
+/* City cards */
+.cities-title { margin: 36px 0 16px; font-size: 1.2rem; }
+.city-cards { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; }
+.city-card {
+  display: flex; align-items: center; gap: 16px; padding: 20px 22px; text-decoration: none;
+  background: var(--white); border: 1.5px solid var(--beige); border-radius: var(--radius); box-shadow: var(--shadow);
+}
+.city-card > span:not(.city-go) { flex: 1; display: grid; }
+.city-card:hover { border-color: var(--forest); }
+.city-card[aria-current="page"] { border-color: var(--sage); }
+.city-go { font-size: 1.3rem; font-weight: 800; color: var(--forest); }
+
+/* Extra CTAs */
+.section-cta { margin-top: 32px; }
+.section-head.center ~ .section-cta, .faq-list + .section-cta { text-align: center; }
+.cta-points {
+  list-style: none; margin: 32px 0 0; padding: 24px 0 0; border-top: 1px solid rgba(230, 227, 213, 0.25);
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px;
+}
+.cta-points li { display: flex; align-items: center; gap: 10px; font-weight: 600; color: var(--white); }
+.strip-icon { flex: none; width: 22px; height: 22px; fill: none; stroke: var(--beige); stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+
+@media (max-width: 1000px) {
+  .why-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cta-points { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .city-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  .why-grid, .cta-points, .city-cards { grid-template-columns: 1fr; }
+  .guarantee-box { flex-direction: column; padding: 24px; }
+  .cta-band .btn-lg { width: 100%; }
+}
