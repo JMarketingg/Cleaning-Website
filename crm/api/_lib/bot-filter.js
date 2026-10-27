@@ -1,6 +1,6 @@
 // Bot / non-customer traffic detection for the analytics pipeline.
 //
-// Why this exists: precisiontvinstallation.com and tvmountingdenver.com each
+// Why this exists: tidyhausph.com and tidyhausph.com each
 // showed ~100 "visitors" reaching the booking page over 30 days and produced
 // zero bookings. That looked like a broken funnel. It wasn't — 4.5% and 5.0%
 // of those sessions ever typed a ZIP, against 71-75% on the sites with real
@@ -65,14 +65,14 @@ export function isBotUserAgent(ua) {
 // A user agent can't catch these: the owner books from an ordinary browser, so
 // a test booking is byte-for-byte indistinguishable from a customer's until you
 // look at who it is. Found 2026-09-08: all 8 "bookings" across milehightv-
-// mounting.com, austinmounting.com, houstonmounting.com, houstontvinstallation
-// .com and htvmounting.com were the owner testing each new site's funnel --
+// mounting.com, tidyhausph.com, tidyhausph.com, houstontvinstallation
+// .com and tidyhausph.com were the owner testing each new site's funnel --
 // same name, email, phone and street address on every one, all cancelled
 // immediately. Left uncorrected, five sites looked like they were converting.
 //
 // Add contacts without a deploy via INTERNAL_TEST_CONTACTS (comma-separated
 // emails and/or phone numbers); the default below is the owner's own.
-const DEFAULT_INTERNAL_CONTACTS = ['andrewtrading04@gmail.com', '3374997817'];
+const DEFAULT_INTERNAL_CONTACTS = ['owner@example.invalid', '0000000000'];
 
 /** Digits only, so +1 (337) 499-7817 and 3374997817 compare equal. */
 function normPhone(v) { return String(v || '').replace(/\D/g, ''); }

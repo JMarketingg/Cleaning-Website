@@ -57,12 +57,12 @@ export const PIPELINE_FLOOR = '2026-09-22T15:00:00Z';
 export const LOST_REASONS = ['Too expensive', 'Went with someone else', 'Just shopping', 'Out of area', "We don't do that", 'No reply after estimate', 'Never reached', 'Spam', 'Other'];
 export const STAGES = ['new', 'talked', 'quoted', 'booked', 'completed', 'paid', 'lost'];   // 'done' folded into Booked (owner, 2026-09-26)
 
-const TOLL_FREE = '8889159967';
+const TOLL_FREE = '0000000000';
 // Los Angeles lines (owner 2026-10-02): logged, but never on the Pipeline.
-const LA_LINES = new Set(['2135793329', '2137226032', '3235701778']);          // the notification sender: every brand's automated texts
+const LA_LINES = new Set(['0000000000', '0000000000', '0000000000']);          // the notification sender: every brand's automated texts
 // Heather's own phone until 2026-09-18 (she changed numbers). Forwarded calls
 // before then rang it, and it is not in staff_users any more.
-const HEATHER_OLD_PHONE = '7203711561';
+const HEATHER_OLD_PHONE = '0000000000';
 const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 const LEAK_AFTER_MS = HOUR;
 const QUOTE_LOST_MS = 7 * DAY;
@@ -87,7 +87,7 @@ const LOOKBACK_DAYS = 120;               // grouping context kept behind the 30-
 const CARD_CAP = 600;
 const TIMELINE_CAP = 40;
 const AUTO_TEXT_OTHER_CAP = 3;           // on-the-way / review / auto-ack texts shown per card
-const CHICAGO = 'America/Chicago';       // "today" on the board (owner, 2026-09-24)
+const CHICAGO = 'Asia/Manila';       // "today" on the board (owner, 2026-09-24)
 const RANGE_DAYS = { today: 0, 2: 1, 3: 2, yesterday: 1, 7: 6, 30: 29 };   // '3' = today + the 2 days before (owner 2026-10-02 default)   // '2' = today + yesterday (owner 2026-09-29 default)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CARD_KEY = /^c_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1437,7 +1437,7 @@ export async function pipelineHandler(req, res, db, auth, body) {
   }
 }
 
-// A mark by the owner himself (auth.name 'Andrew', or no name -> 'owner').
+// A mark by the owner himself (auth.name 'Owner', or no name -> 'owner').
 const OWNER_MARK = /^(owner|andrew\b)/i;
 async function markedByStaff(db) {
   const nowMs = Date.now(), fromMs = nowMs - 30 * DAY;

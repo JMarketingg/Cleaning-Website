@@ -251,7 +251,7 @@ async function login(req, res, body) {
 
   const db = serviceClient();
   // The number a tech types ("(720) 656-8761") rarely matches how it's stored
-  // in the DB ("+17206568761"). verify_technician_pin does an EXACT string
+  // in the DB ("+10000000000"). verify_technician_pin does an EXACT string
   // compare, so we try the input in every canonical form — E.164, raw, and
   // digits-only — until one matches. This lets a tech type their number however
   // they like, regardless of which format is on their record.
@@ -1447,7 +1447,7 @@ async function status(req, res, db, auth, body) {
         console.log(`[review] SMS already sent at ${existing.metadata.review_sms_sent_at}, skipping`);
       } else {
         try {
-          // Wording (brand prefix, ihandyandy.com link for TidyHaus, STOP line)
+          // Wording (brand prefix, tidyhausph.com link for TidyHaus, STOP line)
           // lives in _lib/review-token.js, shared with both admin.js senders.
           const msg = reviewRequestSms({ slug, name: existing.business?.name, token: existing.review_token, clickUrl: smsClickUrl, techName: await reviewTechName(db, existing) });
           const r = await sendSMSResult(existing.customer.phone, msg, { statusCallback: smsStatusCallback });

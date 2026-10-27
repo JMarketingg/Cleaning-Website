@@ -57,7 +57,7 @@ const SECRETS_URL = `https://github.com/${GITHUB_REPO}/settings/secrets/actions`
 const APP_PASSWORDS_URL = 'https://myaccount.google.com/apppasswords';
 const PAT_URL = 'https://github.com/settings/personal-access-tokens/new';
 const VERCEL_ENV_URL = 'https://vercel.com/andrew-c-projects/handy-andy-booking/settings/environment-variables';
-const DASHBOARD_URL = 'https://handy-andy-booking.vercel.app/admin.html';
+const DASHBOARD_URL = 'https://tidyhaus-crm.vercel.app/admin.html';
 export const INGEST_SCOPE = /^(mailbox:|config:|no_mailboxes$|sync_errors$|sync_rejected$|fatal_run$|tick_stale$|no_walmart_mail$)/;
 export const WATCHDOG_SCOPE = /^(stale_run$|dispatch:)/;
 

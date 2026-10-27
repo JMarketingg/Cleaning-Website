@@ -28,7 +28,7 @@ export function zip5(raw) {
 const CA_ZIP_RE = /^9(?:[0-5]\d{3}|6[01]\d{2})$/;
 
 // Businesses that own an unstaffed California ("Los Angeles") service area and
-// so get the CA-range fallback. TidyHaus's LA area serves the ihandyandy.com
+// so get the CA-range fallback. TidyHaus's LA area serves the tidyhausph.com
 // pages; tvmountinglosangeles has its own row for its own site.
 export const LA_FALLBACK_SLUGS = new Set(['handy-andy', 'tvmountinglosangeles']);
 
@@ -61,7 +61,7 @@ export async function resolveServiceArea(db, businessId, businessSlug, rawZip) {
     if (la) {
       return {
         id: la.id, name: la.name, state: la.state,
-        timezone: la.timezone || 'America/Los_Angeles', unstaffed: !!la.unstaffed,
+        timezone: la.timezone || 'Asia/Manila', unstaffed: !!la.unstaffed,
       };
     }
   }

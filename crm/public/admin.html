@@ -550,7 +550,7 @@
   .pl-bar-fill.warn{background:#f59e0b;} .pl-bar-fill.bad{background:#dc2626;}
   .pl-bar-num{font-size:12.5px;color:var(--ink-2);font-weight:700;white-space:nowrap;}
   .pl-list{display:flex;flex-direction:column;gap:8px;}
-  /* Owner menu (2026-10-08): Ask Andrew + Bracket Inventory live under Other. */
+  /* Owner menu (2026-10-08): Ask Owner + Bracket Inventory live under Other. */
   body.own-nav #navAskAndrew, body.own-nav [data-nav="brackets"], body.own-nav #navTechnicians, body.own-nav [data-nav="customers"], body.own-nav #navPayroll, body.own-nav #navReviews{display:none !important;}
   body.sec-nav #navPipeline, body.sec-nav [data-nav="brackets"], body.sec-nav #navMyAvailability, body.sec-nav #navTechnicians, body.sec-nav [data-nav="customers"], body.sec-nav #navGallery{display:none !important;}
   body.sec-nav #navOther{display:flex !important;}
@@ -2273,6 +2273,7 @@
   .dpl .dpl-cell{background:color-mix(in srgb,var(--st) 28%,#fff);border-top:3px solid var(--st);} .dpl .dpl-cell:hover{background:color-mix(in srgb,var(--st) 42%,#fff);}
   .jy .dpl{border-top:1px solid #d4d9e2;margin-top:9px;padding-top:1px;width:100%;}
   .jy .dpl-row{grid-template-columns:repeat(2,minmax(0,1fr));}
+  #sideNav [data-nav="pipeline"], #sideNav [data-nav="launch"], #sideNav [data-nav="tasks"], #sideNav [data-nav="prospects"], #sideNav #navGads{display:none!important;}
   body.joey-nav #sideNav [data-nav="schedule"], body.joey-nav #sideNav #navGallery{display:none!important;}
   .jy-stock{display:inline-flex;width:fit-content;max-width:100%;align-self:flex-start;align-items:center;gap:9px;margin:0 0 10px;padding:9px 13px;border:1px solid #f3d48b;border-radius:10px;background:#fffbeb;color:#854d0e;font:inherit;font-size:13px;font-weight:700;cursor:pointer;}
   .greeting.gl .greet-stats.jy>.gstat:first-child{align-items:center;justify-content:center;text-align:center;}
@@ -2834,12 +2835,12 @@
       <div class="logo"><span class="dot" style="background:none;box-shadow:none"><svg width="26" height="26" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="#0F172A"/><rect x="7" y="18" width="4" height="7" rx="1" fill="#34D399"/><rect x="14" y="13" width="4" height="12" rx="1" fill="#34D399"/><rect x="21" y="7" width="4" height="18" rx="1" fill="#34D399"/></svg></span><span class="ttl">CRM</span><span id="bizName" hidden></span></div>
       <button class="plus" id="takeCallBtn" title="Take a call" style="margin-right:6px;">📞</button>
       <button type="button" class="sb-collapse" id="sbCollapse" title="Collapse menu" aria-label="Collapse menu">‹</button>
-      <!-- Removed for now, per Andrew; may come back later. New Booking is
+      <!-- Removed for now, per Owner; may come back later. New Booking is
            still reachable from Customers > Create Appointment, and from
            Take a Call's "Something else". -->
       <!-- <button class="plus" id="newBookingBtn" title="New booking">＋</button> -->
     </div>
-    <div id="ctClock" style="display:none;margin:6px 12px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--mute);line-height:1.3;"><b id="ctClockT" style="display:block;font-size:20px;color:var(--ink,#111827);font-variant-numeric:tabular-nums;"></b>Texas/Oklahoma time</div>
+    <div id="ctClock" style="display:none;margin:6px 12px 8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;font-size:12px;color:var(--mute);line-height:1.3;"><b id="ctClockT" style="display:block;font-size:20px;color:var(--ink,#111827);font-variant-numeric:tabular-nums;"></b>Manila time</div>
     <div class="switcher" id="switcher"></div>
 
     <div class="seg" id="modeSeg">
@@ -2870,7 +2871,7 @@
       <button data-nav="gallery" id="navGallery"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><path fill="#EA4335" d="M12 12V2a5 5 0 0 1 0 10z" transform="rotate(0 12 12)"/><path fill="#FBBC04" d="M12 12h10a5 5 0 0 1-10 0z"/><path fill="#34A853" d="M12 12v10a5 5 0 0 1 0-10z"/><path fill="#4285F4" d="M12 12H2a5 5 0 0 1 10 0z"/></svg></span> Photos</button>
       <button data-nav="analyticshub" id="navAnalyticsHub"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="15" y="2" width="6" height="20" rx="3" fill="#F9AB00"/><rect x="8" y="9" width="6" height="13" rx="3" fill="#E37400"/><circle cx="4.5" cy="19" r="3" fill="#E37400"/></svg></span> Analytics</button>
       <button data-nav="payroll" id="navPayroll"><span class="ic" data-ico="payroll">💰</span> Payroll</button>
-      <button data-nav="askandrew" id="navAskAndrew" style="display:none;"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg></span> Ask Andrew</button>
+      <button data-nav="askandrew" id="navAskAndrew" style="display:none;"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg></span> Ask Owner</button>
       <button data-nav="tasks" id="navTasks"><span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><circle cx="12" cy="12" r="11" fill="#2684FC"/><circle cx="12" cy="12" r="6.5" fill="none" stroke="#fff" stroke-width="2"/><path fill="none" stroke="#FFBA00" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="M9 12l2.2 2.2L17 8.5"/></svg></span> Task <span class="nav-badge" id="tasksBadge" style="display:none;"></span></button>
       <button data-nav="notes" id="navNotes" style="display:none;"><span class="ic" data-ico="other">📌</span> Notes <span class="nav-badge" id="notesNavBadge" style="display:none;"></span></button>
       <button data-nav="launch" id="navLaunch"><span class="ic" data-ico="launch">🚀</span> Launch</button>
@@ -3041,7 +3042,7 @@
            someone who never opted in. -->
       <div class="nb-consent-row" style="display:flex;align-items:flex-start;gap:8px;padding:8px;border-radius:8px;">
         <input type="checkbox" id="nbSmsConsent" checked style="cursor:pointer;width:18px;height:18px;flex-shrink:0;margin-top:1px;">
-        <label for="nbSmsConsent" id="nbSmsConsentLabel" style="cursor:pointer;font-size:13px;margin:0;">Customer said yes to texts. Read this word for word first: “TidyHaus Home Cleaning can text you about this job: booking confirmations, technician on-the-way and ETA updates, estimates, invoices, replies about your job, and one follow-up after the service. It’s optional and not required to book. Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to opt out. Our SMS Terms are at ihandyandy.com/terms-of-service and our Privacy Policy is at ihandyandy.com/privacy-policy. Would you like to receive these text messages?”</label>
+        <label for="nbSmsConsent" id="nbSmsConsentLabel" style="cursor:pointer;font-size:13px;margin:0;">Customer said yes to texts. Read this word for word first: “TidyHaus Home Cleaning can text you about this job: booking confirmations, technician on-the-way and ETA updates, estimates, invoices, replies about your job, and one follow-up after the service. It’s optional and not required to book. Message frequency varies. Message and data rates may apply. Reply HELP for help or STOP to opt out. Our SMS Terms are at tidyhausph.com/terms-of-service and our Privacy Policy is at tidyhausph.com/privacy-policy. Would you like to receive these text messages?”</label>
       </div>
       <div style="display:flex;gap:8px;margin-top:4px;">
         <button class="btn" type="submit">Create booking</button>
@@ -3680,21 +3681,21 @@ function fmtDateTime(iso){ if(!iso) return '—'; try{ return new Date(iso).toLo
 // Owner 2026-10-20: every job time shows in the JOB's local time (an 8 AM
 // DFW job says 8 AM on a Denver dashboard). Area tz first, then zip/state/city.
 const _areaTz={};
-const TZ_ABBR={'America/Chicago':'CT','Asia/Manila':'MT','America/Los_Angeles':'PT','America/New_York':'ET','America/Phoenix':'AZ'};
+const TZ_ABBR={'Asia/Manila':'CT','Asia/Manila':'PHT','Asia/Manila':'PT','Asia/Manila':'ET','Asia/Manila':'AZ'};
 function jobTz(b){ return (b&&(b.tz||_areaTz[b.service_area_id]||(b.service_area&&b.service_area.timezone)))||bookingTz(b).tz; }
 // " CT" only when the job's zone differs from this dashboard's clock.
 function jobTzTag(b){ const z=jobTz(b); return z&&z!==tz()&&TZ_ABBR[z]?' '+TZ_ABBR[z]:''; }
 function jobClock(b){ return (b.slot_time||fmtClock(b.scheduled_at,jobTz(b)))+jobTzTag(b); }
 function bookingTz(b){
-  if(b&&(b.tz||_areaTz[b.service_area_id])){ const t=b.tz||_areaTz[b.service_area_id]; return { tz:t, label:({'America/Chicago':'Central time','Asia/Manila':'Mountain time','America/Los_Angeles':'Pacific time','America/Phoenix':'Arizona time'})[t]||'' }; }
+  if(b&&(b.tz||_areaTz[b.service_area_id])){ const t=b.tz||_areaTz[b.service_area_id]; return { tz:t, label:({'Asia/Manila':'Central time','Asia/Manila':'Manila time','Asia/Manila':'Pacific time','Asia/Manila':'Arizona time'})[t]||'' }; }
   const z=String((b&&b.postal_code)||'').trim();
   if(/^8[01]/.test(z)) return { tz:'Asia/Manila',  label:'Mountain time' };
-  if(/^7[3-8]/.test(z)) return { tz:'America/Chicago', label:'Central time'  };
-  if(/^9[0-6]/.test(z)) return { tz:'America/Los_Angeles', label:'Pacific time' };
-  if(/^85/.test(z)) return { tz:'America/Phoenix', label:'Arizona time' };
+  if(/^7[3-8]/.test(z)) return { tz:'Asia/Manila', label:'Manila time'  };
+  if(/^9[0-6]/.test(z)) return { tz:'Asia/Manila', label:'Manila time' };
+  if(/^85/.test(z)) return { tz:'Asia/Manila', label:'Manila time' };
   const st=String((b&&b.state)||'').toUpperCase();
-  if(st==='TX'||st==='OK') return { tz:'America/Chicago', label:'Central time' };
-  if(st==='CA') return { tz:'America/Los_Angeles', label:'Pacific time' };
+  if(st==='TX'||st==='OK') return { tz:'Asia/Manila', label:'Manila time' };
+  if(st==='CA') return { tz:'Asia/Manila', label:'Manila time' };
   if(st==='CO') return { tz:'Asia/Manila',  label:'Mountain time' };
   return { tz:(current&&current.timezone)||'Asia/Manila', label:'' };
 }
@@ -3838,15 +3839,7 @@ document.getElementById('logout').addEventListener('click', logout);
 // ── View As (owner switching into Heather's/Joey's platform without signing
 // in) ────────────────────────────────────────────────────────────────────
 const VIEW_AS_PEOPLE = {
-  admin:       { name:'Andrew', av:'A', bg:'#111111', sub:'Admin — full access' },
-  'handy-andy':{ name:'Heather', av:'H', bg:'#f59e0b', sub:'TidyHaus secretary' },
-  doms:        { name:'Joey',   av:'J', bg:'#2563eb', sub:"Dom's secretary" },
-  // Own logins (STAFF_LOGINS), same access as Joey (owner, 2026-09-26).
-  'staff:Alex':{ name:'Alex',   av:'Al', bg:'#0891b2', sub:"Dom's · replacing Joey" },
-  'staff:Joe': { name:'Joe',    av:'Jo', bg:'#16a34a', sub:"Dom's · replacing Joey" },
-  // Jiyah's app is a separate page (audit.html), not a mode of this one --
-  // picking her opens the Call Audit Portal in a new tab, already signed in.
-  auditor:     { name:'Jiyah',  av:'Ji', bg:'#7c3aed', sub:'Call auditor · opens her portal' },
+  admin:       { name:'Owner', av:'O', bg:'#111111', sub:'Admin — full access' },
 };
 function currentPersonKey(){ return role==='owner' ? 'admin' : (VIEW_AS_PEOPLE['staff:'+userName] ? 'staff:'+userName : scope); }
 // Joey's shift pill: see joeyShiftFor (owner 2026-10-09).
@@ -3928,7 +3921,7 @@ async function openAuditorPortal(){
     if(!d.audit_token) throw new Error('No audit token returned');
     lsSet('ha_audit_token', d.audit_token);
     if(win) win.location = d.url || '/audit.html'; else location.href = d.url || '/audit.html';
-  }catch(e){ if(win) win.close(); toast(e.message||"Could not open Jiyah's portal"); }
+  }catch(e){ if(win) win.close(); toast(e.message||"Could not open the auditor portal"); }
 }
 async function switchToViewAs(slug){
   try{
@@ -4078,7 +4071,7 @@ function enterApp(){
   const navCallHubLabel=document.getElementById('navCallHubLabel');
   if(navCallHubLabel) navCallHubLabel.textContent = 'Calls';
   // Photos: hidden from both secretaries 2026-08-14, restored for Joey (Dom's)
-  // per Andrew's ask -- Heather (TidyHaus) stays hidden, unchanged.
+  // per Owner's ask -- Heather (TidyHaus) stays hidden, unchanged.
   const navGallery=document.getElementById('navGallery');
   if(navGallery) navGallery.style.display = (role==='secretary'&&scope!=='doms') ? 'none' : '';
   // My Call Performance: each secretary's own screen, in the main menu rather
@@ -4103,14 +4096,14 @@ function enterApp(){
   const navGads=document.getElementById('navGads'); if(navGads) navGads.style.display = role==='owner' ? '' : 'none';
   const navRank=document.getElementById('navRank'); if(navRank) navRank.style.display = role==='owner' ? '' : 'none';
   // My Day: the owner's personal planner -- nobody else ever sees it.
-  // Task (owner 2026-10-02): Andrew + Joey only. Replaces the old Tasks screen.
+  // Task (owner 2026-10-02): Owner + Joey only. Replaces the old Tasks screen.
   const navTasks=document.getElementById('navTasks');
   if(navTasks) navTasks.style.display = (role==='owner'||(role==='secretary'&&userName==='Joey')) ? '' : 'none';
   staffNoticesInit(); if(!window._snTimer) window._snTimer=setInterval(staffNoticesInit, 15*60e3);
   if(role==='secretary'&&userName==='Joey') api('assistant_tasks').then(d=>{ _tk.tasks=d.tasks||[]; tasksBadge(); }).catch(()=>{});
-  // Ask Andrew (owner, 2026-09-24): owner-only while he teaches it.
+  // Ask Owner (owner, 2026-09-24): owner-only while he teaches it.
   const navAsk=document.getElementById('navAskAndrew');
-  if(navAsk){ navAsk.style.display = (role==='owner'||role==='secretary') ? '' : 'none'; navAsk.innerHTML='<span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg></span> '+(role==='owner'?'Ask Andrew':'Ask the Owner'); }
+  if(navAsk){ navAsk.style.display = (role==='owner'||role==='secretary') ? '' : 'none'; navAsk.innerHTML='<span class="ic"><svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg></span> '+(role==='owner'?'Ask':'Ask the Owner'); }
   if(role==='owner') askRefreshBadge();
   // Owner menu order (2026-10-08): Calls, Messages, Estimates at the bottom.
   document.body.classList.toggle('own-nav', role==='owner');
@@ -4434,18 +4427,12 @@ async function openAlertJob(slug, id){
 // TVm Austin ...) and is collapsed into one "Lead Gen" dropdown, so adding the
 // next microsite does not push the row onto another line. Slug-based, not
 // name-based, so renaming a business in the DB cannot silently regroup it.
-const OWN_CHIP_SLUGS = ['handy-andy', 'doms'];
+const OWN_CHIP_SLUGS = ['handy-andy'];
 
 // Lead-gen microsites grouped by the metro they actually serve, so the
 // dropdown reads as three short lists instead of one flat alphabetical
 // dump. Slug-based for the same reason as OWN_CHIP_SLUGS above.
-const LEAD_GEN_CITY_GROUPS = [
-  { label: 'Austin',  slugs: ['austin', 'atxmountpros', 'atxtvmount', 'austinmountingpros', 'austintvinstall'] },
-  { label: 'Houston', slugs: ['houstonmounting', 'houstontvinstallation', 'tvhanginghouston', 'htvmounting', 'precision', 'houstontvmountingpros', 'houstonperfectviewtvmounting', 'millertime'] },
-  { label: 'Denver',  slugs: ['tvmountingdenver', 'mile-high'] },
-  { label: 'DFW',     slugs: ['a1tvmounting'] },
-  { label: 'Los Angeles', slugs: ['tvmountinglosangeles', 'latvpro', 'lainstall'] },
-];
+const LEAD_GEN_CITY_GROUPS = [];
 
 async function loadJobViewBusinesses(){
   viewBusinesses=[];
@@ -4488,11 +4475,8 @@ function renderLeadGenMenu(leadGen, isOn){
 // Owner, 2026-10-03: three groups -- TidyHaus, Dom's, Lead Gen. The main
 // button shows the whole group; its caret picks one branch / brand.
 // Branches are the business's own service_areas (matched by name).
-const GROUP_BRANCHES = {
-  'handy-andy': ['Austin','Denver','DFW','Houston','Los Angeles','Phoenix','San Antonio'],
-  'doms': ['Denver','Oklahoma City','Tulsa'],
-};
-const BRANCH_SHORT = { 'Oklahoma City':'OKC', 'Los Angeles':'LA', 'San Antonio':'SA' };
+const GROUP_BRANCHES = { 'handy-andy': ['Makati','BGC (Taguig)'] };
+const BRANCH_SHORT = { 'BGC (Taguig)':'BGC' };
 let lgAll=false, pendingBranch=null, _grpTech={};
 function isLeadGenBiz(b){ return !!b && !OWN_CHIP_SLUGS.includes(b.slug); }
 function leadGenAllOn(){ return lgAll && isLeadGenBiz(current); }
@@ -4654,7 +4638,7 @@ function navTo(s){
   const greetEl=document.getElementById('greeting');
   if(!sched){ greetEl.classList.add('hidden'); if(greetingClock){ clearInterval(greetingClock); greetingClock=null; } }
   document.getElementById('bizName').textContent = current ? current.name : 'Schedule';
-  document.getElementById('mobTitle').textContent = ({schedule:'Schedule',estimates:'Estimates',brackets:'Bracket Inventory',customers:'Customers',technicians:'Technicians',reviews:'Reviews',callhub:'Calls',messages:'Messages',mycallperf:'My Call Performance',rankings:'Google Ranking',gallery:'Photos',analyticshub:'Analytics',payroll:'Payroll',myavailability:'My Availability',secretaries:'Virtual Assistants',other:'Other',launch:'Launch',gbplist:'Google Listings',notes:'Notes',myday:'Tasks',tasks:'Task',pipeline:'Pipeline',prospects:'Prospects',calendar:'Calendar',askandrew:(role==='owner'?'Ask Andrew':'Ask the Owner')})[s];
+  document.getElementById('mobTitle').textContent = ({schedule:'Schedule',estimates:'Estimates',brackets:'Bracket Inventory',customers:'Customers',technicians:'Technicians',reviews:'Reviews',callhub:'Calls',messages:'Messages',mycallperf:'My Call Performance',rankings:'Google Ranking',gallery:'Photos',analyticshub:'Analytics',payroll:'Payroll',myavailability:'My Availability',secretaries:'Virtual Assistants',other:'Other',launch:'Launch',gbplist:'Google Listings',notes:'Notes',myday:'Tasks',tasks:'Task',pipeline:'Pipeline',prospects:'Prospects',calendar:'Calendar',askandrew:(role==='owner'?'Ask':'Ask the Owner')})[s];
   if(s==='messages') document.getElementById('mobTitle').textContent='';
   if(pollTimer){ clearInterval(pollTimer); pollTimer=null; }
   const view=document.getElementById('view');
@@ -5993,7 +5977,7 @@ async function editPartsPayroll(b){
     const p=d.existing||null;
     const techs=p?p.techs.map(t=>({...t,weekly_total:t.paid_week_total})):d.techs;
     const fieldStyle='width:100%;padding:8px;border:1px solid #cbd5e1;border-radius:8px;background:#fff;color:#0f172a;margin:4px 0 10px;';
-    box.innerHTML=`<span class="bk-dl">Parts reimbursement correction</span><p style="font-size:13px;">Parts were paid for by Andrew. Record the corrected job pay and recover the difference once.</p>
+    box.innerHTML=`<span class="bk-dl">Parts reimbursement correction</span><p style="font-size:13px;">Parts were paid for by Owner. Record the corrected job pay and recover the difference once.</p>
       <label>Corrected total tech pay<input id="partsTotal" type="number" step="0.01" min="0" style="${fieldStyle}" value="${p?p.corrected_total:''}"></label>
       ${techs.map(t=>`<label>Already paid to ${esc(t.name)} for the original week<input type="number" step="0.01" min="0" data-parts-paid="${esc(t.id)}" style="${fieldStyle}" value="${t.weekly_total}"></label>`).join('')}
       <label>Deduct in payroll week beginning<input id="partsWeek" type="date" style="${fieldStyle}" value="${p?p.target_week:d.next_week}"></label>
@@ -6195,7 +6179,7 @@ function mountLineItemsEditor(b){
   // ticket whose own rows no longer summed to its own total. The rate itself
   // is deliberately NOT hardcoded here; which rate a market should charge is a
   // policy question. The EDITOR shows the row as just "Tax" (liCleanLabel
-  // strips the rate per Andrew, Aug 2026) while r.name keeps it; typing in the
+  // strips the rate per Owner, Aug 2026) while r.name keeps it; typing in the
   // name field takes the row over as usual, so entering "Tax (4.5%)" still
   // changes the rate, and a typed name with no "%" makes the row fully manual.
   const liIsTaxRow=r=>/^tax\b/i.test((r.name||'').trim());
@@ -6983,7 +6967,7 @@ function openChargeFlowAdmin(b){
     // so "Back" from the tip screen must jump straight to step 1, not land on
     // the orphaned signature screen.
     const back=ov.querySelector('[data-back]'); if(back) back.onclick=()=>{ step=(step===3?1:step-1); render(); };
-    // Every admin-dashboard login is Andrew, Heather, or Joey (owner/secretary
+    // Every admin-dashboard login is Owner, Heather, or Joey (owner/secretary
     // roles are the only ones that reach this screen) — a signature from the
     // office charging on the business's own behalf was never the point; it
     // existed for a customer present in person. Skips straight from the ticket
@@ -7569,7 +7553,7 @@ function drawGallery(){
   // private-bucket proxy the notes system uses (notePhotoSrc, owner rule
   // 2026-09-23: "i need to be able to view them securely").
   const jiyahCard=p=>`<figure class="gal-item" data-full="${esc(notePhotoSrc(p.url))}" data-pid="${esc(p.id)}">
-      <img src="${esc(notePhotoSrc(p.url))}" loading="lazy" alt="Jiyah photo">
+      <img src="${esc(notePhotoSrc(p.url))}" loading="lazy" alt="Auditor photo">
       <figcaption><strong>To ${esc(p.recipient)}</strong><br>
         <span class="sub">${esc(fmtDateTime(p.created_at))}</span><br>
         ${p.note_body?`<span class="sub" style="display:block;margin-top:2px;white-space:pre-wrap;">${esc(p.note_body.slice(0,140))}${p.note_body.length>140?'…':''}</span>`:''}
@@ -7603,14 +7587,14 @@ function drawGallery(){
     <div class="gal-tabs" id="galMainTabs">
       ${(crossBiz&&!galleryJoeyAll())?'':`<button class="gal-tab ${galleryGroup==='all'?'on':''}" data-g="all">All${allCount!=null?` <span class="gal-count">${allCount}</span>`:''}</button>`}
       ${(crossBiz&&!galleryJoeyAll()?PHOTO_CATS.filter(c=>c.key==='to_post'):PHOTO_CATS).map(c=>`<button class="gal-tab ${galleryGroup===c.key?'on':''}" data-g="${c.key}">${c.label} <span class="gal-count">${counts[c.key]}</span></button>`).join('')}
-      ${(!crossBiz&&role==='owner')?`<button class="gal-tab ${jiyahView?'on':''}" data-g="jiyah" title="Photos Jiyah has sent, in one place -- only you can see this tab">🔒 Jiyah Photos${galleryCache.jiyah?` <span class="gal-count">${galleryCache.jiyah.photos.length}</span>`:''}</button>`:''}
+      ${(!crossBiz&&role==='owner')?`<button class="gal-tab ${jiyahView?'on':''}" data-g="jiyah" title="Photos the auditor has sent, in one place -- only you can see this tab">🔒 Auditor Photos${galleryCache.jiyah?` <span class="gal-count">${galleryCache.jiyah.photos.length}</span>`:''}</button>`:''}
     </div>
     ${bulkBar}
     ${!page
       ? `<div class="empty">Loading…</div>`
       : shown.length
         ? `<div class="gallery">${shown.map(jiyahView?jiyahCard:card).join('')}</div>`
-        : `<div class="empty">${jiyahView?'No photos from Jiyah yet.':logoView?'No logo shots tagged yet. The scan runs twice a day over new photos.':'No photos in '+esc(photoCatLabel(galleryGroup))+'.'}</div>`}
+        : `<div class="empty">${jiyahView?'No photos from the auditor yet.':logoView?'No logo shots tagged yet. The scan runs twice a day over new photos.':'No photos in '+esc(photoCatLabel(galleryGroup))+'.'}</div>`}
     ${logoView&&!crossBiz&&role==='owner'&&galleryCounts&&galleryCounts.unscanned>0
       ? `<div style="text-align:center;margin:12px 0;">
           <button type="button" id="galScan" ${galleryScanning?'disabled':''}>${galleryScanning?'Scanning…':`Scan ${galleryCounts.unscanned} remaining photo${galleryCounts.unscanned===1?'':'s'} for logo shots`}</button>
@@ -7776,7 +7760,7 @@ function anaWidget(){ const slug = current ? current.slug : 'doms'; return anaSc
 //                   NO widget override — so we get precisely what it shows,
 //                   whatever that deployment tags its own events as.
 // Doms' funnel data lives in the Doms widget deployment, not this CRM's DB.
-const ANA_ORIGIN = { 'doms': 'https://doms-tv-mounting.vercel.app', 'handy-andy': '' };
+const ANA_ORIGIN = { 'doms': 'https://tidyhaus-crm.vercel.app', 'handy-andy': '' };
 function anaOrigin(){ return ANA_ORIGIN[anaWidget()] ?? ''; }
 function anaBase(){ return anaOrigin() + '/api/analytics'; }
 // Widget filter is only meaningful same-origin; a remote deployment uses its own default.
@@ -8614,10 +8598,10 @@ function anaTbl(rows,name){
 }
 function anaCitiesTbl(rows){
   if(!rows||!rows.length) return `<div class="empty">No data yet.</div>`;
-  const groups={Houston:[],Denver:[],Austin:[],Other:[]};
+  const groups={Manila:[],Other:[]};
   rows.forEach(r=>{const m=anaCityMetro(r.key);(groups[m]||groups.Other).push(r);});
   let out=`<table><tr><th>City</th><th class="num">Sessions</th><th class="num">Bookings</th><th class="num">Conv</th></tr>`;
-  ['Houston','Denver','Austin','Other'].forEach(metro=>{
+  ['Manila','Other'].forEach(metro=>{
     const cs=groups[metro]; if(!cs.length) return;
     const ts=cs.reduce((s,r)=>s+r.sessions,0),tb=cs.reduce((s,r)=>s+r.bookings,0),tc=ts>0?Math.round(tb/ts*100):0;
     out+=`<tr style="background:#f4f5f7;"><td style="font-weight:700;font-size:11px;text-transform:uppercase;letter-spacing:0.6px;color:var(--ink);padding-top:10px;padding-bottom:4px;">${metro}</td><td class="num" style="font-weight:700;padding-top:10px;">${ts}</td><td class="num" style="font-weight:700;padding-top:10px;">${tb}</td><td class="num" style="padding-top:10px;">${anaConvCell(tc,tb)}</td></tr>`;
@@ -8764,7 +8748,7 @@ function anaDrawCharts(d){
 //                              Vercel project + table for all of them,
 //                              separated by a /s/<path> prefix
 //   absent                   → not wired up yet; shown honestly, not a 400
-const SITES_SHARED_BACKEND = 'https://sites-backend-tau.vercel.app';
+const SITES_SHARED_BACKEND = 'https://tidyhaus-crm.vercel.app';
 let webDays='today', webLoading=false, webCharts={}, webTab='overview', webLastData=null;
 const WEB_TABS=[['overview','Overview'],['pages','Pages'],['sources','Sources'],['seo','SEO']];
 function webBackend(){
@@ -9111,7 +9095,7 @@ function waRender(){
 }
 
 function waTzLabel(tz){
-  const m={'America/New_York':'Eastern','America/Detroit':'Eastern','America/Chicago':'Central','Asia/Manila':'Mountain','America/Boise':'Mountain','America/Phoenix':'Arizona','America/Los_Angeles':'Pacific','America/Anchorage':'Alaska','Pacific/Honolulu':'Hawaii'};
+  const m={'Asia/Manila':'Eastern','Asia/Manila':'Eastern','Asia/Manila':'Central','Asia/Manila':'Manila','Asia/Manila':'Manila','Asia/Manila':'Arizona','Asia/Manila':'Pacific','America/Anchorage':'Alaska','Pacific/Honolulu':'Hawaii'};
   return (m[tz]?m[tz]+' ':'')+'('+String(tz||'').replace(/^America\//,'').replace(/_/g,' ')+')';
 }
 function waPanel(p){
@@ -9434,7 +9418,7 @@ function webDeviceCard(dev,brand){
       <div style="width:46px;text-align:right;font-weight:700;font-size:14px;color:var(--ink);">${pcts[i]}%</div>
     </div>`).join('');
 }
-const DOMS_FOCUS=[['Denver · Home page','/'],['Oklahoma City','/tv-mounting-oklahoma-city'],['Tulsa','/tv-mounting-tulsa']];
+const DOMS_FOCUS=[['Home page','/'],['BGC','/bgc'],['Quote form','/book']];
 function webPathOnly(u){ try{ return new URL(u).pathname.replace(/\/+$/,'')||'/'; }catch{ return String(u||'/').replace(/[?#].*$/,'').replace(/\/+$/,'')||'/'; } }
 function webDomsFocus(d){
   const agg=(path)=>{
@@ -9558,7 +9542,7 @@ let payrollTechFilter = null;   // null = all techs; set to a tech name to show 
 let payrollRawData = null;      // last fetched payroll response, cached so the tech filter can re-render without a refetch
 let payrollCombinedMode = true;  // default ON: one merged view across TidyHaus + Dom's (cross-hired techs summed into one line)
 // ── Finances (owner only) ───────────────────────────────────────────────────
-// Andrew's own personal + business bank/card accounts -- entirely separate
+// Owner's own personal + business bank/card accounts -- entirely separate
 // from every customer/job screen in this app. Talks to api/finance.js, a
 // different serverless function than every other screen here (see
 // financeApi() above and the comment at the top of api/finance.js for why).
@@ -9946,18 +9930,9 @@ const LAUNCH_NO_EMAIL_SLUGS = new Set(['latvpro','lainstall']);
 // City grouping for the Launch monitoring board. No `city` column exists on
 // the business record, so this is a plain slug lookup maintained by hand —
 // add new slugs here as they're onboarded, or they fall into "Other".
-const LAUNCH_CITY_OF = {
-  'doms':'Denver', 'handy-andy':'Denver', 'mile-high':'Denver', 'tvmountingdenver':'Denver',
-  'austin':'Austin', 'austinmountingpros':'Austin', 'atxtvmount':'Austin', 'atxmountpros':'Austin', 'austintvinstall':'Austin',
-  'houstonmounting':'Houston', 'houstontvinstallation':'Houston', 'htvmounting':'Houston', 'tvhanginghouston':'Houston', 'precision':'Houston', 'houstontvmountingpros':'Houston', 'houstonperfectviewtvmounting':'Houston',
-  'tvmountinglosangeles':'Los Angeles', 'latvpro':'Los Angeles', 'lainstall':'Los Angeles',
-  // A1 Home Cleaning (DFW acquisition, 2026-09): its GBP is in Euless/Arlington,
-  // so it files under Arlington rather than Dallas or Fort Worth.
-  'a1tvmounting':'Arlington',
-  'millertime':'Houston',
-};
-const LAUNCH_CITY_ORDER = ['Fort Worth','Oklahoma City','Arlington','Austin','Los Angeles','Houston','Denver','Tulsa','Dallas','Phoenix','Other'];   // owner order 2026-10-19 (same for Joey)
-function launchCityOf(slug){ return LAUNCH_CITY_OF[slug] || 'Other'; }
+const LAUNCH_CITY_OF = { 'handy-andy':'Manila' };
+const LAUNCH_CITY_ORDER = ['Manila'];
+function launchCityOf(slug){ return LAUNCH_CITY_OF[slug] || 'Manila'; }
 // A market's own `name` IS the city ("Los Angeles", "Dallas", ...) — unlike a
 // business, whose name is a brand, not a place, so it needs the lookup above.
 function launchMarketCityOf(m){ return m.city || m.name || 'Other'; }
@@ -10120,7 +10095,7 @@ function launchDetailHtml(b, items){
   }).join('');
   // hasWidget stays a bonus line, never a red flag: it's a plain text search of
   // the fetched HTML and is blind to any site that inserts the widget with
-  // client-side JS, which is how ihandyandy.com and domstvmounting.com do it.
+  // client-side JS, which is how tidyhausph.com and tidyhausph.com do it.
   const widgetBonus = b.site.hasWidget
     ? `<p style="margin:0 0 8px;font-size:12px;color:var(--green);">✓ Widget also confirmed via automated page scan. A bonus check, not required</p>`
     : '';
@@ -10354,8 +10329,8 @@ function launchHaveHtml(key){
   // only TidyHaus Main (5853) ever runs Google Ads there.
   // Owner 2026-10-19: Denver/Houston/Austin always have a tech (Zach covers Austin);
   // pill is just "✓ Tech". No Google Ads ever on HA Golden (3707) or Home Cleaning Denver.
-  const city=(_launchKeyCity||{})[key], hou=city==='Houston';
-  const techOk=['Denver','Houston','Austin'].includes(city)||techs.length>0;
+  const city=(_launchKeyCity||{})[key], hou=false;
+  const techOk=techs.length>0;
   const adsCard=role==='owner'&&(!hou||key==='m:houston-ha')&&!['m:golden-ha','tvmountingdenver'].includes(key);   // Joey: no Google Ads (owner 2026-10-19)
   return `<div>${pill(techOk,'Tech')}${h.listing&&h.listing_url?`<a href="${esc(h.listing_url)}" target="_blank" rel="noopener" onclick="event.stopPropagation()" style="text-decoration:none;">${pill(true,'Google listing ↗')}</a>`:pill(h.listing,'Google listing')}${adsCard?pill(h.ads,'Google Ads')+pill(!!trk,trk?'Calls tracked':'Calls not tracked'):''}</div>`;
 }
@@ -10859,7 +10834,7 @@ function launchPaint(view){
   // `score` is a function, not a snapshot: ticking a box changes it, and sync()
   // below re-reads it to recolour the card, its wire, the hub ring and the tiles.
   const entries=[
-    ...businesses.filter(b=>b.slug!=='handy-andy' && b.slug!=='neverfailstvmounting' && !markets.some(m=>m.slug===b.slug)).map(b=>({ sev:(launchIsLive(b, items) && !b.noMetrics) ? launchSeverity(launchHealthRows(b.slug, b.site, b.stripe)) : 2, traffic:b.noMetrics ? null : b.slug, sel:`[data-launch-card="${b.id}"]`, score:()=>launchScoreOf(b, items), city:launchCityOf(b.slug), html:launchCardHtml(b, items) })),
+    ...businesses.filter(b=>b.active!==false && !markets.some(m=>m.slug===b.slug)).map(b=>({ sev:(launchIsLive(b, items) && !b.noMetrics) ? launchSeverity(launchHealthRows(b.slug, b.site, b.stripe)) : 2, traffic:b.noMetrics ? null : b.slug, sel:`[data-launch-card="${b.id}"]`, score:()=>launchScoreOf(b, items), city:launchCityOf(b.slug), html:launchCardHtml(b, items) })),
     ...markets.map(m=>({ sev:launchMarketIsLive(m, mItems(m)) ? launchSeverity(launchHealthRows('m:'+m.slug, m.site, null)) : 2, traffic:'m:'+m.slug, sel:`[data-launch-market-card="${m.id}"]`, score:()=>launchMarketScoreOf(m, mItems(m)), city:launchMarketCityOf(m), html:launchMarketCardHtml(m, mItems(m)) })),
   ];
   _launchKeyCity={}; for(const x of entries) if(x.traffic) _launchKeyCity[x.traffic]=x.city;
@@ -11437,9 +11412,7 @@ function renderPayrollData(d){
   });
   html+=`<tr class="pr-total"><td>TOTAL</td><td class="r">${jobsCount}</td><td class="r">${deferredCount||'—'}</td><td class="r">${payFmtUSD(laborTotal)}</td><td class="r">${payFmtUSD(tipsTotal)}</td><td class="r">${payFmtUSD(total)}</td></tr>`;
   html+=`</tbody></table>`;
-  if(techs.some(t=>t.currency==='PHP')){
-    html+=`<div class="pr-note" style="margin-top:6px;">Joey is paid in Philippine pesos — his row is shown above but kept out of the dollar TOTAL so the two currencies never get added together.</div>`;
-  }
+
 
   // (The "Daily Breakdown" section — every job re-listed day by day — was
   // removed at the owner's request: it repeated the same jobs already shown in
@@ -11788,9 +11761,9 @@ async function renderTeam(){
 // and schedule tools folded away. Secretaries never get pay (server omits it).
 let _va=null;
 const VA_DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
-const VA_AFTER='After-hours (Andrew)';
+const VA_AFTER='After-hours (Owner)';
 function vaGroup(g){ return g==='handy-andy'?'TidyHaus':g==='doms'?'Dom’s':g==='all'?'All brands':(g||''); }
-function vaTz(tz){ return ({'Asia/Manila':'MT','America/Chicago':'CT','America/New_York':'ET','America/Los_Angeles':'PT','America/Phoenix':'AZ'})[tz]||''; }
+function vaTz(tz){ return ({'Asia/Manila':'PHT','Asia/Manila':'CT','Asia/Manila':'ET','Asia/Manila':'PT','Asia/Manila':'AZ'})[tz]||''; }
 function vaMin(t){ const [h,m]=String(t||'0:0').split(':').map(Number); return h*60+(m||0); }
 function vaT(t){ const x=vaMin(t), h=Math.floor(x/60)%24, m=x%60; return (h%12||12)+(m?':'+String(m).padStart(2,'0'):'')+(h<12?'a':'p'); }
 function vaNow(tz){
@@ -11809,7 +11782,7 @@ function vaState(p){
 // Shared secretary clock card (owner 2026-10-12): the Pipeline clock look,
 // used on Pipeline, the Virtual Assistants tab and (mini) the Profit box.
 // m = { name, clock, time (mini: no zone), state, big, short, col, pct, bar, lab }.
-const VA_ORDER_UI=['Heather','Joey','Alex','Joe'];
+const VA_ORDER_UI=[];
 function staffClockHtml(m, mini){
   const t=mini?(m.time||m.clock):m.clock;
   const head=`<div class="pl-clk-h"><b>${esc(m.name)}</b>${t?`<span class="pl-clk-t">${esc(t)}</span>`:''}</div>`;
@@ -11844,7 +11817,7 @@ function vaClock(p){ return staffClockHtml(vaClockModel(p)); }
 function vaRoutingHtml(d){
   const lines=d.lines||[], groups=new Map();
   for(const l of lines){ const k=l.rings?(l.rings.name||fmtPhone(l.rings.number)):(l.reason==='AI bot'?'AI bot':'Voicemail'); if(!groups.has(k)) groups.set(k,{num:l.rings&&l.rings.number,lines:[]}); groups.get(k).lines.push(l); }
-  const ord=['Heather','Joey','Alex','Joe',VA_AFTER];
+  const ord=[VA_AFTER];
   const keys=[...groups.keys()].sort((a,b)=>((ord.indexOf(a)+1)||9)-((ord.indexOf(b)+1)||9)||a.localeCompare(b));
   if(!keys.length) return '';
   return `<div class="va-grid">${keys.map(k=>{ const g=groups.get(k);
@@ -12505,7 +12478,7 @@ async function noteBanner(){
   let notes=[];
   try{ const d=await api('notes_active'); notes=d.notes||[];
     // Nav badge on the "Notes" sidebar item -- owner rule 2026-09-23: notes
-    // now reach Andrew too (previously notes_active was secretary-only, so
+    // now reach Owner too (previously notes_active was secretary-only, so
     // this badge never needed to exist for owner before).
     const nb=document.getElementById('notesNavBadge');
     if(nb){ if(notes.length){ nb.textContent=notes.length; nb.style.display=''; } else nb.style.display='none'; }
@@ -12798,7 +12771,7 @@ function paintMyDay(){
 }
 // Once a day at/after 6 PM Bangkok (until the page turns at 5 AM): if any
 // habit is still open, one popup. Remembered per page so it never repeats.
-// ── Task list (owner 2026-10-02): Andrew gives Joey tasks; Joey adds her own.
+// ── Task list (owner 2026-10-02): Owner gives Joey tasks; Joey adds her own.
 // Red = urgent, yellow = today, green = when you can. Colors never change;
 // a done task is crossed out on white. Optional linked job + notes per task.
 // Task colors (owner 2026-10-03), same palette as the Pipeline bar. Red texts Joey.
@@ -12925,15 +12898,15 @@ function paintTasks(){
     ${isJoeyHome()?'<details class="tk-add-wrap" style="margin:12px 0;max-width:760px;"><summary style="cursor:pointer;padding:12px;border:1px solid var(--line);border-radius:10px;font-weight:700;">Add my own task</summary>':''}
     ${role==='owner'?'<div style="display:flex;gap:18px;align-items:flex-start;flex-wrap:wrap;">':''}
     <div class="tk-add" style="max-width:760px;flex:1 1 420px;">
-      <input id="tkTitle" maxlength="300" placeholder="${role==='owner'?'What should Joey do?':'Add my own task'}">
+      <input id="tkTitle" maxlength="300" placeholder="${role==='owner'?'What needs doing?':'Add my own task'}">
       ${role!=='owner'?'':`<div class="tk-colors">${TASK_ORDER.map(k=>`<button type="button" data-tk-color="${k}" class="${_tk.color===k?'on':''}" style="--c:${TASK_COL[k].bar};--ci:${TASK_COL[k].ink};">${TASK_COL[k].label}</button>`).join('')}</div>`}
       <div style="position:relative;"><input id="tkJob" placeholder="🔗 Link a job (customer name or phone)" value="${_tk.job?esc(_tk.job.label):''}" autocomplete="off"><div id="tkJobRes" class="tk-res"></div></div>
       <textarea id="tkNotes" rows="2" placeholder="Notes (optional)"></textarea>
       <div id="tkPhotoHost"></div>
-      ${role==='owner'?'<div style="display:flex;gap:16px;"><label><input type="checkbox" id="tkTextJoey"> Text Joey</label><label><input type="checkbox" id="tkEmailJoey"> Email Joey</label></div>':''}
+      
       <div style="text-align:right;"><button type="button" class="tkv-btn pri" id="tkAdd">${role==='owner'?'Give task':'Add task'}</button></div>
     </div>
-    ${role==='owner'?`<div style="flex:0 1 300px;border:1px solid var(--line);border-radius:12px;padding:12px 14px;"><b>Joey</b><div class="jy-shift">${joeyShiftHtml()}</div></div></div>`:''}
+    ${role==='owner'?'</div>':''}
     ${isJoeyHome()?'</details>':''}
     <div class="tk-board" style="--n:${cols.length};">${cols.map(k=>{ const list=open.filter(t=>t.color===k);
       // v2 (owner 2026-10-10): every column shows all its tasks on every screen size.
@@ -12997,7 +12970,7 @@ function paintTasks(){
     const saveN=async(quiet)=>{ clearTimeout(nT); const v=n.value; if(v===nSent) return; nSent=v; try{ await api('assistant_tasks',{ method:'POST', body:{ op:'notes', id, notes:v } }); const t=_tk.tasks.find(x=>x.id===id); if(t) t.notes=v; if(!quiet) toast('Note saved'); }catch(err){ nSent=null; toast(err.message); } };
     n.oninput=()=>{ clearTimeout(nT); nT=setTimeout(()=>saveN(true),800); }; n.onchange=()=>saveN(false);
     n.addEventListener('paste',()=>setTimeout(()=>saveN(true),0)); window.addEventListener('pagehide',()=>saveN(true));
-    // Andrew edits the title or color any time (owner 2026-10-03).
+    // Owner edits the title or color any time (owner 2026-10-03).
     const ti=el.querySelector('[data-tk-title]'); if(ti) ti.onchange=async()=>{ const v=ti.value.trim(); if(!v){ toast('Write the task first.'); return; }
       try{ await api('assistant_tasks',{ method:'POST', body:{ op:'title', id, title:v } }); const t=_tk.tasks.find(x=>x.id===id); if(t) t.title=v; const s=el.querySelector('.tk-sum .tk-title'); if(s) s.textContent=v; toast('Saved'); }catch(err){ toast(err.message); } };
     el.querySelectorAll('[data-tk-recolor]').forEach(b=>b.onclick=async()=>{ const k=b.dataset.tkRecolor;
@@ -13094,7 +13067,7 @@ function plAgo(iso){
 function plWhen(iso, zone){
   if(!iso) return '';
   try{
-    const z=zone||'America/Chicago', d=new Date(iso);
+    const z=zone||'Asia/Manila', d=new Date(iso);
     const t=d.toLocaleTimeString('en-PH',{timeZone:z,hour:'numeric',minute:'2-digit'});
     const today=d.toLocaleDateString('en-CA',{timeZone:z})===new Date().toLocaleDateString('en-CA',{timeZone:z});
     return today ? t : d.toLocaleDateString('en-PH',{timeZone:z,weekday:'short',month:'numeric',day:'numeric'})+' '+t;
@@ -13213,7 +13186,7 @@ function plClockCard(p){
   const mins=hm=>{ const [h,m]=String(hm).split(':').map(Number); return h*60+(m||0); };
   const hm=x=>`${Math.floor(x/60)}h ${x%60}m`;
   const grp=p.all?'All':p.week?(p.today_group?bizShort(p.today_group):''):(p.home?bizShort(p.home):'');
-  const tzS=({'Asia/Manila':'MT','America/Chicago':'CT','America/New_York':'ET','America/Los_Angeles':'PT'})[tz]||'';
+  const tzS=({'Asia/Manila':'PHT','Asia/Manila':'CT','Asia/Manila':'ET','Asia/Manila':'PT'})[tz]||'';
   let big, col, state, pct=0, bar='#e5e7eb', lab='';
   if(p.hours){
     const a=mins(p.hours.start), b=mins(p.hours.end);
@@ -13455,7 +13428,7 @@ function plTileHtml(c){
   // Talked-to cards never go red (owner 2026-10-13): red = extreme urgency only.
   const hot=c.leak&&c.stage!=='talked';
   return `<button type="button" class="plv-tile${hot?' leak':''}${c.highlight?' glow':''}" data-plkey="${esc(c.key)}" data-pl="toggle" title="${esc(next.text||'')}">
-    <span class="plv-tile-h st-${c.stage}"><b>${vipPre(c.phone)+esc(plTitle(c))}${vipStar(c.phone)}${_plWhyUnseen.has(c.key)?' <span title="New note from Andrew" style="color:#d97706;">●</span>':''}${plPhoneSub(c)?`<small style="display:block;font-weight:600;font-size:11.5px;opacity:.8;">${esc(plPhoneSub(c))}</small>`:''}</b>${c.voicemail?'<em class="plv-vm">Voicemail</em>':''}${role!=='auditor'&&!c.view_only?`<span class="plv-star${c.highlight?' on':''}" data-pl="glow" role="button" title="${c.highlight?'Stop glow':'Glow'}">★</span>`:''}</span>
+    <span class="plv-tile-h st-${c.stage}"><b>${vipPre(c.phone)+esc(plTitle(c))}${vipStar(c.phone)}${_plWhyUnseen.has(c.key)?' <span title="New note from Owner" style="color:#d97706;">●</span>':''}${plPhoneSub(c)?`<small style="display:block;font-weight:600;font-size:11.5px;opacity:.8;">${esc(plPhoneSub(c))}</small>`:''}</b>${c.voicemail?'<em class="plv-vm">Voicemail</em>':''}${role!=='auditor'&&!c.view_only?`<span class="plv-star${c.highlight?' on':''}" data-pl="glow" role="button" title="${c.highlight?'Stop glow':'Glow'}">★</span>`:''}</span>
     <span class="plv-tile-b"><span><small>VALUE</small><b>${plMoney(c.amount)||'$0'}</b>${sub?`<i>${esc(sub)}</i>`:''}</span><span class="plv-ic ${hot?'danger':(c.leak||tone==='danger'||tone==='warn'||plOwes(c))?'amber':''}">${ic}</span></span>
     ${next.text&&!src.startsWith(next.text)?`<span class="plv-tile-n ${hot?'danger':(c.leak||tone==='danger')?'warn':tone}">${esc(next.text)}</span>`:''}
   </button>${callNow}`;
@@ -13479,7 +13452,7 @@ function plOwes(c){
   return promiseAt!=null&&Date.now()-promiseAt>36e5;
 }
 // Local time where the customer is (owner 2026-10-06): "Time in Houston 1:38 PM".
-const PL_CITY_TZ={ 'Denver':'Asia/Manila','Golden':'Asia/Manila','Colorado Springs':'Asia/Manila','Houston':'America/Chicago','Austin':'America/Chicago','Dallas':'America/Chicago','Fort Worth':'America/Chicago','Arlington':'America/Chicago','Oklahoma City':'America/Chicago','Tulsa':'America/Chicago','San Antonio':'America/Chicago','Los Angeles':'America/Los_Angeles','Phoenix':'America/Phoenix' };
+const PL_CITY_TZ={ 'Manila':'Asia/Manila','Makati':'Asia/Manila','BGC':'Asia/Manila','Taguig':'Asia/Manila' };
 function plCityTime(city){ const z=PL_CITY_TZ[city]; if(!z) return ''; try{ return 'Time in '+city+' '+new Date().toLocaleTimeString('en-PH',{timeZone:z,hour:'numeric',minute:'2-digit'}); }catch(_){ return ''; } }
 function plCardHtml(c){
   const open=_plOpen===c.key, next=c.next||{}, tone=PL_TONES.includes(next.tone)?next.tone:'mute';
@@ -13493,7 +13466,7 @@ function plCardHtml(c){
   return `<div class="pl-card${c.leak?' leak':''}${c.highlight?' glow':''}${plOwes(c)?' owes':''}${open?' open':''}" data-plkey="${esc(c.key)}">
     <button type="button" class="pl-row" data-pl="toggle" aria-expanded="${open}">
       ${plCityTime(c.city)?`<span class="pl-meta" style="font-weight:700;">${esc(plCityTime(c.city))}</span>`:''}
-      ${_plWhyUnseen.has(c.key)?'<span class="pl-chip" style="background:#fef3c7;color:#92400e;border-color:#fde68a;">New note from Andrew</span>':''}
+      ${_plWhyUnseen.has(c.key)?'<span class="pl-chip" style="background:#fef3c7;color:#92400e;border-color:#fde68a;">New note from Owner</span>':''}
       <span class="pl-row-top"><span class="pl-name">${vipPre(c.phone)+esc(plTitle(c))}${vipStar(c.phone)}</span>${c.source?`<span class="pl-chip">${esc(c.source)}</span>`:''}${returning?'<span class="pl-chip ret">Returning</span>':''}${amt?`<span class="pl-amt">${amt}</span>`:''}</span>
       ${next.text?`<span class="pl-next ${tone}">${tone==='danger'?PL_ALERT:''}<span>${esc(next.text)}</span></span>`:''}
       ${meta?`<span class="pl-meta">${meta}</span>`:''}
@@ -13649,7 +13622,7 @@ function plDetailHtml(c){
     :`<div style="margin:0 0 12px;"><button type="button" class="pl-btn" data-pl="askwhy"${W_&&W_.loading?' disabled':''}>${W_&&W_.loading?'Thinking…':(c.stage==='completed'?'Ask why no review':'Ask why')}</button>${W_&&W_.err?` <span class="danger" style="font-size:12.5px;">${esc(W_.err)}</span>`:''}</div>`);
   const bizHead=c.business&&c.business.name?`<div style="text-align:center;font-weight:800;font-size:17px;margin:0 0 10px;color:${BRAND_TEXT[c.business.slug]||'#374151'};">${esc(c.business.name)}</div>`:'';
   // OK-to-call banner: red 8pm-8am, green 8am-8pm (owner 2026-10-06).
-  const tzArea={'Asia/Manila':'Denver','America/Chicago':'Texas','America/Los_Angeles':'Los Angeles','America/Phoenix':'Phoenix'}[c.tz]||'their area';
+  const tzArea={'Asia/Manila':'Manila'}[c.tz]||'their area';
   const tb=rcCallBand(c.tz,true);
   const timeBand=c.phone?`<div class="rc-timeband ${tb.band}" data-rc-tzcard="${esc(c.tz||'')}" data-rc-simple="1" data-rc-area="${esc(tzArea)}" style="margin:0 0 10px;text-align:center;">${rcTimeBandLabel(tb.band,tb.hhmm,tzArea,true)}</div>`:'';
   return `<div class="pl-detail">${top.join('')}${unBanner}${bizHead}${timeBand}${whyBox}${tabs}<div class="plt-body">${body}</div>
@@ -14063,7 +14036,7 @@ async function renderWebEdits(){
         <div style="display:flex;justify-content:space-between;gap:8px;font-size:13px;"><b>${esc(e.site)}</b><span style="font-weight:700;color:${done?'#15803d':'var(--mute)'};">${done?'Done':'Open'}</span></div>
         <div style="white-space:pre-wrap;margin-top:6px;font-size:14px;">${esc(e.body)}</div>
         ${(e.photo_urls||[]).length?`<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:6px;">${e.photo_urls.map(u=>`<a href="${esc(notePhotoSrc(u))}" target="_blank" rel="noopener"><img src="${esc(notePhotoSrc(u))}" alt="Attached photo" style="width:64px;height:64px;object-fit:cover;border-radius:6px;"></a>`).join('')}</div>`:''}
-        ${e.reply?`<div style="margin-top:8px;padding:8px;border-radius:8px;background:var(--bg);font-size:13px;white-space:pre-wrap;"><b>Andrew:</b> ${esc(e.reply)}</div>`:''}
+        ${e.reply?`<div style="margin-top:8px;padding:8px;border-radius:8px;background:var(--bg);font-size:13px;white-space:pre-wrap;"><b>Owner:</b> ${esc(e.reply)}</div>`:''}
         <div style="font-size:11px;color:var(--mute);margin-top:6px;">${esc(new Date(e.created_at).toLocaleString())}</div></div>`;
     }).join('');
   };
@@ -14083,12 +14056,12 @@ async function renderNotes(){
   const view=document.getElementById('view');
   if(_notesTab==='red' && role!=='owner') _notesTab='staff';   // Red alert compose is owner-only
   // Owner rule 2026-09-23: notes now go every direction, not just owner ->
-  // staff -- the "For secretaries" pane already covers "leave Andrew a note"
-  // via its own FOR dropdown's Andrew option, so the sub-copy has to speak to
+  // staff -- the "For secretaries" pane already covers "leave Owner a note"
+  // via its own FOR dropdown's Owner option, so the sub-copy has to speak to
   // whoever is actually looking at it, not assume they're the owner.
   const forCopy = role==='owner'
     ? 'Anything the secretaries need to know. It shows on their dashboard until they tick it off, and they can write back.'
-    : 'Leave Andrew or another secretary a note. It shows on their dashboard until they tick it off, and they can write back.';
+    : 'Leave Owner or another secretary a note. It shows on their dashboard until they tick it off, and they can write back.';
   // Two big tab cards instead of small seg-btn pills -- owner feedback
   // 2026-09-23: "they may miss them". This is the whole reason to be on this
   // page (who a note goes to), so it gets first billing above the sub-copy,
@@ -14102,7 +14075,7 @@ async function renderNotes(){
     <h2 style="margin:0 0 4px;">Notes</h2>
     <div class="sub" style="color:var(--mute);margin-bottom:14px;">Who is this note for?</div>
     <div class="notes-tabrow${role==='owner'?' three':''}">
-      ${notesTabBtn('staff','🏢','For the office',role==='owner'?'Heather, Joey, Alex, Joe, or all':'Andrew, a secretary, or all secretaries',_notesTab==='staff')}
+      ${notesTabBtn('staff','🏢','For the office',role==='owner'?'Your office staff':'Owner or all staff',_notesTab==='staff')}
       ${notesTabBtn('tech','🔧','For the techs','One tech, a city, or everyone',_notesTab==='tech')}
       ${role==='owner'?notesTabBtn('red','🚨','Red alert','Steps the office must do',_notesTab==='red'):''}
       ${isJoeyHome()?notesTabBtn('web','🌐','Website edit','Change on a website',false):''}
@@ -14131,11 +14104,7 @@ function renderStaffNotesPane(){
           <label for="noteTarget" style="${NOTE_LABEL_CSS}">FOR</label>
           <select id="noteTarget" style="${NOTE_FIELD_CSS}">
             <option value="">All secretaries</option>
-            <option value="handy-andy">TidyHaus (Heather) only</option>
-            <option value="doms">Dom's only (Joey, Alex, Joe)</option>
-            ${role==='owner'?'<option value="person:Heather">Heather only</option><option value="person:Joey">Joey only</option><option value="person:Alex">Alex only</option><option value="person:Joe">Joe only</option><option value="auditor">Jiyah only</option>':''}
-            ${role==='secretary'&&userName==='Joey'?'<option value="person:Heather">Heather only</option><option value="person:Alex">Alex only</option><option value="person:Joe">Joe only</option>':''}
-            ${role!=='owner'?'<option value="owner">Andrew only</option>':''}
+            ${role!=='owner'?'<option value="owner">Owner only</option>':''}
           </select>
         </div>
         <div style="flex:1;min-width:150px;">
@@ -14198,7 +14167,7 @@ async function loadNotesRecent(){
     if(!notes.length){ wrap.className='empty'; wrap.textContent='No notes yet.'; return; }
     wrap.className='';
     wrap.innerHTML=notes.map(n=>{
-      const who=n.to_owner ? 'Andrew' : n.target_name ? n.target_name : n.target_slug ? (n.target_slug==='doms' ? "Dom's" : n.target_slug==='auditor' ? 'Jiyah' : 'TidyHaus') : 'All secretaries';
+      const who=n.to_owner ? 'Owner' : n.target_name ? n.target_name : n.target_slug ? 'TidyHaus' : 'All secretaries';
       const reads=n.reads||[];
       const pill=reads.length
         ? `<span class="note-pill read">Read${reads.length>1?` ×${reads.length}`:''} · ${esc(noteWhen(reads[0].read_at))}</span>`
@@ -14492,22 +14461,7 @@ async function renderDomainWatch(){
 }
 
 // ── Google listings (owner): every GBP with phone, login email, site, city ──
-const GBP_LIST=[
-  {k:'ha-houston',n:'TidyHaus Home Cleaning',c:'Houston, TX',p:'281-626-5853',e:'houstonmainbusiness@gmail.com',u:'https://www.ihandyandy.com/houston-tv-mounting',m:'https://g.page/r/CdizxHwpwcE0EBM'},
-  {k:'ha-greenway',n:'TidyHaus Home Cleaning & Home Theater',c:'Houston (Greenway Plaza), TX',p:'281-638-8419',e:'houstonmainbusiness@gmail.com',u:'https://www.ihandyandy.com/houston-tv-mounting-greenwayplz',m:'https://g.page/r/CeA7fWzbLgO8EBM'},
-  {k:'ha-denver',n:'TidyHaus Home Cleaning',c:'Denver, CO',p:'720-541-8180',e:'denvermainbusiness@gmail.com',u:'https://www.ihandyandy.com/denvertvmounting',m:'https://g.page/r/Ccj-ZjdeLtzfEBM'},
-  {k:'ha-golden',n:'TidyHaus Home Cleaning',c:'Golden, CO',p:'720-637-3707',e:'denverinstallpros@gmail.com',u:'https://www.ihandyandy.com/tv-mounting-golden',m:'https://g.page/r/CWcIi45TvszbEBM'},
-  {k:'ha-austin',n:'TidyHaus Home Cleaning',c:'Austin, TX',p:'512-668-6643',e:'austinmainbusiness@gmail.com',u:'https://www.ihandyandy.com/austin-tv-mounting',m:'https://g.page/r/CYE7aX6tVMnkEBM'},
-  {k:'ha-los-angeles',n:'TidyHaus Home Cleaning Los Angeles',c:'Los Angeles, CA',p:'213-579-3329',e:'tvmountinglaca@gmail.com',u:'https://www.ihandyandy.com/tv-mounting-los-angeles',m:'https://g.page/r/CfCMbSKempPwEBM'},
-  {k:'ha-fort-worth',n:'TidyHaus Home Cleaning Fort Worth',inc:20,c:'Fort Worth, TX',p:'817-546-3928',e:'bostoninstallpros@gmail.com',u:'https://www.ihandyandy.com/tvmounting-fortworth',m:'https://g.page/r/CTYY_ZOaE-AyEBM'},
-  {k:'doms-colorado',n:'Doms Home Cleaning Colorado',c:'Denver, CO',p:'720-800-6095',e:'domstvmounting@gmail.com',u:'https://www.domstvmounting.com/',m:'https://g.page/r/Cffr7Tp2DSNOEBM'},
-  {k:'doms-okc',n:'Doms Home Cleaning OKC',c:'Oklahoma City, OK',p:'405-657-6412',e:'domstvmounting@gmail.com',u:'https://www.domstvmounting.com/tv-mounting-oklahoma-city',m:'https://www.google.com/maps?cid=516566321774452060'},
-  {k:'doms-tulsa',n:'Doms Home Cleaning Tulsa',need:1,c:'Tulsa, OK',p:'918-237-3122',e:'domstvmounting@gmail.com',u:'https://www.domstvmounting.com/tv-mounting-tulsa',m:'https://www.google.com/maps?cid=14065283668418833000'},
-  {k:'a1-dfw',n:'A1 Home Cleaning',c:'Euless / Arlington, TX',p:'469-260-2941',e:'austinmainbusiness@gmail.com',a:'austinmainbusiness@gmail.com',u:'https://a1tvmounting.com/',m:'https://g.page/r/CeBT0JzNUua1EBM'},
-  {k:'astraea-austin',n:'Astraea Home Cleaning Austin',inc:9,c:'Austin, TX',p:'737-381-3800',e:'bostoninstallpros@gmail.com',u:'https://austinmounting.com/',m:'https://g.page/r/Cfy3b1Mtk59QEBM'},
-  {k:'perfectview-houston',n:'Houston PerfectView',c:'Houston, TX',p:'832-793-7986',e:'',u:'https://houstonperfectviewtvmounting.com/',m:'https://www.google.com/maps?cid=12593316269777541730'},
-  {k:'millertime-houston',n:'Millertime Custom Installs',c:'Houston, TX',p:'713-998-5324',e:'',u:'https://www.millertimetvmounting.com',m:'https://www.google.com/maps?cid=1505845332101005890'},
-];
+const GBP_LIST=[];
 // Review counts (owner 2026-10-13): hand-checked off Google Maps + new ones
 // since; most reviews on top. Matched by Maps link, else exact listing name.
 function gbpBadge(n){ const b=document.getElementById('navGbp'); if(!b) return; let d=b.querySelector('.gbp-badge'); if(!n){ if(d) d.remove(); return; }
@@ -14760,7 +14714,7 @@ async function rkExtra(tab,post){
   const view=rkRoot(); const seq=++_rkSeq;
   if(_rkPoll){ clearTimeout(_rkPoll); _rkPoll=null; } if(_rkAbort){ try{ _rkAbort.abort(); }catch(_){} _rkAbort=null; }
   if(_rkMap){ try{ _rkMap.remove(); }catch(_){} _rkMap=null; _rkLayer=null; } _rkGMap=null; _rkGMk=[];
-  const city=_rk.city||'Houston';
+  const city=_rk.city||'Manila';
   const seg=`<div class="rk-seg">${[['maps','Maps'],['organic','Organic'],['keywords','Keywords'],['ads','Ads']].map(o=>`<button type="button" data-rkx="${o[0]}" class="${tab===o[0]?'on':''}">${o[1]}</button>`).join('')}</div>`;
   const shell=(cities,inner)=>`<div class="wrap rk-wrap" id="rkX">${rkBack(view)}<h2 style="margin:0 0 10px;">Google Ranking</h2><div class="rk-bar"><select id="rkXCity">${(cities||[city]).map(c=>`<option${c===city?' selected':''}>${esc(c)}</option>`).join('')}</select>${seg}</div>${inner}</div>`;
   const wire=()=>{ const r=view.querySelector('#rkX'); if(!r) return;
@@ -14822,7 +14776,7 @@ let _gbpCity='All', _gbpWireObserver=null, _gbpVelKey='';
 // New reviews per week, 12 weeks (owner 2026-10-21). Central dates; weeks start Monday.
 // Rate = last 28 days vs the 28 before, counting only listings with data for all 56 days.
 function gbpVelDraw(V,L){ const el=document.getElementById('gbpVel'); if(!el) return;
-  const DY=864e5, day=s=>Date.parse(s+'T00:00:00Z'), t0=day(new Date().toLocaleDateString('en-CA',{timeZone:'America/Chicago'}));
+  const DY=864e5, day=s=>Date.parse(s+'T00:00:00Z'), t0=day(new Date().toLocaleDateString('en-CA',{timeZone:'Asia/Manila'}));
   const mon=t0-((new Date(t0).getUTCDay()+6)%7)*DY, W=[]; for(let i=11;i>=0;i--) W.push(mon-i*7*DY);
   const md=t=>new Date(t).toLocaleDateString([], {month:'numeric',day:'numeric',timeZone:'UTC'});
   const nm=k=>{ const g=L.find(x=>x.k===k); return g?`${g.n} · ${g.c}`:k; };
@@ -14874,7 +14828,7 @@ async function renderGbpList(){
       <span style="color:var(--mute);">Google</span>${g.m?`<a href="${esc(g.m)}" target="_blank" rel="noopener">Open listing</a>`:'<span>—</span>'}
     </div>${gbpPosts(g._c&&g._c.posts)}</div>`; };
   // Hub map like Launch (owner 2026-10-19): one hub per city, LAUNCH_CITY_ORDER, Never Fails hidden.
-  const GBP_CITY={'ha-houston':'Houston','ha-greenway':'Houston','perfectview-houston':'Houston','millertime-houston':'Houston','ha-denver':'Denver','ha-golden':'Denver','doms-colorado':'Denver','ha-austin':'Austin','astraea-austin':'Austin','ha-los-angeles':'Los Angeles','ha-fort-worth':'Fort Worth','doms-okc':'Oklahoma City','doms-tulsa':'Tulsa','a1-dfw':'Arlington'};
+  const GBP_CITY={};
   const shown=list.filter(g=>g.k!=='neverfails-okc');
   const byCity={}; for(const g of shown){ const c=GBP_CITY[g.k]||'Other'; (byCity[c]=byCity[c]||[]).push(g); }
   const cities=[...LAUNCH_CITY_ORDER.filter(c=>byCity[c]), ...Object.keys(byCity).filter(c=>!LAUNCH_CITY_ORDER.includes(c))];
@@ -14945,7 +14899,7 @@ function prBadge(p){
   if(p.push_kind==='customer'&&p.status==='new') return `<span class="pr-st pr-st-callback">Repeat customer</span>`;
   if(p.parked_at) return `<span class="pr-st">Parked · 5 tries</span>`;
   if(p.status==='not_interested'&&p.snooze_until&&new Date(p.snooze_until)>new Date()) return `<span class="pr-st pr-st-not_interested">Not interested · ${prDay(p.snooze_until)}</span>`;
-  if(p.quote_status==='needs_ok') return `<span class="pr-st pr-st-callback">Needs Andrew's OK</span>`;
+  if(p.quote_status==='needs_ok') return `<span class="pr-st pr-st-callback">Needs Owner's OK</span>`;
   return `<span class="pr-st pr-st-${p.status}">${PR_STATUS[p.status]||p.status}</span>`;
 }
 // Login announcement + nav dot for secretaries with Prospects access (owner
@@ -14992,7 +14946,7 @@ function prHowTo(force){
     ['📞','Tap Call','It calls from the TidyHaus line for that city. Only 9–5 on weekdays, their time.'],
     ['💬','Use "Say this"','Mention our client (like Belmont Village). Tap the help buttons for quick answers.'],
     ['✅','Log the result','Tap what happened. Set a follow-up date. Most calls need one.'],
-    ['🧾','Wants a quote?','Build it in the CRM. Over $2,000 waits for Andrew’s OK.'],
+    ['🧾','Wants a quote?','Build it in the CRM. Over $2,000 waits for Owner’s OK.'],
     ['💵','You earn 10%','Of every job they pay for, forever. It’s on your weekly pay.'],
   ];
   const o=document.createElement('div');
@@ -15026,9 +14980,7 @@ function prSince(iso){
 const PR_AUSTIN=/^(austin|round rock|georgetown|cedar park|pflugerville|leander|kyle|buda|lakeway|hutto|manor|san marcos)$/i;
 function prMetro(p){
   const st=String(p.state||'').toUpperCase(), c=String(p.city||'').trim();
-  if(st==='CO') return 'Denver';
-  if(st==='TX') return PR_AUSTIN.test(c)?'Austin':'Houston';
-  return c||'Other';
+  return 'Manila';
 }
 function prRow(p){
   const lock=prLockLine(p);
@@ -15089,10 +15041,10 @@ function paintProspects(){
   const stats=isOwner?`<details class="pr-box" id="prStatsBox"${S?' open':''}><summary class="pr-h" style="cursor:pointer;">Stats · 14 days</summary>${S?(S.people.length?`<table class="pr-stats"><tr><th></th><th>Calls/day</th><th>Calls</th><th>Connects</th><th>Interested</th><th>Quotes</th><th>Wins</th><th>Missed</th><th>Pay</th></tr>${S.people.map(r=>{ const dd=Object.keys(r.days).length||1; return `<tr><td>${esc(r.name)}</td><td>${(r.calls/dd).toFixed(0)}</td><td>${r.calls}</td><td>${r.connects}</td><td>${r.interested}</td><td>${r.quotes}</td><td>${r.wins}</td><td>${r.missed}</td><td>${prMoney(r.commission)}</td></tr>`; }).join('')}</table>`:''):''}</details>`:'';
   const ideas=d.ideas||[];
   // "Got an idea?" box (owner 2026-10-09). Secretaries see their own; owner sees all + Pulled toggle.
-  const IDEA_EX=['Interior designers · Houston','Realtors · Denver','Apartment managers · OKC','Senior living · Austin','Hotels · Dallas','Office managers · Denver'];
+  const IDEA_EX=['Condo admins · Makati','Realtors · BGC','Airbnb hosts · Makati','Offices · BGC','Property managers · Makati'];
   const ideaBox=`<div class="pr-box"><div class="pr-h">💡 Got an idea?</div>
       <div class="pr-sub">Pick a type of business and a city. We'll pull the list for you.</div>
-      <textarea id="prIdea" rows="2" placeholder="Interior designers in Houston" style="width:100%;margin:8px 0 6px;"></textarea>
+      <textarea id="prIdea" rows="2" placeholder="Airbnb hosts in Makati" style="width:100%;margin:8px 0 6px;"></textarea>
       <div class="pr-chips" style="margin-bottom:6px;">${IDEA_EX.map(x=>`<button class="pr-chip" data-pr-iex="${esc(x.replace(' · ',' in '))}">${esc(x)}</button>`).join('')}</div>
       <button class="btn sm" data-pr="idea" style="width:auto;">Submit</button>
       ${ideas.map(i=>`<div class="pr-idea"><div style="white-space:pre-wrap;">${esc(i.body)}</div><div class="pr-sub">${isOwner?esc(i.author)+' · ':''}${prDay(i.created_at)} · <b style="color:${i.pulled_at?'#16a34a':'#d97706'};">${i.pulled_at?'Pulled':'New'}</b>${isOwner?` · <a href="#" data-pr-ipull="${i.id}" data-on="${i.pulled_at?'':'1'}">${i.pulled_at?'Undo':'Pulled'}</a>`:''}${(isOwner||i.author===userName)?` · <a href="#" data-pr-idel="${i.id}">Delete</a>`:''}</div></div>`).join('')}</div>`;
@@ -15109,7 +15061,7 @@ function paintProspects(){
       <select id="prType" style="flex:1;"><option value="">All types</option>${(d.types||[]).map(t=>`<option${_pr.type===t?' selected':''}>${esc(t)}</option>`).join('')}</select></div>
     <div class="pr-chips">${chips.map(([k,l])=>`<button class="pr-chip${_pr.f===k?' on':''}" data-pr-f="${k}">${l}</button>`).join('')}</div>
     ${list.length?(()=>{ const g=new Map(); for(const p of list.slice(0,300)){ const m=prMetro(p); if(!g.has(m)) g.set(m,[]); g.get(m).push(p); }
-      const order=[...g.keys()].sort((a,b)=>(b==='Houston')-(a==='Houston')||g.get(b).length-g.get(a).length);
+      const order=[...g.keys()].sort((a,b)=>g.get(b).length-g.get(a).length);
       return order.map(m=>`<div class="pr-h" style="margin:14px 0 6px;font-size:15px;">${esc(m)} (${g.get(m).length})</div><div class="pr-list">${g.get(m).map(prRow).join('')}</div>`).join(''); })():''}
     <div style="margin-top:12px;">${ideaBox}</div>
     </div>`;
@@ -15180,7 +15132,7 @@ function paintProspectDetail(){
   const outBtns=PR_OUT.map(([k,l])=>`<button class="pr-chip${_pr.out===k?' on':''}" data-pr-out="${k}">${l}</button>`).join('');
   const fuBtns=[['tomorrow','Tomorrow'],['3d','3 days'],['week','Next week'],['custom','Custom'],['none','None']].map(([k,l])=>`<button class="pr-chip${fuSel===k?' on':''}" data-pr-fu="${k}">${l}</button>`).join('');
   const secOpts=(_pr.d&&_pr.d.secretaries||[]).map(n=>`<option${p.locked_by===n&&p.lock?' selected':''}>${esc(n)}</option>`).join('');
-  const quote=p.quote_estimate_id?`<div class="pr-box"><div class="pr-h">Quote · ${prMoney(p.quote_total)}</div>${p.quote_status==='needs_ok'?(isOwner?`<button class="btn sm" data-pr="quoteok" style="width:auto;">OK &amp; send</button> <button class="btn ghost sm" data-pr="quoteedit" style="width:auto;">Edit in Estimates</button>`:`<div class="pr-warn">Needs Andrew's OK</div>`):`<div class="pr-sub">${p.quote_status==='approved'?'Approved':'Sent'}</div>`}</div>`:'';
+  const quote=p.quote_estimate_id?`<div class="pr-box"><div class="pr-h">Quote · ${prMoney(p.quote_total)}</div>${p.quote_status==='needs_ok'?(isOwner?`<button class="btn sm" data-pr="quoteok" style="width:auto;">OK &amp; send</button> <button class="btn ghost sm" data-pr="quoteedit" style="width:auto;">Edit in Estimates</button>`:`<div class="pr-warn">Needs Owner's OK</div>`):`<div class="pr-sub">${p.quote_status==='approved'?'Approved':'Sent'}</div>`}</div>`:'';
   view.innerHTML=`<div class="wrap pr-wrap">
     <button class="btn ghost sm" data-pr="back" style="width:auto;margin-bottom:10px;">← Prospects</button>
     <div style="display:flex;align-items:flex-start;gap:8px;"><h2 style="margin:0;flex:1;">${esc(p.business_name)}</h2>${prBadge(p)}</div>
@@ -15203,7 +15155,7 @@ function paintProspectDetail(){
       ${!rc&&p.email?`<div class="pr-kv"><span>Email</span><span>${esc(p.email)}</span></div>`:''}
       ${!rc&&(p.address||p.city)?`<div class="pr-kv"><span>Address</span><span>${esc([p.address,p.city].filter(Boolean).join(', '))}</span></div>`:''}
       ${!rc&&p.notes?`<div style="white-space:pre-wrap;margin-top:6px;">${esc(p.notes)}</div>`:''}
-      ${p.push_note?`<div class="pr-andrew">Andrew: ${esc(p.push_note)}</div>`:''}
+      ${p.push_note?`<div class="pr-andrew">Owner: ${esc(p.push_note)}</div>`:''}
       ${canLog&&!rc?`<div style="margin-top:8px;"><button class="btn ghost sm" data-pr="edit" style="width:auto;">Edit</button></div>`:''}
     </div>
     ${jobsBox||sum}
@@ -15414,17 +15366,13 @@ function renderLoan(){
     <iframe src="/loan.html" title="Catie’s loan" style="width:100%;height:calc(100vh - 140px);min-height:600px;border:0;border-radius:12px;background:transparent;"></iframe></div>`;
 }
 // Competitor backlinks (owner 2026-10-25): quality link gaps, DataForSEO.
-const BL_PRESETS={
-  Houston:{c:['tvmountmaster.com','tvinstallationhouston.com','tvmounting-houston.com'],o:'ihandyandy.com, houstonmountingpros.com, houstonmounting.com, houstontvmountingpros.com'},
-  OKC:{c:['neverfailstvmounting.com','technolojay.net','hometechok.com'],o:'domstvmountingokc.com, domstvmounting.com'},
-  Tulsa:{c:['csiok.com','awesometvmounting.com','techytulsa.com'],o:'domstvmountingtulsa.com, domstvmounting.com'},
-};
+const BL_PRESETS={};
 function renderBacklinks(){
   const view=document.getElementById('view');
   const saved=(()=>{ try{ return JSON.parse(localStorage.getItem('blTargets')||'null'); }catch(e){ return null; } })()||['quickmounttv.com','tvmountmaster.com','tvmounting-houston.com'];
   view.innerHTML=`<div class="wrap"><button class="btn ghost sm" onclick="renderOther()" style="margin-bottom:10px;width:auto;">← Other</button><h2 style="margin:0 0 12px;">Competitor backlinks</h2>
     <div style="display:flex;flex-wrap:wrap;gap:8px;max-width:820px;">${[0,1,2].map(i=>`<input data-blt value="${esc(saved[i]||'')}" placeholder="competitor.com" style="flex:1 1 200px;">`).join('')}
-      <input id="blOurs" value="ihandyandy.com, houstonmountingpros.com, houstonmounting.com, houstontvmountingpros.com" style="flex:1 1 100%;" title="Our sites, comma separated">
+      <input id="blOurs" value="tidyhausph.com, houstonmountingpros.com, tidyhausph.com, tidyhausph.com" style="flex:1 1 100%;" title="Our sites, comma separated">
       ${Object.keys(BL_PRESETS).map(k=>`<button type="button" class="btn ghost sm" data-blp="${k}" style="width:auto;">${k}</button>`).join('')}
       <button class="btn" id="blGo" style="width:auto;">Find links</button></div>
     <div id="blOut" style="margin-top:14px;"></div></div>`;
@@ -15470,7 +15418,7 @@ async function renderOther(){
     notes:{t:'📌 Notes',go:()=>renderNotes()},
     callhub:{t:'Calls',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#fff" d="M8.6 5.5c.4 0 .7.2.9.6l1.1 2.5c.2.4.1.8-.2 1.1l-1 1c.6 1.4 1.8 2.7 3.3 3.4l1-1c.3-.3.7-.4 1.1-.2l2.5 1.1c.4.2.6.5.6.9v1.8c0 .8-.7 1.5-1.5 1.4C10.9 17.7 6.3 13.1 6 7c0-.8.6-1.5 1.4-1.5z"/></svg>',go:()=>navTo('callhub'),own:1},
     messages:{t:'Messages',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect width="24" height="24" rx="5.5" fill="#34C759"/><path fill="#fff" d="M12 5.5c-3.9 0-7 2.6-7 5.8 0 1.9 1.1 3.5 2.8 4.6-.1 1-.6 1.9-1.3 2.6 1.6 0 3-.6 4-1.4.5.1 1 .1 1.5.1 3.9 0 7-2.6 7-5.9s-3.1-5.8-7-5.8z"/></svg>',go:()=>navTo('messages'),own:1},
-    askandrew:{t:'Ask Andrew',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg>',go:()=>navTo('askandrew'),own:1},
+    askandrew:{t:'Ask',ic:'<svg viewBox="0 0 24 24" width="16" height="16" style="vertical-align:-2px"><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(0 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(30 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(60 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(90 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(120 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(150 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(180 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(210 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(240 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(270 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(300 12 12)"/><rect x="11" y="1.5" width="2" height="10.5" rx="1" fill="#D97757" transform="rotate(330 12 12)"/></svg>',go:()=>navTo('askandrew'),own:1},
     brackets:{t:'📦 Bracket Inventory',go:()=>navTo('brackets'),own:1},
     technicians:{t:'🔧 Technicians',go:()=>navTo('technicians'),own:1},
     customers:{t:'👥 Customers',go:()=>navTo('customers'),own:1},
@@ -15487,6 +15435,11 @@ async function renderOther(){
     travel:{t:'🚗 Travel Fees',go:()=>renderTravelFees()},
     widget:{t:'💲 Cleaning Prices',go:()=>renderWidgetPricing()},
     siteanalytics:{t:'📈 Website Analytics',go:()=>{ location.href='/site-analytics.html'; }},
+    pipeline:{t:'📈 Pipeline',go:()=>navTo('pipeline')},
+    launch:{t:'🚀 Launch',go:()=>navTo('launch'),own:1},
+    tasks:{t:'✅ Tasks',go:()=>navTo('tasks')},
+    prospects:{t:'🎯 Prospects',go:()=>navTo('prospects')},
+    gadsnav:{t:'📣 Google Ads',go:()=>{ const b=document.getElementById('navGads'); if(b) b.click(); },own:1},
   };
   const okT=k=>OT[k]&&(!OT[k].own||own);
   const otTile=k=>`<div data-ot="${k}" data-otname="${esc(OT[k].t.toLowerCase())}" style="cursor:pointer;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;justify-content:space-between;align-items:center;gap:8px;min-width:0;"><div style="font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${OT[k].ic?OT[k].ic+' ':''}${OT[k].t}</div><div style="display:flex;align-items:center;gap:6px;flex-shrink:0;"><span data-otc="${k}" style="color:var(--amber);font-weight:700;font-size:12px;"></span><span style="color:var(--mute);font-size:18px;">›</span></div></div>`;
@@ -15497,7 +15450,8 @@ async function renderOther(){
       <input id="otSearch" type="search" placeholder="Search" autocomplete="off" style="width:100%;box-sizing:border-box;">
       ${otGroup('👥 PEOPLE',['technicians','secretaries','customers'])}
       ${otGroup('💲 MONEY & PRICING',['payroll','widget','coupons','travel','disputes'])}
-      ${otGroup('📣 MARKETING',['siteanalytics'])}
+      ${otGroup('📣 MARKETING',['siteanalytics','launch','gadsnav'])}
+      ${otGroup('📋 SALES & WORK',['pipeline','prospects','tasks'])}
       ${otGroup('🧰 TOOLS',['callhub','messages','notes'])}
     </div>
   </div>`;
@@ -16220,7 +16174,7 @@ function rcStat(label, value, sub, color){
 }
 function rcGreeting(){
   const h=new Date().getHours();
-  return `Good ${h<12?'morning':h<18?'afternoon':'evening'}, ${(typeof userName!=='undefined'&&userName)?userName:'Joey'}`;
+  return `Good ${h<12?'morning':h<18?'afternoon':'evening'}, ${(typeof userName!=='undefined'&&userName)?userName:'there'}`;
 }
 // Four outcomes, because a secretary mid-call picks the first thing that fits and
 // a longer list just means slower, less consistent logging. Each maps onto a
@@ -16240,7 +16194,7 @@ const RC_TAGS={
 // wrong company name said out loud. Owner's wording, verbatim.
 function rcScript(r){
   const first=String(r.customer_name||'').trim().split(/\s+/)[0]||'there';
-  return `Hey ${first}, this is Joey from ${r.business_name||'us'}. I was just calling to see how your installation went ${rcRelSpoken(r.when, r.business_timezone)} and if there's anything we can improve on?`;
+  return `Hey ${first}, this is ${esc(userName||'the office')} from ${r.business_name||'us'}. I was just calling to see how your installation went ${rcRelSpoken(r.when, r.business_timezone)} and if there's anything we can improve on?`;
 }
 function rcRel(iso, tz){
   if(!iso) return '';
@@ -16398,7 +16352,7 @@ async function renderLaCalls(){
   const rows=[...(d.open||[]),...(d.handled||[])].sort((a,b)=>a.occurred_at<b.occurred_at?1:-1);
   const missed=rows.filter(r=>r.answered===false).length;
   const byLine={}; rows.forEach(r=>{ const k=r.line_name||r.business?.name||'LA'; byLine[k]=(byLine[k]||0)+1; });
-  const W=iso=>new Date(iso).toLocaleString('en-PH',{timeZone:'America/Los_Angeles',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
+  const W=iso=>new Date(iso).toLocaleString('en-PH',{timeZone:'Asia/Manila',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
   view.innerHTML=`<div class="wrap" style="max-width:900px;">
     <h2 style="margin:0 0 4px;">Los Angeles calls</h2><div class="meta" style="margin-bottom:12px;">Last 30 days · Pacific time · owner only</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
@@ -16423,7 +16377,7 @@ const ANALYTICS_TABS=[
   { id:'handyman', label:'Handyman', screen:'handyman',      show:()=>role==='owner' && HANDYMAN_SLUGS.has(current?.slug), render:()=>renderHandymanAnalytics() },
   { id:'website',  label:'Website',  screen:'webanalytics',  show:()=>role==='owner', render:()=>renderWebAnalytics() },
   { id:'la',       label:'LA',       screen:'lacalls',       show:()=>role==='owner', render:()=>renderLaCalls() },
-  { id:'askq', get label(){ return _askOpen?`Ask Andrew (${_askOpen} to answer)`:'Ask Andrew'; }, screen:'askq', show:()=>role==='owner', render:()=>renderAskLog() },
+  { id:'askq', get label(){ return _askOpen?`Ask Owner (${_askOpen} to answer)`:'Ask'; }, screen:'askq', show:()=>role==='owner', render:()=>renderAskLog() },
 ];
 // callHubTab starts null and resolves on first render: the owner lands on
 // the Log (the by-number call view they asked for), while secretaries land
@@ -16506,7 +16460,7 @@ async function renderCallHub(){
   if(!callHubTab) callHubTab = (role==='owner'||userName==='Joey') ? 'log' : 'reviewcalls';
   await renderHub(CALL_TABS, callHubTab, id=>{ callHubTab=id; renderCallHub(); });
 }
-// ── Ask Andrew (owner, 2026-09-24) ─────────────────────────────────────────
+// ── Ask Owner (owner, 2026-09-24) ─────────────────────────────────────────
 // An AI version of the owner staff can ask anything; "I don't know" when it
 // isn't sure, never made up. Unknowns show as an alert here for him to answer
 // once -- his answer becomes its knowledge.
@@ -16516,12 +16470,12 @@ async function askRefreshBadge(){
     const d=await api('ask_andrew');
     _askOpen=d.unknown_open||0;
     const nav=document.getElementById('navAnalyticsHub');
-    if(nav){ let b=nav.querySelector('.ask-badge'); if(!b){ b=document.createElement('span'); b.className='nav-badge ask-badge'; b.style.background='#dc2626'; nav.appendChild(b); } b.textContent=_askOpen; b.style.display=_askOpen?'':'none'; b.title=_askOpen+' Ask Andrew question(s) it could not answer'; }
+    if(nav){ let b=nav.querySelector('.ask-badge'); if(!b){ b=document.createElement('span'); b.className='nav-badge ask-badge'; b.style.background='#dc2626'; nav.appendChild(b); } b.textContent=_askOpen; b.style.display=_askOpen?'':'none'; b.title=_askOpen+' Ask Owner question(s) it could not answer'; }
     return d;
   }catch(_){ return null; }
 }
 // Draft card right in the chat (owner, 2026-09-25: "present this draft inside
-// the Ask Andrew screen -- users can use Ask Andrew to book appointments").
+// the Ask Owner screen -- users can use Ask Owner to book appointments").
 // Book / Save as estimate open the normal New Booking form prefilled, so a
 // person still picks the time, takes the card and confirms -- nothing is sent
 // or booked by the AI itself.
@@ -16552,7 +16506,7 @@ function renderAskAndrew(){
   const bubbles=_askChat.map((m,i)=>`<div class="ask-q">${esc(m.q)}</div>`+(m.a==null?'<div class="ask-a ask-wait">Thinking…</div>':
     `<div class="ask-a${m.known?'':' ask-unk'}">${esc(m.a)}${m.draft?askDraftCard(m.draft,i):''}</div>`)).join('');
   view.innerHTML=`<div class="wrap ask-wrap">
-    <h2 style="margin:0 0 2px;">${role==='owner'?'Ask Andrew':'Ask the Owner'}</h2>
+    <h2 style="margin:0 0 2px;">${role==='owner'?'Ask':'Ask the Owner'}</h2>
     <div class="sub" style="color:var(--mute);margin-bottom:12px;">Ask anything about the business. Short answers. It says “I don’t know” when it doesn’t.</div>
     <div class="ask-chat" id="askChat">${bubbles||'<div class="empty" style="padding:24px 0;">Try: “Price for a 75 inch over a fireplace in 80219?”</div>'}</div>
     <details class="ask-can" open><summary>What I can do</summary><ol><li>home cleaning prices</li><li>Zip travel fees</li><li>Quotes with tax</li><li>Draft appointments and estimates</li><li>What to ask the customer</li><li>Price objections</li><li>Handyman pricing</li><li>Time windows and after-hours fee</li><li>Company rules</li><li>Says “I don’t know” when unsure</li></ol><div class="ask-cant">Can’t send texts or book on its own.</div></details>
@@ -16592,7 +16546,7 @@ async function renderAskLog(){
       ${!q.known&&!q.taught_at?`<form class="ask-teach" data-askteach="${esc(q.id)}"><textarea rows="2" placeholder="Your answer. It will know this from now on."></textarea><button class="btn sm" type="submit">Teach it</button></form>`:''}
     </div>`;
   view.innerHTML=`<div class="wrap">
-    <h2 style="margin:0 0 4px;">Ask Andrew — questions</h2>
+    <h2 style="margin:0 0 4px;">Ask Owner — questions</h2>
     <div class="sub" style="color:var(--mute);margin-bottom:12px;">Everything staff asked. Red = it didn’t know. Answer once and it learns.</div>
     <form class="ask-teach" id="askTeachFree" style="margin-bottom:16px;"><textarea rows="2" placeholder="Teach it anything (a rule, a price, how you handle something)…"></textarea><button class="btn sm" type="submit">Add to its knowledge</button></form>
     ${open.length?`<div class="rc-count" style="margin:6px 0;">Needs your answer · ${open.length}</div>${open.map(row).join('')}`:''}
@@ -16938,7 +16892,7 @@ async function renderCallAudit(){
       ${f.notes?`<div style="font-size:13px;color:var(--ink-2);margin-top:5px;line-height:1.5;">${esc(f.notes)}</div>`:''}
       ${audio}
       <div style="display:flex;gap:8px;margin-top:10px;align-items:flex-end;">
-        <textarea data-onote="${esc(f.id)}" rows="1" maxlength="2000" placeholder="Note to Jiyah..." style="flex:1;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:vertical;">${esc(f.owner_note||'')}</textarea>
+        <textarea data-onote="${esc(f.id)}" rows="1" maxlength="2000" placeholder="Note to the auditor..." style="flex:1;font:inherit;font-size:13px;border:1px solid var(--line);border-radius:8px;padding:7px 9px;resize:vertical;">${esc(f.owner_note||'')}</textarea>
         <button type="button" class="rc-btn ghost" data-onote-send="${esc(f.id)}">Send</button>
       </div>
     </div>`;
@@ -16962,7 +16916,7 @@ async function renderCallAudit(){
       ${tile('Script score', overallPct==null?'n/a':overallPct+'%', 'across '+(d.audited||0)+' graded '+((d.audited||0)===1?'call':'calls'), scoreColor(overallPct))}
       ${tile('Calls came in', String(v.counted||0), missing?missing+' day'+(missing===1?'':'s')+' not audited':'every day audited')}
       ${tile('Off script', String(v.off_script||0), offPct+'% of all calls', offColor)}
-      ${tile('Listen to these', String(flaggedN), flaggedN?'Jiyah asked you to hear':'all caught up', flaggedN?'var(--ink)':'var(--ch-accent)')}
+      ${tile('Listen to these', String(flaggedN), flaggedN?'the auditor asked you to hear':'all caught up', flaggedN?'var(--ink)':'var(--ch-accent)')}
     </div>
 
     <div class="rc-count">Listen to these</div>
@@ -17000,13 +16954,13 @@ async function renderCallAudit(){
 // purpose (unlike Audit/Performance, which follow the sidebar's current
 // business): a routing directory is only useful seen whole, not one row at a
 // time. api/admin.js callNumbers() enforces owner-only server-side.
-const NUMBER_FRIENDLY_FORWARD={ '+13032190118':'Joey', '+17207223653':'Heather', '+13374997817':'Andrew' }; // Heather's number updated 2026-09-18
+const NUMBER_FRIENDLY_FORWARD={};
 function friendlyForward(e164,name){
   if(name) return name;
   if(!e164) return 'Voicemail only';
   return NUMBER_FRIENDLY_FORWARD[e164] || 'Unknown contact';
 }
-// Three states, not two -- Andrew, 2026-09-22: red = not connected, yellow =
+// Three states, not two -- Owner, 2026-09-22: red = not connected, yellow =
 // connected but no one to answer (e.g. the LA number that's live with no
 // forward_to set yet), green = connected and someone will pick up.
 // "Connected" means Twilio itself has the number, not just that our own CRM
@@ -17148,7 +17102,7 @@ function aiVoiceBadge(status){
 // scoping server-side off her own token; this just renders it.
 // Separate range state from _cauRange so switching one doesn't jump the other.
 // Her own picker is just 7/30 -- Today/Yesterday come from CAU_RANGES too but
-// aren't offered here; Andrew asked for those two only.
+// aren't offered here; Owner asked for those two only.
 const MP_RANGES={ '7':CAU_RANGES['7'], '30':CAU_RANGES['30'] };
 // This matches the rolling 7-day conversion number on the secretary dashboard.
 let _mpRange='7';
@@ -17697,7 +17651,7 @@ async function renderCalls(opts){
 // it stamps every notification in Central regardless of where the call came in,
 // so a Denver voicemail would otherwise read an hour late and someone would
 // call back thinking they had more time than they do.
-const CALL_TZ={ Denver:'Asia/Manila', Houston:'America/Chicago', Austin:'America/Chicago', 'Los Angeles':'America/Los_Angeles' };
+const CALL_TZ={ Denver:'Asia/Manila', Houston:'Asia/Manila', Austin:'Asia/Manila', 'Los Angeles':'Asia/Manila' };
 function callWhen(r){
   const tz=CALL_TZ[r.market]||'Asia/Manila';
   try{
@@ -17854,16 +17808,7 @@ function txBrief(r){
   return parts.length?`<div style="font-size:13px;color:#374151;margin-top:6px;line-height:1.45;">${esc(parts.join(' · '))}</div>`:'';
 }
 // "ZIP 80134" -> "Denver (80134)" (owner 2026-09-28): metro from the zip.
-function zipMetro(z){
-  z=String(z||'');
-  if(/^8[01]/.test(z)) return 'Denver';
-  if(/^78[67]/.test(z)) return 'Austin';
-  if(/^77/.test(z)) return 'Houston';
-  if(/^78[12]/.test(z)) return 'San Antonio';
-  if(/^85/.test(z)) return 'Phoenix';
-  if(/^9[01]/.test(z)) return 'Los Angeles';
-  return '';
-}
+function zipMetro(z){ z=String(z||''); if(/^16(3|4)/.test(z)) return 'BGC'; if(/^12/.test(z)) return 'Makati'; return 'Manila'; }
 function txSumHtml(sum, r){
   let items=(sum.items||[]).filter(i=>i.kind!=='place');   // location shows under Contact information only
   const qe=r&&r.history&&r.history.last_estimate;
@@ -18514,7 +18459,7 @@ function paintCalls(){
     ...(_callsPeriodData.handled||[]).map(r=>({ ...r, _handled:true })),
   ].filter(r=> r.source==='twilio')
    .sort((a,b)=> a.occurred_at<b.occurred_at?1:-1);
-  const whoNames=role==='owner' ? [...new Set(['Andrew','Heather','Joey','Alex','Joe',...[...periodRows,...open].map(r=>r.routed_to_name).filter(Boolean)])].sort() : [];
+  const whoNames=role==='owner' ? [...new Set([...[...periodRows,...open].map(r=>r.routed_to_name).filter(Boolean)])].sort() : [];
   if(whoNames.length>1){
     if(_callsWho!=='all' && !whoNames.includes(_callsWho)) _callsWho='all';
     if(_callsWho!=='all'){
@@ -18916,7 +18861,7 @@ function topBannerBox(){
 // step can wait for the one before it. Once every step is done it shrinks to
 // a "✓ Done" line for the rest of that day. Call = the bridge call, from the
 // alert brand's line (call_start source 'red_alert'; number read server-side).
-const RA_TZ_ABBR={'America/Chicago':'CT','Asia/Manila':'MT','America/Los_Angeles':'PT','America/New_York':'ET','America/Phoenix':'AZ'};
+const RA_TZ_ABBR={'Asia/Manila':'CT','Asia/Manila':'PHT','Asia/Manila':'PT','Asia/Manila':'ET','Asia/Manila':'AZ'};
 function raPhone(p){ const x=String(p||''); return x.length===10?'('+x.slice(0,3)+') '+x.slice(3,6)+'-'+x.slice(6):x; }
 function raDayKey(ms,tz){ try{ return new Date(ms).toLocaleDateString('en-CA',{ timeZone:tz }); }catch(_){ return ''; } }
 // "7:42 PM" in the alert's zone; "Fri 1:00 PM" when it isn't today there.
@@ -18996,7 +18941,7 @@ function raMinGet(id){ try{ return localStorage.getItem('ra_min_'+id)==='1'; }ca
 function raMinSet(id,v){ try{ if(v) localStorage.setItem('ra_min_'+id,'1'); else localStorage.removeItem('ra_min_'+id); }catch(_){} }
 async function paintRedAlerts(force){
   // Owner + secretaries only: any other token would 401, and a 401 signs out.
-  // Banner is for the office only (owner 2026-10-09); Andrew manages them under Notes → Red alert.
+  // Banner is for the office only (owner 2026-10-09); Owner manages them under Notes → Red alert.
   if(!token || role!=='secretary' || offToday) return;
   if(_raBusy || (!force && Date.now()-_raAt<15000)) return;
   _raBusy=true; _raAt=Date.now();
@@ -19855,7 +19800,7 @@ let _rcPopCount=null, _rcPopCountAt=0;
 async function rcTimePop(){
   let el=document.getElementById('rcTimePop');
   const who=role==='secretary'&&['Joe','Alex'].includes(userName);
-  const p=new Intl.DateTimeFormat('en-PH',{timeZone:'America/Chicago',hourCycle:'h23',hour:'2-digit',minute:'2-digit'}).formatToParts(new Date());
+  const p=new Intl.DateTimeFormat('en-PH',{timeZone:'Asia/Manila',hourCycle:'h23',hour:'2-digit',minute:'2-digit'}).formatToParts(new Date());
   const hh=Number(p.find(x=>x.type==='hour').value), mm=Number(p.find(x=>x.type==='minute').value);
   // Owner 2026-10-04: with cards in Needs review the badge is always on and can't be hidden.
   if(!who||hh<11||hh>=16){ if(el) el.remove(); return; }
@@ -20001,11 +19946,11 @@ async function renderReviewCallReport(){
   view.innerHTML=`<div class="wrap ch-page">
     <div class="rc-head">
       <div><h2 class="rc-title">Review call activity</h2>
-        <div class="rc-sub">Every review call Joey logged, what the customer said, and whether anyone is being missed. Pulled straight from what she records on each card.</div>
+        <div class="rc-sub">Every review call logged, what the customer said, and whether anyone is being missed. Pulled straight from what she records on each card.</div>
       </div>
       <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <div class="rc-seg">${seg(7,'7 days')}${seg(14,'14 days')}${seg(30,'30 days')}</div>
-        <button class="rc-btn ghost" data-rcr-queue="1">Open Joey's queue</button>
+        <button class="rc-btn ghost" data-rcr-queue="1">Open the queue</button>
       </div>
     </div>
     ${tiles}
@@ -21384,7 +21329,7 @@ let pendingEstimateFallback=false;
 function estTimezone(e){
   const z=String(e&&e.customer_zip||'').trim();
   if(/^8[01]/.test(z)) return { tz:'Asia/Manila',  label:'Denver time'  };   // Colorado
-  if(/^7[78]/.test(z)) return { tz:'America/Chicago', label:'Houston time' };   // Houston 77xxx / Austin 78xxx
+  if(/^7[78]/.test(z)) return { tz:'Asia/Manila', label:'Manila time' };   // Houston 77xxx / Austin 78xxx
   return { tz:(current&&current.timezone)||'Asia/Manila', label:'' };
 }
 // Business name under the customer (owner 2026-10-25): from the row, else the business list, else the open business.
@@ -23273,7 +23218,7 @@ function paintGreeting(){
     // "Good afternoon <name>" header and the "Today is… It's currently…"
     // phrasing were dropped at the owner's request; he reads this many times
     // a day and wanted the facts, not the pleasantries.
-    (role==='secretary' ? '' : hasCallPerf && role!=='owner' ? (summarySentence ? `<div class="greet-line conv-summary">${summarySentence}</div>` : '') : `<div class="greet-line greet-main">${esc(dateStr)}. <b class="gm-big">${esc(timeStr)}</b> ${esc(greetCity(z))}. <b class="gm-big">${esc(new Date().toLocaleTimeString('en-PH',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit'}))}</b> Texas/Oklahoma. ${summarySentence}</div>`)+
+    (role==='secretary' ? '' : hasCallPerf && role!=='owner' ? (summarySentence ? `<div class="greet-line conv-summary">${summarySentence}</div>` : '') : `<div class="greet-line greet-main">${esc(dateStr)}. <b class="gm-big">${esc(timeStr)}</b> Manila. ${summarySentence}</div>`)+
     (role==='secretary' ? secCallActivityHtml(calls, z)+schedVoteHtml() : secretaryConversionHtml())+
     greetStatsHtml()+
     greetNoteHtml();
@@ -23445,6 +23390,7 @@ function dashClocksHtml(part){   // part 0 = Heather/Joey (Profit box), 1 = Alex
     api('va_board',{ params:{ lite:'1' }, timeoutMs:30000 }).then(d=>{ _dashVa=d||null; _dashVaAt=Date.now(); }).catch(()=>{ _dashVaAt=Date.now(); }).finally(()=>{ _dashVaBusy=false; if(section==='schedule') paintGreeting(); });
   }
   const ppl=(_dashVa&&_dashVa.people)||[];
+  if(!ppl.length) return '';
   const half=a=>part==null?a:a.slice(part*2,part*2+2);
   const cells=ppl.length?half(ppl).map(p=>staffClockHtml({ ...vaClockModel(p), state:'', lab:'' })).join('')
     :half(VA_ORDER_UI).map(n=>staffClockHtml({ name:n, state:'', big:'…', col:'#6b7280', pct:0, bar:'#e5e7eb' })).join('');
@@ -23497,7 +23443,7 @@ function secCallActivityHtml(calls, z){
   return `<div class="sca">
     <div class="sca-row">
       <div class="sca-card sca-rev" style="flex:1 1 0;"><b class="sca-n">${calls||0}</b><span class="sca-rl">Review calls to make</span>${calls?'<button type="button" class="sca-btn" data-gocalls="1">View review calls →</button>':''}</div>
-      <div class="sca-card sca-tz" style="flex:1 1 0;">${[['Los Angeles','America/Los_Angeles'],['Denver','Asia/Manila'],['Texas/OK','America/Chicago']].map(([l,t])=>`<div><small>${l}</small><b>${esc(now.toLocaleTimeString('en-PH',{timeZone:t,hour:'numeric',minute:'2-digit'}))}</b></div>`).join('')}</div>
+      <div class="sca-card sca-tz" style="flex:1 1 0;">${[['Manila','Asia/Manila']].map(([l,t])=>`<div><small>${l}</small><b>${esc(now.toLocaleTimeString('en-PH',{timeZone:t,hour:'numeric',minute:'2-digit'}))}</b></div>`).join('')}</div>
     </div>
         <div class="sca-row sca-two">
       <div class="sca-card"><div class="sca-ct">Booking conversion · 7 days</div><div class="sca-big" style="color:#60a5fa;">${conv==null?'–':conv.toFixed(1)+'%'}</div>
@@ -23673,7 +23619,7 @@ function pfMarketLabel(k){
   const [slug,area]=String(k).split('|');
   if(slug==='austin') return 'Astraea';
   if(slug==='handy-andy') return area?('HA '+area):'HA';
-  if(slug==='doms'){ if(area==='Oklahoma City') return 'OKC'; if(area==='Tulsa') return 'Tulsa'; return area?("Dom's "+area):"Dom's"; }
+  
   return bizShort(slug);
 }
 function pfSplitHtml(byMarket){
@@ -23805,7 +23751,7 @@ function ndpChartHtml(cached){
 // the headline, a true 0-100 bar glows the same hue as the number (red at or
 // below 25%, ramping through amber near 40%, full green at 50% and flat
 // above -- 50% and 90% read the same). Replaces the old
-// semicircular needle gauge per Andrew's approved spec (conversion-bar-spec.pdf).
+// semicircular needle gauge per Owner's approved spec (conversion-bar-spec.pdf).
 // Reuses my_call_performance's own booked/conversion math (see renderGreeting
 // above) so this can never disagree with the My Call Performance screen or
 // the owner's cross-staff ranking about the same week's numbers.
@@ -25643,9 +25589,9 @@ function cwAfterHoursFeeFor(slotKey, dateStr, draft=callWiz){
 function cwScheduleTimezone(draft=callWiz){
   if(draft.scheduleTimezone && draft._scheduleTimezoneZip===draft.zip) return draft.scheduleTimezone;
   const area=String(draft.areaName||'').toLowerCase(), zip=String(draft.zip||'');
-  if(/austin|houston/.test(area) || /^7[78]/.test(zip)) return 'America/Chicago';
+  if(/austin|houston/.test(area) || /^7[78]/.test(zip)) return 'Asia/Manila';
   if(/denver/.test(area) || /^8[01]/.test(zip)) return 'Asia/Manila';
-  if(/los angeles/.test(area) || /^9[01]/.test(zip)) return 'America/Los_Angeles';
+  if(/los angeles/.test(area) || /^9[01]/.test(zip)) return 'Asia/Manila';
   return (cwBusiness(draft)||{}).timezone||'Asia/Manila';
 }
 function cwScheduleToday(draft=callWiz, now=new Date()){
@@ -25654,7 +25600,7 @@ function cwScheduleToday(draft=callWiz, now=new Date()){
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 function cwScheduleZoneLabel(draft=callWiz){
-  return ({'Asia/Manila':'Mountain time','America/Chicago':'Central time','America/Los_Angeles':'Pacific time','America/New_York':'Eastern time'})[cwScheduleTimezone(draft)]||'the customer’s local time';
+  return ({'Asia/Manila':'Manila time','Asia/Manila':'Central time','Asia/Manila':'Pacific time','Asia/Manila':'Eastern time'})[cwScheduleTimezone(draft)]||'the customer’s local time';
 }
 // Availability must ask for the same pair the booking will require. A 98-inch
 // TV always needs two people; the paid "2 technicians" answer on a smaller TV
@@ -25791,7 +25737,7 @@ async function renderCallWiz(){
     }
     const line=`${cn?cn+', your':'Your'} appointment has been booked${when?' for '+when:''}. You will receive a confirmation text here shortly${draft._doneEmail?' and an email with more information about the appointment':''}. ${tn||'Your technician'} will send an on-the-way text when ${tn?'he is':'they are'} en route to your place. Did you have any other questions?`;
     body.innerHTML=`${callWizScript(line)}
-      <button type="button" class="btn ghost" style="width:100%;margin-bottom:8px;" id="cwDoneAsk">🤖 Ask Andrew</button>
+      <button type="button" class="btn ghost" style="width:100%;margin-bottom:8px;" id="cwDoneAsk">🤖 Ask Owner</button>
       <button type="button" class="btn" style="width:100%;" id="cwDoneClose">Done — close</button>`;
     document.getElementById('cwDoneAsk').onclick=()=>window.open('/admin.html?nav=askandrew','_blank','noopener');
     document.getElementById('cwDoneClose').onclick=()=>closeCallWiz({resolved:true},draft);
@@ -27097,8 +27043,8 @@ async function renderCallWiz(){
 document.getElementById('nbSendEstimate').addEventListener('click', toggleNbUpsellPanel);
 // The phone opt-in script (A2P 10DLC): staff read it word for word and tick
 // the text box only on a spoken yes. For TidyHaus it matches
-// ihandyandy.com/sms-opt-in exactly; other brands hear the same script under
-// their own name, without the links (only ihandyandy.com hosts SMS Terms).
+// tidyhausph.com/sms-opt-in exactly; other brands hear the same script under
+// their own name, without the links (only tidyhausph.com hosts SMS Terms).
 // Owner rule (2026-09-19): every customer with a phone number gets job texts.
 // The box only exists to switch them OFF for someone who asks; the server
 // treats the phone number itself as the opt-in regardless.
@@ -29361,7 +29307,7 @@ async function sendEstimateFromBooking(upsells){
     // This used to toast plain success — the office believed the customer had
     // the estimate when nobody ever received anything.
     if(res&&res.held){
-      toast("Saved · needs Andrew's OK");
+      toast("Saved · needs Owner's OK");
       document.getElementById('modal').classList.add('hidden');
     } else if(res&&res.warning){
       alert('⚠ Estimate saved, but it was NOT delivered: '+res.warning+'\n\nSend it from the Estimates tab once the issue is fixed.');
@@ -29516,7 +29462,7 @@ function renderNbUpsChips(){
     const margin=c.price-c.tech;
     const marginTxt=margin<0?`-₱${Math.abs(margin)}`:`₱${margin}`;
     const badge=c.badge?`<span class="badge">${esc(c.badge)}</span>`:'';
-    // Owner (Andrew) only — secretaries (Heather/Joey) never see tech pay/margin.
+    // Owner (Owner) only — secretaries (Heather/Joey) never see tech pay/margin.
     const marginLine=role==='owner'?`<span class="margin">tech ₱${c.tech} · margin ${marginTxt}</span>`:'';
     return `<button type="button" class="nb-ups-chip${on?' on':''}" data-uid="${c.id}">
       <span class="box">${on?'✓':''}</span>
@@ -29914,9 +29860,9 @@ function embedAuditorBoot(q){
 </script>
 <script src="/onway.js?v=1"></script>
 <script>
-// Texas/Oklahoma (Central) clock for owner + secretaries (owner 2026-10-21).
+// Manila (Central) clock for owner + secretaries (owner 2026-10-21).
 (function(){ function t(){ try{ var el=document.getElementById('ctClock'); if(!el) return; var r=(typeof role!=='undefined')?role:''; el.style.display='none';
-  document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'America/Chicago',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }
+  document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }
   t(); setInterval(t,15000); })();
 </script>
 </body>

@@ -395,7 +395,7 @@ async function websiteLeadSync(req, res) {
   // Text Joey (Dom's secretary) — the owner asked for these to go to him, not
   // to the TidyHaus line. AWAITED, never fire-and-forget: this handler's
   // response would otherwise freeze the lambda mid-send (see api/estimate.js).
-  const base = (process.env.PUBLIC_URL || 'https://handy-andy-booking.vercel.app').replace(/\/$/, '');
+  const base = (process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app').replace(/\/$/, '');
   const link = `${base}/admin.html?estimate=${encodeURIComponent(ins.data.id)}`;
   const gist = message.replace(/\s+/g, ' ').trim();
   // Only text for a lead that actually just came in. The mailbox is re-scanned
@@ -1201,9 +1201,9 @@ export default async function handler(req, res) {
         { label: "Customer · tech's on the way",
           text: enRouteMessage('Zach', 'TidyHaus', 15, 'handy-andy') },
         { label: 'Customer · review request',
-          text: reviewRequestSms({ slug: 'handy-andy', name: 'TidyHaus', token: 'demo', clickUrl: 'https://handy-andy-booking.vercel.app/api/book?action=review_click&token=demo&ch=sms' }) },
+          text: reviewRequestSms({ slug: 'handy-andy', name: 'TidyHaus', token: 'demo', clickUrl: 'https://tidyhaus-crm.vercel.app/api/book?action=review_click&token=demo&ch=sms' }) },
         { label: 'Tech · new job assigned',
-          text: 'You got a job! Wed, Jul 8, 2:00 PM. Address & details in the app: https://handy-andy-booking.vercel.app/tech.html' },
+          text: 'You got a job! Wed, Jul 8, 2:00 PM. Address & details in the app: https://tidyhaus-crm.vercel.app/tech.html' },
         { label: 'Tech · job canceled',
           text: "❌ Job canceled: Wed, Jul 8 2:00 PM (Jane Doe). No action needed — your calendar's updated." },
       ];

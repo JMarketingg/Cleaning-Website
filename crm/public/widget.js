@@ -7,7 +7,7 @@
   // Capture this script tag NOW (currentScript is null inside later callbacks)
   const SELF_SCRIPT = document.currentScript;
 
-  const API_BASE    = 'https://handy-andy-booking.vercel.app/api';
+  const API_BASE    = 'https://tidyhaus-crm.vercel.app/api';
   const TARGET_ID   = 'ha-widget';
   const DENVER_ID   = '1685582903241x973573877706522600'; // Only Denver requires 2 techs for 98"+ TVs
   // Which business this embed books for. <script src="widget.js" data-business="mile-high">
@@ -76,7 +76,7 @@
   let STRIPE_KEY = STRIPE_KEY_FALLBACK;
   // Every business needs its OWN thank-you page — this was hardcoded to Handy
   // Andy's URL regardless of BUSINESS, so a real Mile High customer who just
-  // booked and paid was redirected to ihandyandy.com instead of Mile High's
+  // booked and paid was redirected to tidyhausph.com instead of Mile High's
   // own site (real incident, 2026-07-30).
   // mile-high and precision have NO thank-you page on their own domains
   // (confirmed live 2026-08-20: /thankyou/ and /thank-you both return a genuine
@@ -89,7 +89,7 @@
   // its own domain the moment that site grows a real page.
   const THANKYOU_URL = {
     'neverfailstvmounting': window.location.origin + '/thank-you',
-    'handy-andy': 'https://www.ihandyandy.com/thankyou/',
+    'handy-andy': 'https://tidyhausph.com/thankyou/',
     // 'doms' was MISSING from this map entirely (not even a stale URL — no
     // key at all), so every Dom's customer who completed a booking silently
     // fell through to the `||` default below and landed on TidyHaus's own
@@ -97,45 +97,45 @@
     // a "real incident" for Mile High, still live here, just never noticed
     // because nothing checks this map against what each site actually has.
     // Dom's own page at /thank-you/ is real and live (confirmed 200).
-    'doms':       'https://www.domstvmounting.com/thank-you/',
+    'doms':       'https://tidyhausph.com/thank-you/',
     // Mile High now has its own real /thank-you page: the Next.js site went
-    // live on Vercel 2026-08-30 and milehightvmounting.com moved off
+    // live on Vercel 2026-08-30 and tidyhausph.com moved off
     // landingsite.ai to Vercel nameservers the same day (confirmed serving).
-    'mile-high':  'https://milehightvmounting.com/thank-you',
-    'austin':     'https://www.austinmounting.com/thank-you',
-    'precision':  'https://handy-andy-booking.vercel.app/thank-you.html?b=precision',
+    'mile-high':  'https://tidyhausph.com/thank-you',
+    'austin':     'https://tidyhausph.com/thank-you',
+    'precision':  'https://tidyhaus-crm.vercel.app/thank-you.html?b=precision',
     // Real /thank-you page confirmed in the Next.js site (Austin template).
-    // tvmountingdenver.com DNS has moved to Vercel (confirmed live 2026-08-20),
+    // tidyhausph.com DNS has moved to Vercel (confirmed live 2026-08-20),
     // so this points at the real domain now, not the .vercel.app fallback.
-    'tvmountingdenver': 'https://tvmountingdenver.com/thank-you',
-    'tvmountinglosangeles': 'https://tvmountinglosangeles.com/thank-you',
-    // A1 Home Cleaning (DFW): hosted brand-aware fallback until a1tvmountingpros.com
+    'tvmountingdenver': 'https://tidyhausph.com/thank-you',
+    'tvmountinglosangeles': 'https://tidyhausph.com/thank-you',
+    // A1 Home Cleaning (DFW): hosted brand-aware fallback until tidyhausph.com
     // transfers in and is attached to its Vercel project — flip to
-    // https://a1tvmountingpros.com/thank-you then.
-    'a1tvmounting': 'https://a1tvmounting.com/thank-you',
+    // https://tidyhausph.com/thank-you then.
+    'a1tvmounting': 'https://tidyhausph.com/thank-you',
     // Houston lead-gen quad: hosted brand-aware fallback until each domain is
     // connected to its Vercel project — flip to https://<domain>/thank-you then.
-    'houstonmounting':       'https://handy-andy-booking.vercel.app/thank-you.html?b=houstonmounting',
-    'houstontvinstallation': 'https://handy-andy-booking.vercel.app/thank-you.html?b=houstontvinstallation',
-    'tvhanginghouston':      'https://handy-andy-booking.vercel.app/thank-you.html?b=tvhanginghouston',
-    'htvmounting':           'https://handy-andy-booking.vercel.app/thank-you.html?b=htvmounting',
+    'houstonmounting':       'https://tidyhaus-crm.vercel.app/thank-you.html?b=houstonmounting',
+    'houstontvinstallation': 'https://tidyhaus-crm.vercel.app/thank-you.html?b=houstontvinstallation',
+    'tvhanginghouston':      'https://tidyhaus-crm.vercel.app/thank-you.html?b=tvhanginghouston',
+    'htvmounting':           'https://tidyhaus-crm.vercel.app/thank-you.html?b=htvmounting',
     // Austin lead-gen quad: same hosted brand-aware fallback as the Houston
     // quad until each domain has a confirmed live /thank-you page — flip to
     // https://<domain>/thank-you then.
-    'atxmountpros':       'https://handy-andy-booking.vercel.app/thank-you.html?b=atxmountpros',
-    'atxtvmount':         'https://handy-andy-booking.vercel.app/thank-you.html?b=atxtvmount',
-    'austinmountingpros': 'https://handy-andy-booking.vercel.app/thank-you.html?b=austinmountingpros',
-    'austintvinstall':    'https://handy-andy-booking.vercel.app/thank-you.html?b=austintvinstall',
-    // H-Town Home Cleaning (houstontvmountingpros.com): domain is now live on
+    'atxmountpros':       'https://tidyhaus-crm.vercel.app/thank-you.html?b=atxmountpros',
+    'atxtvmount':         'https://tidyhaus-crm.vercel.app/thank-you.html?b=atxtvmount',
+    'austinmountingpros': 'https://tidyhaus-crm.vercel.app/thank-you.html?b=austinmountingpros',
+    'austintvinstall':    'https://tidyhaus-crm.vercel.app/thank-you.html?b=austintvinstall',
+    // H-Town Home Cleaning (tidyhausph.com): domain is now live on
     // Vercel and the site ships its own /thank-you page, so send bookings
     // there instead of the hosted CRM fallback.
-    'houstontvmountingpros': 'https://houstontvmountingpros.com/thank-you',
-    'millertime': 'https://www.millertimetvmounting.com/thank-you',
-    // PerfectView (houstonperfectviewtvmounting.com): hosted fallback until
+    'houstontvmountingpros': 'https://tidyhausph.com/thank-you',
+    'millertime': 'https://tidyhausph.com/thank-you',
+    // PerfectView (tidyhausph.com): hosted fallback until
     // the domain is attached to its Vercel project, then flip to
-    // https://houstonperfectviewtvmounting.com/thank-you (the site ships it).
-    'houstonperfectviewtvmounting': 'https://houstonperfectviewtvmounting.com/thank-you',
-  }[BUSINESS] || 'https://www.ihandyandy.com/thankyou/';
+    // https://tidyhausph.com/thank-you (the site ships it).
+    'houstonperfectviewtvmounting': 'https://tidyhausph.com/thank-you',
+  }[BUSINESS] || 'https://tidyhausph.com/thankyou/';
   // Zip handed in by the host page (its own hero "check availability" box):
   // <script data-zip="78704"> or a ?zip= query param on the page URL. When a
   // valid 5-digit zip is present the widget runs the area check itself on
@@ -144,7 +144,7 @@
   const PREFILL_ZIP = ((SELF_SCRIPT && SELF_SCRIPT.dataset && SELF_SCRIPT.dataset.zip)
     || new URLSearchParams(location.search).get('zip') || '').replace(/\D/g, '').slice(0, 5);
   // Same idea, one step further: a marketing-page price calculator (e.g.
-  // tvmountingdenver.com's hero) can hand off its own TV size / quantity /
+  // tidyhausph.com's hero) can hand off its own TV size / quantity /
   // bracket picks via ?tvsize=&tvqty=&bracket= so the customer never re-picks
   // what they already chose. Read once here; APPLIED later (after the zip
   // check resolves serviceConfig, see "Prefill from marketing page" below)
@@ -161,8 +161,8 @@
   // live embeds are visually unchanged; only 'austin' resolves to T_LIGHT.
   const T_DARK  = { bg:'#18181c', panel:'#27272a', panel2:'#2d2d34', border:'#3f3f46', text:'#fff', muted:'#71717a', muted2:'#a0a0ab', muted3:'#52525b', footerbg:'#0e0e10', shadow:'rgba(0,0,0,0.5)', dropText:'#e4e4e7', ok:'#4ade80', subtle:'#d4d4d8', selBg:'rgba(255,255,255,0.06)', inset:'#1a1a1e', slot:'#1f1f23', gdsBg:'linear-gradient(135deg,#1f2937,#111827)', gdsLine:'#c7ccd4', dayOff:'#3f3f46' };
   const T_LIGHT = { bg:'#ffffff', panel:'#f4f4f6', panel2:'#e4e4e8', border:'#d8d8dd', text:'#18181c', muted:'#6b6b74', muted2:'#52525b', muted3:'#a4a4ab', footerbg:'#f7f7f9', shadow:'rgba(0,0,0,0.1)', dropText:'#18181c', ok:'#16a34a', subtle:'#52525b', selBg:'rgba(0,0,0,0.05)', inset:'#f4f4f6', slot:'#f4f4f6', gdsBg:'linear-gradient(135deg,#f7f9fc,#eef2f8)', gdsLine:'#52525b', dayOff:'#9a9aa2' };
-  // Precision's site (precisiontvinstallation.com) and Home Cleaning Denver
-  // (tvmountingdenver.com, white "Concierge" design) are white too, so they
+  // Precision's site (tidyhausph.com) and Home Cleaning Denver
+  // (tidyhausph.com, white "Concierge" design) are white too, so they
   // take the same light card. The Houston lead-gen quad's sites are
   // light/white builds like Austin's and Precision's, so they take the light
   // card too. TidyHaus / Mile High / Doms stay dark, unchanged.
@@ -252,7 +252,7 @@
     } catch (e) {}
     return 'direct';
   }
-  // Google ad click IDs saved by ihandyandy.com on landing (localStorage
+  // Google ad click IDs saved by tidyhausph.com on landing (localStorage
   // 'ha_click'); kept 90 days so bookings can be uploaded as offline conversions.
   const AD_CLICK = (function () {
     try {
@@ -306,7 +306,7 @@
   // LANDING_PAGE above falls back to "/book" when there is no usable referrer,
   // which says nothing; SOURCE never does. In order:
   //   1. same-origin referrer page (not /book or /thankyou) -- basis 'referrer'
-  //   2. the last page the ihandyandy.com site tracker saw in this browser,
+  //   2. the last page the tidyhausph.com site tracker saw in this browser,
   //      localStorage 'ha_last_page' (written in ihandyandy-site
   //      app/layout.tsx), if under 24h old -- basis 'last_page'
   //   3. null
@@ -358,7 +358,7 @@
     if (NO_TRACK) return;
     try {
       const loc = resolveLocation();
-      await fetch('https://handy-andy-booking.vercel.app/api/log-event', {
+      await fetch('https://tidyhaus-crm.vercel.app/api/log-event', {
         method: 'POST',
         keepalive: true,
         headers: { 'Content-Type': 'application/json' },
@@ -1345,9 +1345,9 @@
   // ─── Bracket example photos (TidyHaus only) ───────────────────────────────
   // Map of exact option label -> photo list. Add Flat / Tilting the same way.
   const BRACKET_EXAMPLES = BUSINESS==='handy-andy' ? {
-    'Flat':[1,2,3,4,5,6].map(n=>'https://handy-andy-booking.vercel.app/bracket-examples/flat/'+n+'.jpg'),
-    'Tilting (recommended)':[1,2,3,4,5,6,7,8].map(n=>'https://handy-andy-booking.vercel.app/bracket-examples/tilting/'+n+'.jpg'),
-    'Full Motion':[1,2,3,4,5,6,7,8].map(n=>'https://handy-andy-booking.vercel.app/bracket-examples/full-motion/'+n+'.jpg')
+    'Flat':[1,2,3,4,5,6].map(n=>'https://tidyhaus-crm.vercel.app/bracket-examples/flat/'+n+'.jpg'),
+    'Tilting (recommended)':[1,2,3,4,5,6,7,8].map(n=>'https://tidyhaus-crm.vercel.app/bracket-examples/tilting/'+n+'.jpg'),
+    'Full Motion':[1,2,3,4,5,6,7,8].map(n=>'https://tidyhaus-crm.vercel.app/bracket-examples/full-motion/'+n+'.jpg')
   } : {};
   function bracketExamplesFor(label){ const l=BRACKET_EXAMPLES[label]; return l&&l.length?l:null; }
   function showBracketExamples(label){
@@ -1585,7 +1585,7 @@
   // customer who has never heard the word "drywall" can just match their wall
   // to a picture. "That's my wall" selects that surface (topping up to however
   // many TVs still need one) and returns to the step.
-  const SURFACE_IMG_BASE='https://handy-andy-booking.vercel.app/';
+  const SURFACE_IMG_BASE='https://tidyhaus-crm.vercel.app/';
   function showSurfaceHelp(sectionId,ids){
     const ov=document.createElement('div');
     ov.id='ha-surface-help-ov';

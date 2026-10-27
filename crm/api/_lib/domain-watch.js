@@ -158,7 +158,7 @@ export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, di
   // makes the other two repeat themselves every day.
   let texted = 0, emailed = 0;
   const phone = process.env.OWNER_PHONE_NUMBER;
-  const ownerEmail = process.env.OWNER_EMAIL || 'andrewtrading04@gmail.com';
+  const ownerEmail = process.env.OWNER_EMAIL || 'owner@example.invalid';
   const markDone = (a) => db.from('domain_watch').update({ notified_status: a.status, notified_at: new Date().toISOString() }).eq('id', a.id);
   const emailWrap = (title, inner) => `<div style="font-family:Arial,sans-serif;font-size:16px;line-height:1.5"><h2 style="margin:0 0 8px">${title}</h2>${inner}<p style="color:#666;font-size:13px">From your Domain watch list in the CRM (Other &gt; Domain watch).</p></div>`;
 

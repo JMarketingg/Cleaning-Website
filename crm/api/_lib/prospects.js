@@ -12,7 +12,7 @@
 export const PROSPECT_RATE = 0.10;
 // Who may use Prospects besides the owner -- only once the owner flips the
 // switch (prospect_settings.access.enabled; OFF as of 2026-10-08).
-export const PROSPECT_USERS = ['Joe', 'Alex', 'Joey', 'Heather']; // Joey + Heather added by owner 2026-10-23
+export const PROSPECT_USERS = []; // Joey + Heather added by owner 2026-10-23
 const STATUSES = ['new', 'calling', 'callback', 'interested', 'quote', 'booked', 'won', 'not_interested', 'dnc'];
 export const OUTCOMES = ['no_answer', 'voicemail', 'gatekeeper', 'call_back', 'interested', 'quote', 'booked', 'not_interested', 'dnc', 'note'];
 const DEAD = ['no_answer', 'voicemail', 'gatekeeper'];
@@ -22,7 +22,7 @@ const TALKED = ['call_back', 'interested', 'quote', 'booked'];
 const PUSH_WIN_DAYS = 7;
 const OUTCOME_STATUS = { no_answer: 'calling', voicemail: 'calling', gatekeeper: 'calling', call_back: 'callback', interested: 'interested', quote: 'quote', booked: 'booked', not_interested: 'not_interested', dnc: 'dnc' };
 export const BUSINESS_TYPES = ['Senior living', 'Restaurant', 'Bar', 'Gym', 'Office', 'Hotel', 'Apartments', 'School', 'Church', 'Car dealer', 'Clinic', 'Other'];
-export const CITIES = ['Denver', 'Houston', 'Austin', 'Dallas', 'OKC', 'Tulsa'];
+export const CITIES = ['Manila'];
 const LOCK_DAYS = 30, SNOOZE_DAYS = 90, PARK_AFTER = 5;
 export const QUOTE_OK_OVER = 2000;
 const DAY = 864e5;
@@ -41,11 +41,11 @@ const METROS = [
   { key: 'tulsa', zips: [[740, 741]], re: /tulsa|broken arrow|owasso|jenks|bixby|sand springs/ },
 ];
 const STATE_TZ = {
-  'America/Chicago': 'TX OK KS NE MO IA MN WI IL AR LA MS AL TN ND SD',
+  'Asia/Manila': 'TX OK KS NE MO IA MN WI IL AR LA MS AL TN ND SD',
   'Asia/Manila': 'CO NM UT WY MT ID',
-  'America/Phoenix': 'AZ',
-  'America/Los_Angeles': 'CA NV OR WA',
-  'America/New_York': 'FL GA SC NC VA WV MD DE PA NJ NY CT RI MA VT NH ME OH MI IN KY DC',
+  'Asia/Manila': 'AZ',
+  'Asia/Manila': 'CA NV OR WA',
+  'Asia/Manila': 'FL GA SC NC VA WV MD DE PA NJ NY CT RI MA VT NH ME OH MI IN KY DC',
 };
 const STATE_NAMES = { texas: 'TX', oklahoma: 'OK', colorado: 'CO', arizona: 'AZ', california: 'CA', 'new mexico': 'NM', utah: 'UT', nevada: 'NV', florida: 'FL' };
 // ZIP3 -> zone (overrides state: El Paso is Mountain, etc.).
@@ -53,15 +53,15 @@ function tzForZip(z) {
   const n = parseInt(String(z || '').slice(0, 3), 10);
   if (!(n >= 1)) return null;
   if ((n >= 798 && n <= 799) || n === 885) return 'Asia/Manila'; // El Paso
-  if (n >= 750 && n <= 797) return 'America/Chicago'; // TX
-  if (n >= 730 && n <= 749) return 'America/Chicago'; // OK
+  if (n >= 750 && n <= 797) return 'Asia/Manila'; // TX
+  if (n >= 730 && n <= 749) return 'Asia/Manila'; // OK
   if (n >= 800 && n <= 816) return 'Asia/Manila'; // CO
-  if (n >= 850 && n <= 865) return 'America/Phoenix'; // AZ (no DST)
+  if (n >= 850 && n <= 865) return 'Asia/Manila'; // AZ (no DST)
   if (n >= 870 && n <= 884) return 'Asia/Manila'; // NM
   if (n >= 840 && n <= 847) return 'Asia/Manila'; // UT
-  if (n >= 889 && n <= 898) return 'America/Los_Angeles'; // NV
-  if (n >= 900 && n <= 961) return 'America/Los_Angeles'; // CA
-  if (n >= 970 && n <= 994) return 'America/Los_Angeles'; // OR/WA
+  if (n >= 889 && n <= 898) return 'Asia/Manila'; // NV
+  if (n >= 900 && n <= 961) return 'Asia/Manila'; // CA
+  if (n >= 970 && n <= 994) return 'Asia/Manila'; // OR/WA
   return null;
 }
 // Pull ZIP + state out of free text ("..., Houston, TX 77005").
@@ -85,7 +85,7 @@ export function metroFor(p) {
   const m = METROS.find(m => m.re.test(text));
   return m ? m.key : null;
 }
-const METRO_TZ = { houston: 'America/Chicago', austin: 'America/Chicago', 'san antonio': 'America/Chicago', dallas: 'America/Chicago', okc: 'America/Chicago', tulsa: 'America/Chicago', denver: 'Asia/Manila', phoenix: 'America/Phoenix', 'los angeles': 'America/Los_Angeles' };
+const METRO_TZ = { houston: 'Asia/Manila', austin: 'Asia/Manila', 'san antonio': 'Asia/Manila', dallas: 'Asia/Manila', okc: 'Asia/Manila', tulsa: 'Asia/Manila', denver: 'Asia/Manila', phoenix: 'Asia/Manila', 'los angeles': 'Asia/Manila' };
 // Prospect -> IANA zone: ZIP, then state, then known metro by city name.
 export function tzForProspect(p) {
   const { zip, state } = placeOf(p);
@@ -93,7 +93,7 @@ export function tzForProspect(p) {
   if (z) return z;
   if (state) for (const [tz, list] of Object.entries(STATE_TZ)) if (list.split(' ').includes(state)) return tz;
   const m = metroFor({ city: p.city, address: p.address });
-  return (m && METRO_TZ[m]) || 'America/Chicago';
+  return (m && METRO_TZ[m]) || 'Asia/Manila';
 }
 export function tzForCity(city) { return tzForProspect({ city }); }
 export function localTime(tz, at = new Date()) {
@@ -129,7 +129,7 @@ async function loadRefs(db) {
 export function lineForMetro(lines, metro) {
   if (!metro) return null;
   // Owner picks (2026-10-08): Houston calls from the main HA Houston line.
-  const want = { houston: '2816265853' }[metro];
+  const want = { houston: '0000000000' }[metro];
   const pref = want && (lines || []).find(l => l.forward_to && phoneDigits(l.phone) === want);
   if (pref) return pref;
   const words = metro === 'denver' ? ['denver'] : metro === 'houston' ? ['houston'] : metro === 'dallas' ? ['dallas', 'dfw', 'fort worth'] : [metro];
@@ -137,7 +137,7 @@ export function lineForMetro(lines, metro) {
 }
 // Mon-Fri 9am-5pm in that zone.
 export function inCallHours(tz, at = new Date()) {
-  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'America/Chicago', weekday: 'short', hour: 'numeric', hourCycle: 'h23' })
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'Asia/Manila', weekday: 'short', hour: 'numeric', hourCycle: 'h23' })
     .formatToParts(at).map(p => [p.type, p.value]));
   const h = Number(parts.hour);
   return !['Sat', 'Sun'].includes(parts.weekday) && h >= 9 && h < 17;
@@ -239,13 +239,13 @@ export async function prospectCallTarget(db, auth, prospectId) {
 }
 
 // Quote hook (estimate_create with prospect_id). Over $2,000 from anyone but
-// the owner: saved, NOT sent, "Needs Andrew's OK".
+// the owner: saved, NOT sent, "Needs Owner's OK".
 export async function prospectQuoteLink(db, auth, prospectId, estimateId, total) {
   const held = total > QUOTE_OK_OVER && auth.role !== 'owner';
   const now = new Date().toISOString();
   const { error } = await db.from('prospects').update({ quote_estimate_id: estimateId, quote_total: total, quote_status: held ? 'needs_ok' : 'sent', status: 'quote', last_activity_at: now, updated_at: now }).eq('id', prospectId).is('deleted_at', null);
   if (error) throw error;
-  await db.from('prospect_calls').insert({ prospect_id: prospectId, caller: auth.name || 'Owner', outcome: 'note', note: `Quote $${Math.round(total)}${held ? " · needs Andrew's OK" : ''}` });
+  await db.from('prospect_calls').insert({ prospect_id: prospectId, caller: auth.name || 'Owner', outcome: 'note', note: `Quote $${Math.round(total)}${held ? " · needs Owner's OK" : ''}` });
   return held;
 }
 // Send gate for estimate_send_sms / estimate_send_email.

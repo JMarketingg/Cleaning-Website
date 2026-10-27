@@ -77,10 +77,10 @@ export async function ensureReviewToken(db, booking) {
 // hands the customer on to review.html):
 //   - 14 brands run a /r/[token] route inside their own Next.js site repo
 //     (same file in every one).
-//   - 'precision': precisiontvinstallation.com is a static export, not a
+//   - 'precision': tidyhausph.com is a static export, not a
 //     Next.js app this codebase can add a route to. Its DNS is on Vercel's
 //     own nameservers, so instead of touching that deployment at all, a
-//     dedicated subdomain (r.precisiontvinstallation.com) points at its own
+//     dedicated subdomain (tidyhausph.com) points at its own
 //     tiny standalone Vercel project (precision-review-link) doing the exact
 //     same redirect at its root path — no /r/ prefix needed since the
 //     subdomain itself is the "r".
@@ -88,22 +88,22 @@ export async function ensureReviewToken(db, booking) {
 // these domains is generic (see estimate-code.js) — any brand with a review
 // short-link also gets one for estimate-approval texts, same domain map.
 export const REVIEW_LINK_PREFIX = {
-  'handy-andy': 'https://www.ihandyandy.com/r/',
-  'doms': 'https://www.domstvmounting.com/r/',
-  'mile-high': 'https://www.milehightvmounting.com/r/',
-  'austin': 'https://www.austinmounting.com/r/',
-  'tvmountingdenver': 'https://www.tvmountingdenver.com/r/',
-  'houstonmounting': 'https://houstonmounting.com/r/',
-  'houstontvinstallation': 'https://houstontvinstallation.com/r/',
-  'tvhanginghouston': 'https://tvhanginghouston.com/r/',
-  'htvmounting': 'https://htvmounting.com/r/',
-  'houstontvmountingpros': 'https://www.houstontvmountingpros.com/r/',
-  'houstonperfectviewtvmounting': 'https://houstonperfectviewtvmounting.com/r/',
-  'atxmountpros': 'https://atxmountpros.com/r/',
-  'atxtvmount': 'https://atxtvmount.com/r/',
-  'austinmountingpros': 'https://austinmountingpros.com/r/',
-  'austintvinstall': 'https://austintvinstall.com/r/',
-  'precision': 'https://r.precisiontvinstallation.com/',
+  'handy-andy': 'https://tidyhausph.com/r/',
+  'doms': 'https://tidyhausph.com/r/',
+  'mile-high': 'https://tidyhausph.com/r/',
+  'austin': 'https://tidyhausph.com/r/',
+  'tvmountingdenver': 'https://tidyhausph.com/r/',
+  'houstonmounting': 'https://tidyhausph.com/r/',
+  'houstontvinstallation': 'https://tidyhausph.com/r/',
+  'tvhanginghouston': 'https://tidyhausph.com/r/',
+  'htvmounting': 'https://tidyhausph.com/r/',
+  'houstontvmountingpros': 'https://tidyhausph.com/r/',
+  'houstonperfectviewtvmounting': 'https://tidyhausph.com/r/',
+  'atxmountpros': 'https://tidyhausph.com/r/',
+  'atxtvmount': 'https://tidyhausph.com/r/',
+  'austinmountingpros': 'https://tidyhausph.com/r/',
+  'austintvinstall': 'https://tidyhausph.com/r/',
+  'precision': 'https://tidyhausph.com/',
   // Static site; /r/:token redirect lives in its vercel.json (live domain 2026-10-11).
 };
 

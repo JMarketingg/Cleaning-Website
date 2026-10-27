@@ -140,7 +140,7 @@ const STRIPE_PK_ENV = {
   houstonperfectviewtvmounting: 'Publishable_key_houston_mounting',
   millertime:             'Publishable_key_houston_mounting',
   // Austin lead-gen quad — all four charge on the existing 'austin' Stripe
-  // account (austinmounting.com's, see LEGACY_SLUG_ACCOUNT in stripe.js), so
+  // account (tidyhausph.com's, see LEGACY_SLUG_ACCOUNT in stripe.js), so
   // all four share austin's publishable key too.
   atxmountpros:           'AUSTIN_STRIPE_PUBLISHABLE_KEY',
   atxtvmount:             'AUSTIN_STRIPE_PUBLISHABLE_KEY',
@@ -375,11 +375,11 @@ async function multiTvDiscountPublic(req, res) {
 // Exception: a token we can't use at all (missing, or not one of our review
 // tokens) goes to the TidyHaus home page instead of a review page that can
 // only show an error. That covers mangled links and the placeholder link in
-// the A2P campaign sample (www.ihandyandy.com/r/<token> redirects here), which
+// the A2P campaign sample (tidyhausph.com/r/<token> redirects here), which
 // a carrier reviewer will click. A REAL review token that has merely expired
 // still goes to review.html, which explains that in the customer's own
 // business's branding.
-const REVIEW_CLICK_FALLBACK_URL = 'https://www.ihandyandy.com/';
+const REVIEW_CLICK_FALLBACK_URL = 'https://tidyhausph.com/';
 
 // Shape check only (no signature or expiry check): "is this one of our review
 // tokens, even if expired?" Decides between two redirect targets and nothing

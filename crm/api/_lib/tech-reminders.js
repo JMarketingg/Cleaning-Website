@@ -16,9 +16,9 @@ import { signToken } from './auth.js';
 import { leadAlertRecipients } from './lead-alert-recipients.js';
 
 const MIN = 60000;
-const CITY_TZ = { denver: 'Asia/Manila', golden: 'Asia/Manila', aurora: 'Asia/Manila', houston: 'America/Chicago', austin: 'America/Chicago',
-  dallas: 'America/Chicago', 'fort worth': 'America/Chicago', 'dallas-fort worth': 'America/Chicago', dfw: 'America/Chicago', 'oklahoma city': 'America/Chicago',
-  tulsa: 'America/Chicago', 'san antonio': 'America/Chicago', 'los angeles': 'America/Los_Angeles', phoenix: 'America/Phoenix' };
+const CITY_TZ = { denver: 'Asia/Manila', golden: 'Asia/Manila', aurora: 'Asia/Manila', houston: 'Asia/Manila', austin: 'Asia/Manila',
+  dallas: 'Asia/Manila', 'fort worth': 'Asia/Manila', 'dallas-fort worth': 'Asia/Manila', dfw: 'Asia/Manila', 'oklahoma city': 'Asia/Manila',
+  tulsa: 'Asia/Manila', 'san antonio': 'Asia/Manila', 'los angeles': 'Asia/Manila', phoenix: 'Asia/Manila' };
 
 function baseUrl() {
   return (process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000')).replace(/\/$/, '');
@@ -30,12 +30,12 @@ export function jobTz(j) {
   if (c) return c;
   const z = String(j.postal_code || '');
   if (/^8[01]/.test(z)) return 'Asia/Manila';
-  if (/^7[3-8]/.test(z)) return 'America/Chicago';
-  if (/^9[0-6]/.test(z)) return 'America/Los_Angeles';
-  if (/^85/.test(z)) return 'America/Phoenix';
+  if (/^7[3-8]/.test(z)) return 'Asia/Manila';
+  if (/^9[0-6]/.test(z)) return 'Asia/Manila';
+  if (/^85/.test(z)) return 'Asia/Manila';
   const st = String(j.state || '').toUpperCase();
-  if (st === 'TX' || st === 'OK') return 'America/Chicago';
-  if (st === 'CA') return 'America/Los_Angeles';
+  if (st === 'TX' || st === 'OK') return 'Asia/Manila';
+  if (st === 'CA') return 'Asia/Manila';
   return 'Asia/Manila';
 }
 const localDay = (ms, tz) => new Date(ms).toLocaleDateString('en-CA', { timeZone: tz });

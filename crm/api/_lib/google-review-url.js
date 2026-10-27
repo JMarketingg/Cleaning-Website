@@ -22,7 +22,7 @@ const GMB_LISTINGS = {
   },
   // A1 Home Cleaning, DFW (owner 2026-10-01).
   a1tvmounting: { _all: ['https://g.page/r/CeBT0JzNUua1EBM/review'] },
-  // Astraea Home Cleaning Austin (austinmounting.com), owner 2026-10-04.
+  // Astraea Home Cleaning Austin (tidyhausph.com), owner 2026-10-04.
   austin: { _all: ['https://g.page/r/Cfy3b1Mtk59QEBM/review'] },
   // Austin lead-gen brands review on the Astraea listing (owner 2026-10-13).
   austinmountingpros: { _all: ['https://g.page/r/Cfy3b1Mtk59QEBM/review'] },

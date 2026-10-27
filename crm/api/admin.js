@@ -84,7 +84,7 @@ import { bracketPrefill, parseBracketsUsed, checkBracketsUsed, bracketMismatchNo
 
 // Search Console domain per business — the free "what did people search to
 // find us" data source (see api/_lib/gsc.js).
-const GSC_DOMAIN_BY_SLUG = { 'handy-andy': 'ihandyandy.com', 'doms': 'domstvmounting.com' };
+const GSC_DOMAIN_BY_SLUG = { 'handy-andy': 'tidyhausph.com', 'doms': 'tidyhausph.com' };
 // Substrings that mark a query as "branded" (already knew the business name)
 // vs. genuine new discovery, for the branded/non-branded split.
 const GSC_BRAND_TERMS = {
@@ -481,7 +481,7 @@ export default async function handler(req, res) {
       const allowed = isWrite || AUDITOR_ADMIN_ACTIONS.has(action);
       const methodOk = isWrite ? req.method === 'POST' : req.method === 'GET';
       if (!allowed || !methodOk) return res.status(401).json({ error: 'Unauthorized' });
-      auth = { kind: 'admin', role: 'auditor', scope: 'all', name: auth.name || 'Jiyah', auditor: true, ...(auth.owner === true ? { owner_view: true } : {}) };   // owner_view: owner's view-as-Jiyah token (calendar treats it as Andrew)
+      auth = { kind: 'admin', role: 'auditor', scope: 'all', name: auth.name || 'Jiyah', auditor: true, ...(auth.owner === true ? { owner_view: true } : {}) };   // owner_view: owner's view-as-Jiyah token (calendar treats it as Owner)
     }
     if (!auth || auth.kind !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
 
@@ -948,9 +948,9 @@ function secretaryNameList() {
   return [...new Set([displayNameFor('handy-andy'), displayNameFor('doms'), ...staffLogins().map(x => String(x.name))])];
 }
 function displayNameFor(scope) {
-  if (scope === 'handy-andy') return process.env.HANDY_ANDY_SECRETARY_NAME || 'Heather';
+  if (scope === 'handy-andy') return process.env.HANDY_ANDY_SECRETARY_NAME || 'Office';
   if (scope === 'doms')       return process.env.DOMS_SECRETARY_NAME || 'Joey';
-  return process.env.ADMIN_NAME || 'Andrew';
+  return process.env.ADMIN_NAME || 'Owner';
 }
 // The secretary who actually runs each business day-to-day (Heather/Handy
 // Andy, Joey/Dom's) — office alerts (e.g. a failed estimate-approval booking)
@@ -961,8 +961,8 @@ function displayNameFor(scope) {
 // tracking rows (what actually rings them). Written here too so a missing
 // *_SECRETARY_PHONE env var can't silently stop an alert — an unset var used
 // to mean "text nobody", the quietest possible failure for a waiting customer.
-const JOEY_MOBILE = '3032190118';
-const HEATHER_MOBILE = '7207223653'; // updated 2026-09-18, Heather changed numbers
+const JOEY_MOBILE = '0000000000';
+const HEATHER_MOBILE = '0000000000'; // updated 2026-09-18, Heather changed numbers
 
 function secretaryPhoneFor(scope) {
   // Driven off the SAME map that grants access (api/_lib/staff-access.js), so
@@ -2732,7 +2732,7 @@ async function multiTvDiscountSave(req, res, db, auth, body) {
 // site.hasWidget is INFORMATIONAL ONLY, never a blocker — it does a best-effort
 // text search for widget.js in the fetched HTML, which only works when the
 // widget tag is present in the server-rendered markup (Austin's Next.js
-// build, Precision's LandingSite embed). ihandyandy.com and domstvmounting.com
+// build, Precision's LandingSite embed). tidyhausph.com and tidyhausph.com
 // insert the widget with client-side JavaScript after the page loads, so a
 // plain server-side fetch — which never runs JS — can't see it at all, even
 // though both have booked real jobs daily for months. Real incident: this
@@ -2783,7 +2783,7 @@ const LAUNCH_CHECKLIST_ITEMS = [
 ];
 
 // ── Markets: a location page inside an EXISTING business, not a new company.
-// LA is the first one (a page cluster on ihandyandy.com, unstaffed, no Stripe
+// LA is the first one (a page cluster on tidyhausph.com, unstaffed, no Stripe
 // or Resend of its own — it deliberately shares TidyHaus's) and DFW/Phoenix/
 // San Antonio work the same way (see [[estimate-brokering-project]]), so this
 // lives in its own `app.markets` table rather than being forced into
@@ -2852,7 +2852,7 @@ async function launchMarketRows(db) {
 // GET ?action=launch_traffic — daily unique sessions + page views for the last
 // 30 days, for the chart on every Launch card. One grouped query
 // (public.launch_daily_traffic, migration 0127) across BOTH trackers: the
-// microsites report to web_events_sites keyed by site, ihandyandy.com reports
+// microsites report to web_events_sites keyed by site, tidyhausph.com reports
 // to web_events and is split by URL path so each TidyHaus location page gets
 // its own line.
 const LAUNCH_TRAFFIC_SITE_KEY = { 'mile-high': 'milehightvmounting' };
@@ -2865,7 +2865,7 @@ async function launchTraffic(req, res, db, auth) {
   // 60 days so the 30d chart can show % vs the 30 days before. Reads the
   // daily rollup (migration 0220), so this is ms, not seconds.
   const DAYS = 60;
-  const dayKey = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+  const dayKey = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const days = [];
   for (let i = DAYS; i >= 1; i--) days.push(dayKey(Date.now() - i * 24 * 60 * 60 * 1000));
 
@@ -2949,8 +2949,8 @@ async function webHub(req, res, db, auth) {
   const bySlug = new Map((biz || []).map(b => [b.slug, b]));
   const keyToSlug = Object.fromEntries(Object.entries(LAUNCH_TRAFFIC_SITE_KEY).map(([k, v]) => [v, k]));
   const label = (src) => {
-    if (src === 'ha') return 'ihandyandy.com';
-    if (src === 'doms') return 'domstvmounting.com';
+    if (src === 'ha') return 'tidyhausph.com';
+    if (src === 'doms') return 'tidyhausph.com';
     const key = src.replace(/^site:/, ''), b = bySlug.get(keyToSlug[key] || key);
     return (b && hostOf(b.url)) || (b && b.name) || key;
   };
@@ -3079,7 +3079,7 @@ async function launchHealth(req, res, db, auth) {
   // "Dom's Home Cleaning"); those numbers then leave the Dom's (Denver) card.
   for (const c of Object.values(cards)) c.tags = [];
   // Unused spare lines the owner doesn't want on Launch (HA Denver 2: 0 calls ever).
-  const LAUNCH_HIDDEN_NUMBERS = new Set(['7207401120']);
+  const LAUNCH_HIDDEN_NUMBERS = new Set(['0000000000']);
   for (const n of (numbers || [])) {
     const ph = last10(n.phone), on = n.active !== false;
     if (LAUNCH_HIDDEN_NUMBERS.has(ph) || isAdsOnlyLine(n)) continue;
@@ -3349,7 +3349,7 @@ async function launchStatus(req, res, db, auth) {
   if (auth.role !== 'owner' && !joey) return res.status(403).json({ error: 'Owner only' });
   const { data: businesses, error } = await db.from('businesses')
     .select('id, slug, name, url, support_phone, active, settings, created_at')
-    .order('created_at', { ascending: true });
+    .eq('active', true).order('created_at', { ascending: true });
   if (error) throw error;
 
   const markets = await launchMarketRows(db);
@@ -5330,7 +5330,7 @@ async function bookingCreate(req, res, db, auth, body) {
       // TEMP diagnostic: reveal which Resend key path is in use (no secrets logged).
       // Tells us if DOMS_RESEND_API_KEY is actually present on this project/env or
       // if we're silently falling back to the shared TidyHaus key (which can't
-      // send from domstvmounting.com). Safe to remove once Doms email is confirmed.
+      // send from tidyhausph.com). Safe to remove once Doms email is confirmed.
       const _domsKey = process.env.DOMS_RESEND_API_KEY || '';
       const _haKey = process.env.RESEND_API_KEY || '';
       console.log(`[admin] email key path (${biz.slug}): DOMS_RESEND_API_KEY set=${!!_domsKey} (len=${_domsKey.length}) RESEND_API_KEY set=${!!_haKey} (len=${_haKey.length}) usingFallback=${biz.slug === 'doms' && !_domsKey} domsKeyDiffersFromHA=${!!_domsKey && _domsKey !== _haKey} from=${from}`);
@@ -5505,7 +5505,7 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           late_reported_at, late_reported_by,
           ...restMetaResched
         } = existMetaResched;
-        // Andrew wants a visible record on the job card when a customer's time
+        // Owner wants a visible record on the job card when a customer's time
         // changes, not just buried in the notes list. Stamp the time being
         // REPLACED so the card can show "rescheduled from <old time>", only
         // when the time is actually moving, so a reschedule that only swaps
@@ -7315,7 +7315,7 @@ async function bookingNotes(req, res, db, auth) {
 const STAFF_NOTICES = [{
   key: 'no_precharge_2026_10_23',
   to: ['Heather', 'Joey'],
-  text: "New rule (from Andrew): a stolen card cost us $722 on Oct 6.\n1. Never charge a card before the job. Save it; it's charged after the work.\n2. If a caller insists on paying now, use Send invoice so they pay themselves.\n3. Red flags: out of town, 'someone else will be home', 'pay now', 'charge me before I hang up', a ZIP that doesn't match, a new house whose address they have to look up. Two or more = tell Andrew before booking.\n4. A red SCAMMER box = don't book, don't take a card.",
+  text: "New rule (from Owner): a stolen card cost us $722 on Oct 6.\n1. Never charge a card before the job. Save it; it's charged after the work.\n2. If a caller insists on paying now, use Send invoice so they pay themselves.\n3. Red flags: out of town, 'someone else will be home', 'pay now', 'charge me before I hang up', a ZIP that doesn't match, a new house whose address they have to look up. Two or more = tell Owner before booking.\n4. A red SCAMMER box = don't book, don't take a card.",
 }, {
   // anyTime: shows even off shift (Joey has no schedule rows).
   key: 'backup_ring_2026_10_25', to: ['Joey'], anyTime: true,
@@ -7783,7 +7783,7 @@ async function analyticsOverview(req, res, db, auth) {
   for (let i = rangeDays - 1; i >= 0; i--) dayKeys.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
 
   // ── Multi-market businesses ───────────────────────────────────────────────
-  // One domain covering several metros (today only ihandyandy.com) is really
+  // One domain covering several metros (today only tidyhausph.com) is really
   // several independent operations sharing a site, and rolling them into one
   // row hides that Denver is carrying it while Dallas has never sold a job.
   // Split per analytics_config.markets — each entry names its landing pages
@@ -9269,7 +9269,7 @@ async function reviewInviteSend(req, res, db, auth, body) {
 
   const token = signToken({ kind: 'tech', tech_id: t.id, business_id: t.business_id, sess: 1 }, 14 * 24 * 3600);
   const base = process.env.PUBLIC_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://handy-andy-booking.vercel.app');
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://tidyhaus-crm.vercel.app');
   const link = `${base}/tech.html?login=${encodeURIComponent(token)}#reviews`;
   const message = `Want a FREE $100 added to your payroll? Leave us a review. Tap the link, it signs you in and shows you exactly what to do: ${link}`;
   const r = await sendSMSResult(t.phone, message);
@@ -10579,7 +10579,7 @@ async function calls(req, res, db, auth) {
   // 'inbound'; the Take a Call wizard's own rows are kind 'live'.
   q = q.not('kind', 'in', '(voicemail,missed,sms)');
   // Analytics -> LA asks for LA lines only: filter in the query, not after the limit.
-  if (req.query.la === '1' && auth.role === 'owner') { const la = ['2135793329', '2137226032', '3235701778']; q = q.in('grasshopper_number', [...la, ...la.map(p => '+1' + p)]); }
+  if (req.query.la === '1' && auth.role === 'owner') { const la = ['0000000000', '0000000000', '0000000000']; q = q.in('grasshopper_number', [...la, ...la.map(p => '+1' + p)]); }
   // Owner rule (2026-08-26): the WHOLE list — business names, missed calls,
   // history — is scoped to the businesses this person actually runs, not just
   // the interruption banner (which was fixed first, separately, below). Joey
@@ -10844,7 +10844,7 @@ async function calls(req, res, db, auth) {
   // and Joey's Calls until he says otherwise. Owner still sees them.
   // Owner 2026-10-02: LA lines are off the Calls tab for everyone; the owner
   // sees them only in Analytics -> LA (this same action with la=1).
-  const LA_LINES = ['2135793329', '2137226032', '3235701778'];
+  const LA_LINES = ['0000000000', '0000000000', '0000000000'];
   const isLA = (r) => LA_LINES.includes(String(r.grasshopper_number || '').replace(/\D/g, '').slice(-10));
   const laOnly = req.query.la === '1' && auth.role === 'owner';
   const shown = laOnly ? mapped.filter(isLA) : mapped.filter(r => !isLA(r));
@@ -12678,7 +12678,7 @@ async function gscQueries(req, res, db, auth) {
 // not proof of a bot, but worth a second look. Kept intentionally short (just
 // the zones real US visitors would plausibly show) rather than an exhaustive
 // exclude-list, so anything odd defaults to "flagged", not "trusted".
-const US_TIMEZONES = new Set(['America/Chicago', 'America/New_York', 'Asia/Manila', 'America/Los_Angeles', 'America/Phoenix', 'America/Anchorage', 'Pacific/Honolulu']);
+const US_TIMEZONES = new Set(['Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'America/Anchorage', 'Pacific/Honolulu']);
 
 function cityPagePath(url) {
   try { return new URL(url).pathname.replace(/\/$/, '') || '/'; } catch { return (url || '').split('?')[0]; }
@@ -13437,7 +13437,7 @@ async function estimateCreate(req, res, db, auth, body) {
     let held = false;
     try { held = await prospectQuoteLink(db, auth, String(body.prospect_id), est.id, Math.round(qTotal * 100) / 100); }
     catch (e) { console.error('[estimate_create] prospect link failed:', e.message); held = qTotal > 2000 && auth.role !== 'owner'; }
-    if (held) return res.status(201).json({ id: est.id, ok: true, held: true, warning: "Over $2,000: saved, waiting for Andrew's OK." });
+    if (held) return res.status(201).json({ id: est.id, ok: true, held: true, warning: "Over $2,000: saved, waiting for Owner's OK." });
   }
 
   // After insertion, even a delivery/setup exception must return the saved ID.
@@ -13538,7 +13538,7 @@ async function estimateSendSms(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   if (!body.id) return res.status(400).json({ error: 'id required' });
-  if (await prospectQuoteHeld(db, auth, body.id)) return res.status(403).json({ error: "Needs Andrew's OK first" });
+  if (await prospectQuoteHeld(db, auth, body.id)) return res.status(403).json({ error: "Needs Owner's OK first" });
 
   const est = await fetchEstimate(db, body.id, biz.id, 'customer_name, customer_phone, service_label, description, sms_consent');
   if (!est) return res.status(404).json({ error: 'Estimate not found' });
@@ -13659,7 +13659,7 @@ async function estimateFollowups(req, res, db, auth) {
 // Screen pop (owner 2026-09-30). ring_setup: which handset channels this login
 // listens to + the public Realtime connection details. ring_card: who is
 // calling -- name, past jobs, open estimates, the last call's summary.
-const SCOPE_HANDSET = { 'handy-andy': '7207223653', doms: '3032190118' };
+const SCOPE_HANDSET = { 'handy-andy': '0000000000', doms: '0000000000' };
 async function ringSetup(req, res, db, auth) {
   if (auth.role === 'auditor') return res.status(200).json({ topics: [] });
   const { ringTopic } = await import('./_lib/ring-push.js');
@@ -13853,7 +13853,7 @@ async function estimateSendEmail(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   if (!body.id) return res.status(400).json({ error: 'id required' });
-  if (await prospectQuoteHeld(db, auth, body.id)) return res.status(403).json({ error: "Needs Andrew's OK first" });
+  if (await prospectQuoteHeld(db, auth, body.id)) return res.status(403).json({ error: "Needs Owner's OK first" });
 
   const est = await fetchEstimate(db, body.id, biz.id, 'customer_name, customer_email, service_label, description, upsells, customer_note');
   if (!est) return res.status(404).json({ error: 'Estimate not found' });
@@ -14760,7 +14760,7 @@ async function twilioLines(req, res, db, auth, body) {
     }
     // set_webhooks: point voice + SMS at the CRM, same URLs every routed line uses.
     if (req.method === 'POST' && body.set_webhooks && rec) {
-      const base = 'https://handy-andy-booking.vercel.app/api/analytics?action=';
+      const base = 'https://tidyhaus-crm.vercel.app/api/analytics?action=';
       const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/IncomingPhoneNumbers/${rec.sid}.json`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ VoiceUrl: base + 'voice_inbound', VoiceMethod: 'POST', SmsUrl: base + 'sms_inbound', SmsMethod: 'POST' }) });
       const rj = await r.json().catch(() => ({}));
       row.webhooks = r.ok ? 'set' : (rj.message || ('error ' + r.status));
@@ -14792,7 +14792,7 @@ async function callNumbers(req, res, db, auth) {
   ]);
   if(staff.error) throw staff.error;
   if(schedules.error) throw schedules.error;
-  const recipientNames=new Map([['3032190118','Joey'],['7207223653','Heather'],['3374997817','Andrew']]);
+  const recipientNames=new Map([['0000000000','Joey'],['0000000000','Heather'],['0000000000','Owner']]);
   for(const person of [...(schedules.data||[]),...(staff.data||[])]) {
     const phone=digitsOf(person.phone).slice(-10);
     if(phone && person.name) recipientNames.set(phone,person.name);
@@ -14989,7 +14989,7 @@ async function competitorBacklinks(req, res, auth, body) {
   if (!process.env.DATAFORSEO_LOGIN || !process.env.DATAFORSEO_PASSWORD) return res.status(200).json({ error: 'Add DataForSEO keys in Vercel' });
   const clean = (d) => String(d || '').trim().toLowerCase().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
   const targets = (body.targets || []).map(clean).filter(Boolean).slice(0, 3);
-  const oursList = String(body.ours || 'ihandyandy.com').split(/[\s,]+/).map(clean).filter(Boolean).slice(0, 6);
+  const oursList = String(body.ours || 'tidyhausph.com').split(/[\s,]+/).map(clean).filter(Boolean).slice(0, 6);
   const ours = oursList.join(', ');
   if (!targets.length && !oursList.length) return res.status(400).json({ error: 'Add a site' });
   const authH = 'Basic ' + Buffer.from(process.env.DATAFORSEO_LOGIN + ':' + process.env.DATAFORSEO_PASSWORD).toString('base64');
@@ -15993,7 +15993,7 @@ async function reviewEmailPreview(req, res) {
 
 // Fixed recipient — deliberately ignores anything the client sends, so this
 // endpoint can never be used to relay mail to an arbitrary address.
-const TEST_EMAIL_RECIPIENT = 'andrewtrading04@gmail.com';
+const TEST_EMAIL_RECIPIENT = 'owner@example.invalid';
 
 async function sendTestReviewEmail(req, res, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -16214,7 +16214,7 @@ async function sendGdsRateUpdate(req, res, db) {
          redemption jobs (the free TV removal visits, $0 to the customer) now pay $50 per job,
          previously $60.</p>
       <p>Everything else on the rate sheet stays the same.</p>
-      <p>Thanks,<br>Andrew</p>
+      <p>Thanks,<br>Owner</p>
     </div>`;
     const r = await sendEmail({ slug, to: t.email, subject, html });
     results.push({ to: t.email, name: t.name, business: slug, sent: !!r.sent, error: r.error || r.skipped || null });
@@ -16228,8 +16228,8 @@ async function sendGdsRateUpdate(req, res, db) {
 async function sendSpamNotice(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const to = [
-    process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com',
-    process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com',
+    process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid',
+    process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid',
   ];
   const subject = 'Quick favor: mark this email as "not spam"';
   const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#222;">
@@ -16238,10 +16238,10 @@ async function sendSpamNotice(req, res) {
        Gmail does not trust it yet and is filing our messages into spam.</p>
     <p><b>If this email landed in your spam folder, please open it and click "Not spam."</b>
        If it came straight to your inbox, no action needed.</p>
-    <p>It also helps to add <b>contact@milehightvmounting.com</b> to your contacts.</p>
+    <p>It also helps to add <b>owner@example.invalid</b> to your contacts.</p>
     <p>That small step teaches Gmail we are legitimate, so booking confirmations reach our customers
        instead of their spam folders.</p>
-    <p>Thanks,<br>Andrew</p>
+    <p>Thanks,<br>Owner</p>
   </div>`;
   const results = [];
   for (const addr of to) {
@@ -16676,7 +16676,7 @@ async function estimateApprove(req, res, body) {
     // to follow up — which is exactly the gap that put a customer's card and
     // approval intent in limbo with no human ever notified.
     // Goes to whichever secretary actually runs THIS business (Heather for
-    // TidyHaus, Joey for Dom's) — not the owner. Andrew doesn't work these.
+    // TidyHaus, Joey for Dom's) — not the owner. Owner doesn't work these.
     if (e.scammer) return res.status(400).json({ error: 'We could not complete this booking online. Please call us.' });
     const secretaryPhone = secretaryPhoneFor(est.business?.slug);
     if (secretaryPhone) {
@@ -17144,7 +17144,7 @@ const PAYROLL_LAST_NAME = {
   'Steve': 'Burns', 'Gregory': 'Gadlin', 'Heather': 'Gonzalez',
 };
 // Exact Gusto contractor order (owner 2026-10-26). Anyone not listed sorts after, by last name.
-const PAYROLL_ORDER = ['Joe', 'TK', 'Juan', 'Zach', 'Joey', 'Kregg', 'Steve', 'Alex', 'Megale', 'Gregory', 'Heather', 'Jiyah', 'Kevin'];
+const PAYROLL_ORDER = [];
 function sortForPayroll(data) {
   const rank = (n) => { const first = String(n || '').split(/\s+/)[0].toLowerCase(); const i = PAYROLL_ORDER.findIndex(x => x.toLowerCase() === first); return i < 0 ? 999 : i; };
   const key = n => PAYROLL_LAST_NAME[n] || n;
@@ -17614,7 +17614,7 @@ async function secretaryAvailabilitySet(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const owner = auth.role === 'owner', body = req.body || {};
   if (!owner && auth.role !== 'secretary') return res.status(403).json({ error: 'Forbidden' });
-  if (!owner && auth.name && auth.name !== displayNameFor(auth.scope)) return res.status(403).json({ error: 'Your schedule is set by Andrew.' });
+  if (!owner && auth.name && auth.name !== displayNameFor(auth.scope)) return res.status(403).json({ error: 'Your schedule is set by Owner.' });
   const dayOfWeek = body.day_of_week, isAvailable = body.is_available;
   if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'A weekday (0-6) and Working/Off value are required' });
   const scope = owner ? body.business : auth.scope;
@@ -17738,7 +17738,7 @@ async function recordSecretaryChange(db, { biz, scope, kind, dayOfWeek = null, d
 async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const body = req.body || {};
-  if (auth.role === 'secretary' && auth.name && auth.name !== displayNameFor(auth.scope)) return res.status(403).json({ error: 'Your schedule is set by Andrew.' });
+  if (auth.role === 'secretary' && auth.name && auth.name !== displayNameFor(auth.scope)) return res.status(403).json({ error: 'Your schedule is set by Owner.' });
   let scope;
   if (auth.role === 'secretary') scope = auth.scope;
   else if (auth.role === 'owner') scope = (body.business || '').toString();
@@ -17815,7 +17815,7 @@ function noteReader(auth) {
 // GET — the notes the CURRENT user still has to read. The owner writes these,
 // so the owner never gets them on their own dashboard (owner rule 2026-09-17);
 // they can still see what was sent and who read it on the Notes page.
-// Owner rule 2026-09-23: notes now flow every direction (Andrew, Heather,
+// Owner rule 2026-09-23: notes now flow every direction (Owner, Heather,
 // Joey, and Jiyah can all post; see notesAdd / api/audit.js). Owner used to
 // be excluded here entirely because owner was the only poster -- now the
 // owner reads their own inbox through this SAME endpoint, filtered to
@@ -17955,7 +17955,7 @@ async function notesPhoto(req, res, db, auth, body) {
 // GET ?path=priv:note-photos/xxx.jpg[&token=...] — streams a private note
 // photo's bytes back, but only to someone who can see a note carrying it:
 // the owner sees all; everyone else only photos on notes they wrote or that
-// were sent to them (a note "for Andrew only" never qualifies for anyone
+// were sent to them (a note "for Owner only" never qualifies for anyone
 // else). A path on NO note yet is a fresh upload still sitting in its
 // sender's composer -- its random name is known only to that sender, so the
 // preview thumbnail has to keep working.
@@ -17987,9 +17987,9 @@ async function notePhoto(req, res, db, auth) {
 }
 
 // POST { body, target, mode, photos } — write one. Owner or secretary
-// (owner rule 2026-09-23: Heather/Joey can now post too, same as Andrew
+// (owner rule 2026-09-23: Heather/Joey can now post too, same as Owner
 // always could). target: 'handy-andy' | 'doms' | 'owner' | '' (both
-// secretaries). 'owner' means "for Andrew only" (to_owner=true) -- distinct
+// secretaries). 'owner' means "for Owner only" (to_owner=true) -- distinct
 // from target_slug, which keeps meaning secretary scope. A person targeting
 // themself is harmless (self-reminder) and not specially blocked.
 async function notesAdd(req, res, db, auth, body) {
@@ -18015,7 +18015,7 @@ async function notesAdd(req, res, db, auth, body) {
 
 // Joey's "Website edit" requests (owner 2026-10-18). Own table, Joey-only:
 // never in the owner's Notes, banners or dashboard. Claude reads/answers
-// them in SQL (app.website_edits: status 'done', reply, replied_by 'Andrew').
+// them in SQL (app.website_edits: status 'done', reply, replied_by 'Owner').
 async function websiteEdits(req, res, db, auth) {
   if (!isJoeyLogin(auth)) return res.status(403).json({ error: 'Not available for this login' });
   const [{ data: biz }, { data, error }] = await Promise.all([
@@ -18049,7 +18049,7 @@ async function websiteEditAdd(req, res, db, auth, body) {
 // scheduling (always 'until_read', so it can't silently expire before
 // anyone sees it), forced created_by. Auth is already mapped to
 // role:'auditor' by the gate in handler(); this writes target_slug/to_owner
-// exactly like a Heather/Joey/Andrew-authored note would, so it rides the
+// exactly like a Heather/Joey/Owner-authored note would, so it rides the
 // existing dashboard banner/reply/photo UI with zero new admin.html code.
 async function auditorNoteSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -18063,7 +18063,7 @@ async function auditorNoteSend(req, res, db, auth, body) {
   else if (recipient === 'joey') { row.to_owner = false; row.target_slug = 'doms'; }
   // Alex / Joe, one person each (owner 2026-10-02: Joey is off Jiyah's portal).
   else if (recipient === 'alex' || recipient === 'joe') { row.to_owner = false; row.target_slug = null; row.target_name = recipient === 'alex' ? 'Alex' : 'Joe'; }
-  else return res.status(400).json({ error: 'Pick Andrew, Heather, Alex or Joe' });
+  else return res.status(400).json({ error: 'Pick Owner, Heather, Alex or Joe' });
   const { data, error } = await db.from('staff_notes').insert(row).select('id').maybeSingle();
   if (error) throw error;
   return res.status(200).json({ ok: true, id: data && data.id });
@@ -18197,7 +18197,7 @@ async function jiyahPhotos(req, res, db, auth) {
   if (error) throw error;
   const photos = [];
   for (const n of (data || [])) {
-    const recipient = n.to_owner ? 'Andrew' : n.target_slug === 'handy-andy' ? 'Heather' : n.target_slug === 'doms' ? 'Joey' : 'Both secretaries';
+    const recipient = n.to_owner ? 'Owner' : n.target_slug === 'handy-andy' ? 'Heather' : n.target_slug === 'doms' ? 'Joey' : 'Both secretaries';
     for (const url of (n.photo_urls || [])) {
       if (!url) continue;
       photos.push({ id: `${n.id}:${photos.length}`, url, note_id: n.id, note_body: n.body, created_at: n.created_at, recipient });
@@ -18552,7 +18552,7 @@ async function secretariesList(req, res, db, auth) {
   if (bizErr) throw bizErr;
 
   const [{ data: staffPhones, error: phoneErr }, { data: scheduleRows, error: scheduleErr }, { data: xrows }] = await Promise.all([
-    db.from('staff_users').select('name, phone').in('name', ['Heather', 'Joey', 'Alex', 'Joe']).eq('active', true),
+    db.from('staff_users').select('name, phone').in('name', []).eq('active', true),
     db.from('staff_schedules').select('name, day_of_week, phone').in('name', ['Alex', 'Joe']),
     db.from('staff_schedule_exceptions').select('name, on_date, business_slug').gte('on_date', dateIn('Asia/Manila', new Date(Date.now() - 864e5))).then(r => r, () => ({ data: [] })),
   ]);
@@ -18653,7 +18653,7 @@ async function teamDirectory(req, res, db, auth) {
 // Owner + every secretary. Who works today (shift, group) and where every
 // active tracking line rings RIGHT NOW, computed by analytics.js routeNow()
 // -- the exact chain the live call webhook runs. No pay, no money.
-const VA_ORDER = ['Heather', 'Joey', 'Alex', 'Joe'];
+const VA_ORDER = [];
 const VA_JOEY_SHIFT = d => (d === 0 || d === 6) ? { s: '11:00', e: '23:00' } : { s: '06:00', e: '18:00' };
 async function vaBoard(req, res, db, auth) {
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18709,8 +18709,8 @@ async function vaBoard(req, res, db, auth) {
   const who = new Map();
   for (const p of people) if (p.phone) who.set(String(p.phone).replace(/\D/g, '').slice(-10), p.name);
   const ownerDigits = String(process.env.OWNER_PHONE_NUMBER || '').replace(/\D/g, '').slice(-10);
-  if (ownerDigits.length === 10) who.set(ownerDigits, 'After-hours (Andrew)');
-  if (!who.has('3374997817')) who.set('3374997817', 'After-hours (Andrew)');
+  if (ownerDigits.length === 10) who.set(ownerDigits, 'After-hours (Owner)');
+  if (!who.has('0000000000')) who.set('0000000000', 'After-hours (Owner)');
   const routed = await Promise.all((lines || []).map(async l => {
     let r; try { r = await routeNow(db, l); } catch (e) { r = { rings: null, reason: 'error' }; }
     const d10 = String(r.rings || '').replace(/\D/g, '').slice(-10);
@@ -19148,7 +19148,7 @@ async function gbpListings(req, res, db, auth) {
   // snapshot decreases on days with no drop row. from / fromAll = first day a key's adds are
   // complete (alone / inside All listings); the page compares only fully covered weeks.
   const vSince = new Date(Date.now() - 98 * 864e5).toISOString(), vDay = vSince.slice(0, 10);
-  const chi = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' });
+  const chi = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const nextDay = (d) => new Date(Date.parse(d + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10);
   // review_date is the email's UTC date; a row stored that same UTC day gives the Central date.
   const rDay = (r) => { const d = r.review_date.slice(0, 10); return r.created_at && new Date(r.created_at).toISOString().slice(0, 10) === d ? chi(r.created_at) : d; };
@@ -20169,7 +20169,7 @@ function isNotifyLine(ourPhone) {
   const o = d10(ourPhone);
   if (!o) return false;
   // The env number, plus the known 888 toll-free sender as a fallback.
-  return o === d10(process.env.TWILIO_PHONE_NUMBER) || o === '8889159967';
+  return o === d10(process.env.TWILIO_PHONE_NUMBER) || o === '0000000000';
 }
 
 const BRAND_SOURCE_LABEL = {
@@ -20467,7 +20467,7 @@ function phoneIlike(d10) {
 }
 
 // HA Denver line 2 and HA Houston line 2 are not used for new texts (owner, 2026-10-04).
-const NEW_TEXT_HIDDEN = new Set(['7207401120', '2816265853']);
+const NEW_TEXT_HIDDEN = new Set(['0000000000', '0000000000']);
 
 // GET ?action=messages_new_lines — the numbers this login may text from.
 async function messagesNewLines(req, res, db, auth) {
@@ -20729,7 +20729,7 @@ async function messagesBlock(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, phone: customer });
 }
 
-// ── Task list: Andrew gives Joey (his assistant) tasks (owner 2026-10-02) ────
+// ── Task list: Owner gives Joey (his assistant) tasks (owner 2026-10-02) ────
 // Red = urgent, yellow = today, green = when you can. A task keeps its color
 // until done; done tasks show crossed out. Joey can add her own. Optional
 // linked job opens the job ticket. Only the owner and Joey see this.
@@ -20774,12 +20774,12 @@ async function joeyMetrics(req, res, db, auth) {
       const { data } = await db.from('staff_schedules').select('name, priority')
         .eq('business_slug', 'handy-andy').eq('day_of_week', dowIn('Asia/Manila'))
         .order('priority', { ascending: true }).order('name', { ascending: true });
-      const who = (applyExceptions(data, await exceptionsOn(db, dateIn('Asia/Manila')), 'handy-andy')[0] || {}).name || 'Andrew';
+      const who = (applyExceptions(data, await exceptionsOn(db, dateIn('Asia/Manila')), 'handy-andy')[0] || {}).name || 'Owner';
       if (who !== 'Heather') return who;
       const { data: biz } = await db.from('businesses').select('id').eq('slug', 'handy-andy').maybeSingle();
       if (!biz) return who;
       const { data: ex } = await db.from('secretary_availability_exceptions').select('is_available').eq('business_id', biz.id).eq('exception_date', dateIn('Asia/Manila')).maybeSingle();
-      return ex && ex.is_available === false ? 'Andrew' : who;
+      return ex && ex.is_available === false ? 'Owner' : who;
     })(),
     (async () => {
       // Same rule as applyShiftRouting: today's staff_schedules row, lowest priority wins.
@@ -20787,7 +20787,7 @@ async function joeyMetrics(req, res, db, auth) {
         .eq('business_slug', 'doms').eq('day_of_week', dowIn('Asia/Manila'))
         .order('priority', { ascending: true }).order('name', { ascending: true });
       const eff = applyExceptions(data, await exceptionsOn(db, dateIn('Asia/Manila')), 'doms');
-      return (eff[0] && eff[0].name) || 'Andrew';
+      return (eff[0] && eff[0].name) || 'Owner';
     })(),
     db.from('assistant_tasks').select('id', { count: 'exact', head: true }).is('deleted_at', null).is('done_at', null).eq('color', 'red'),
     secretaryWeekConversion(db, 'Asia/Manila').catch(() => []),
@@ -20813,22 +20813,22 @@ async function joeyContact(db) {
 async function textJoeyTask(db, j, title) {
   try {
     const phone = j.phone || process.env.DOMS_SECRETARY_PHONE || JOEY_MOBILE;
-    const r = await sendSMSResult(phone, `Task from Andrew: ${String(title).slice(0, 120)}`);
+    const r = await sendSMSResult(phone, `Task from Owner: ${String(title).slice(0, 120)}`);
     return !!(r && r.ok);
   } catch (e) { console.warn('[tasks] text failed:', e.message); return false; }
 }
 async function emailJoeyTask(db, j, title, notes) {
   try {
-    const to = j.email || process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com';
+    const to = j.email || process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid';
     const esc = s => String(s || '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
     const html = `<p><b>${esc(title)}</b></p>${notes ? `<p style="white-space:pre-wrap">${esc(notes)}</p>` : ''}`;
-    const r = await sendEmail({ slug: 'doms', to, subject: `Task from Andrew: ${String(title).slice(0, 150)}`, html });
+    const r = await sendEmail({ slug: 'doms', to, subject: `Task from Owner: ${String(title).slice(0, 150)}`, html });
     return !!(r && r.sent);
   } catch (e) { console.warn('[tasks] email failed:', e.message); return false; }
 }
 async function assistantTasks(req, res, db, auth, body) {
   if (!taskAccess(auth)) return res.status(403).json({ error: 'Not available for this login' });
-  const who = auth.name || (auth.role === 'owner' ? 'Andrew' : 'Joey');
+  const who = auth.name || (auth.role === 'owner' ? 'Owner' : 'Joey');
   if (req.method === 'GET') {
     if (req.query.q != null) {
       // Job search for linking: customer name or phone, newest first.
@@ -20901,7 +20901,7 @@ async function assistantTasks(req, res, db, auth, body) {
     if (error) throw error;
     return res.status(200).json({ ok: true });
   }
-  // Andrew taps a crossed-out task: off the board, into Done (owner 2026-10-07).
+  // Owner taps a crossed-out task: off the board, into Done (owner 2026-10-07).
   if (op === 'clear') {
     if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const { error } = await db.from('assistant_tasks').update({ cleared_at: new Date().toISOString() }).eq('id', id).not('done_at', 'is', null);
@@ -20913,11 +20913,11 @@ async function assistantTasks(req, res, db, auth, body) {
     if (error) throw error;
     return res.status(200).json({ ok: true });
   }
-  // Andrew edits a task's title or color any time (owner 2026-10-03).
+  // Owner edits a task's title or color any time (owner 2026-10-03).
   if (op === 'title' || op === 'color') {
     if (auth.role !== 'owner') {
       const { data: own } = await db.from('assistant_tasks').select('color').eq('id', id).maybeSingle();
-      if (op !== 'title' || !own || own.color !== 'joey') return res.status(403).json({ error: 'Only Andrew can change this.' });
+      if (op !== 'title' || !own || own.color !== 'joey') return res.status(403).json({ error: 'Only Owner can change this.' });
     }
     let patch, texted = false;
     if (op === 'title') {
@@ -20948,7 +20948,7 @@ async function assistantTasks(req, res, db, auth, body) {
   if (op === 'delete') {
     const { data: t } = await db.from('assistant_tasks').select('created_by, color').eq('id', id).maybeSingle();
     if (!t) return res.status(404).json({ error: 'Not found' });
-    if (auth.role !== 'owner' && t.color !== 'joey') return res.status(403).json({ error: 'Only Andrew can delete tasks.' });
+    if (auth.role !== 'owner' && t.color !== 'joey') return res.status(403).json({ error: 'Only Owner can delete tasks.' });
     const { error } = await db.from('assistant_tasks').update({ deleted_at: new Date().toISOString() }).eq('id', id);
     if (error) throw error;
     return res.status(200).json({ ok: true });

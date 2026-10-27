@@ -117,7 +117,7 @@ async function nativeServiceArea(req, res, slug) {
             unstaffed:       true,
             surcharge:       0,
             price_adjustment_amount: 0,
-            timezone:        la.timezone || 'America/Los_Angeles',
+            timezone:        la.timezone || 'Asia/Manila',
             city:            la.name,
             state:           'CA',
             lat:             null,

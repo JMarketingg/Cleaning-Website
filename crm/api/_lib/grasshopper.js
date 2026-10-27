@@ -18,20 +18,12 @@
 // ── Which phone line is which market ────────────────────────────────────────
 // Keyed by the 10 digits of the Grasshopper number. Read by api/audit.js to
 // build the list of lines the auditor counts against.
-export const GRASSHOPPER_LINES = {
-  '7206373707': { market: 'Denver',  business: 'handy-andy' },
-  '7205418180': { market: 'Denver',  business: 'handy-andy' },
-  '7208006095': { market: 'Denver',  business: 'doms' },
-  '2816388419': { market: 'Houston', business: 'handy-andy' },
-  '2816265853': { market: 'Houston', business: 'handy-andy' },
-  '7138769032': { market: 'Houston', business: 'handy-andy' },
-  '5126686643': { market: 'Austin',  business: 'handy-andy' },
-};
+export const GRASSHOPPER_LINES = {};
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 export function digitsOf(s) {
   const d = String(s || '').replace(/\D/g, '');
-  // Strip a leading US country code so "+1 (720) 637-3707" and "7206373707"
+  // Strip a leading US country code so "+1 (720) 637-3707" and "0000000000"
   // are the same key everywhere (map lookups, customer matching, dedupe).
   return d.length === 11 && d.startsWith('1') ? d.slice(1) : d;
 }

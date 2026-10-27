@@ -1,7 +1,7 @@
 // Short "Someone just booked an appointment" heads-up email to the owner.
 // Used by the public booking widgets (via mirrorBooking) and by the dashboard
 // when a SECRETARY books a job. Best-effort: every send is wrapped so it can
-// never block or break a booking. Recipient defaults to contact@ihandyandy.com;
+// never block or break a booking. Recipient defaults to owner@example.invalid;
 // override with the OWNER_NOTIFY_EMAIL env var.
 import { emailConfig, sendEmail } from './email.js';
 import { emailNotificationsOn } from './notify.js';
@@ -22,7 +22,7 @@ async function sendOwnerAlertEmail(subject, bodyText) {
     if (!emailNotificationsOn()) return;
     const cfg = emailConfig();
     if (!cfg.apiKey) return;
-    const to = process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com';
+    const to = process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid';
     const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;color:#111;line-height:1.6;">${bodyText}</div>`;
     await sendEmail({ to, subject, html, replyTo: cfg.from });
   } catch (e) { console.warn('[owner-notify] alert email failed:', e.message); }
@@ -184,16 +184,16 @@ export async function sendOwnerBookingAlert(d = {}) {
     //     HANDY_ANDY_SECRETARY_EMAIL / DOMS_SECRETARY_EMAIL.
     const recipients = new Set();
     if (process.env.PER_BOOKING_ALERTS === '1') {
-      recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com');
+      recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid');
     }
     const slug = String(d.slug || '').toLowerCase();
     if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
       // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
       // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
       // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com');
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -263,15 +263,15 @@ export async function sendCardSaveFailedAlert(d = {}) {
     const cfg = emailConfig(d.slug);
     if (!cfg.apiKey) return;
 
-    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com']);
+    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
     if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
       // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
       // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
       // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com');
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -322,12 +322,12 @@ export async function sendUnassignedBookingAlert(d = {}) {
       return;
     }
 
-    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com']);
+    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
     if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com');
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -378,7 +378,7 @@ export async function sendReviewCallComplaintAlert(d = {}) {
     if (!emailNotificationsOn()) return;
     const cfg = emailConfig(d.slug);
     if (!cfg.apiKey) return;
-    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com']);
+    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     recipients.delete('');
     if (!recipients.size) return;
 
@@ -424,15 +424,15 @@ export async function sendPriceMismatchAlert(d = {}) {
     const cfg = emailConfig(d.slug);
     if (!cfg.apiKey) return;
 
-    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com']);
+    const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
     if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
       // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
       // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
       // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com');
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -477,16 +477,16 @@ export async function sendOwnerEstimateAlert(d = {}) {
 
     const recipients = new Set();
     if (process.env.PER_BOOKING_ALERTS === '1') {
-      recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com');
+      recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid');
     }
     const slug = String(d.slug || '').toLowerCase();
     if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
       // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
       // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
       // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'heather.handyandy@gmail.com');
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'jyrsbries@gmail.com');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -523,7 +523,7 @@ export async function sendOwnerEstimateAlert(d = {}) {
 // ── "Lead-gen business booked" SMS ──────────────────────────────────────────
 // The dashboard's "Lead Gen" dropdown (public/admin.html OWN_CHIP_SLUGS) is
 // every business except TidyHaus and Dom's — the two real operating crews.
-// Andrew wants a text the moment any of those OTHER (lead-gen-only) brands
+// Owner wants a text the moment any of those OTHER (lead-gen-only) brands
 // books a real appointment, since he doesn't have a secretary watching their
 // inboxes the way Heather/Joey watch TidyHaus/Dom's. Mirrors OWN_CHIP_SLUGS
 // exactly (not name-based) so a renamed business can't silently drop out.

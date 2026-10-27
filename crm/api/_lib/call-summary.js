@@ -64,7 +64,7 @@ export async function promiseCallback(db, callId, out) {
   if (phone.length !== 10) return;
   const { data: open } = await db.from('callback_requests').select('id').eq('phone', phone).is('done_at', null).limit(1);
   if (open && open.length) return;
-  const STAFF = ['Heather', 'Joey', 'Joe', 'Alex'];
+  const STAFF = [];
   const who = [c.claimed_by, c.handled_by].find((n) => STAFF.includes(n));
   const slug = c.businesses?.slug || null;
   const targets = who ? [who] : (slug === 'doms' ? ['Joe', 'Alex', 'Joey'] : ['Heather', 'Joey']);

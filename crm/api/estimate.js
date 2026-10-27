@@ -24,7 +24,7 @@ import { sendEmail, requestReceivedEmail, brandFor } from './_lib/email.js';
 const ALLOWED = new Set(ALL_BUSINESS_SLUGS);
 
 // Brands whose CUSTOMERS get an acknowledgement (text + email) the moment an
-// unstaffed-area request lands. The ihandyandy.com LA/DFW/Phoenix/San Antonio
+// unstaffed-area request lands. The tidyhausph.com LA/DFW/Phoenix/San Antonio
 // pages keep their owner-only behavior; only brands listed here promise the
 // customer a follow-up in writing. Add a slug once its Resend key/from-address
 // exist (sendEmail skips loudly, never falls back to another brand's account).
@@ -193,7 +193,7 @@ function estimateServiceSummary(items, maxLen = 90) {
 // VERCEL_URL like tech-notify.js does: that's the per-deployment hostname, so
 // a link texted today would point at a stale build forever. This link sits in
 // someone's message history, so it has to be the stable production alias.
-const DASHBOARD_BASE_URL = (process.env.PUBLIC_URL || 'https://handy-andy-booking.vercel.app').replace(/\/$/, '');
+const DASHBOARD_BASE_URL = (process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app').replace(/\/$/, '');
 function dashboardEstimateUrl(id) {
   return `${DASHBOARD_BASE_URL}/admin.html?estimate=${encodeURIComponent(id)}`;
 }

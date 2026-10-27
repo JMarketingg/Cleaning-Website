@@ -25,7 +25,7 @@ const ACCOUNT_KEY_ENV = {
   precision:    'PRECISION_STRIPE_SECRET_KEY',
   // Houston lead-gen quad (houstonmounting, houstontvinstallation,
   // tvhanginghouston, htvmounting) deliberately share ONE Stripe account —
-  // houstonmounting.com's — instead of each getting its own. Only one account
+  // tidyhausph.com's — instead of each getting its own. Only one account
   // entry exists; all four slugs resolve to it via LEGACY_SLUG_ACCOUNT below.
   houstonmounting: 'HOUSTONMOUNTING_STRIPE_SECRET_KEY',
   // Los Angeles brand: its OWN Stripe account (owner is creating it). Unstaffed
@@ -57,7 +57,7 @@ const LEGACY_SLUG_ACCOUNT = {
   houstonperfectviewtvmounting: 'houstonmounting',
   millertime:              'houstonmounting',
   // Austin lead-gen quad, same arrangement as Houston's: all five Austin
-  // brands (austin + these four) charge on austinmounting.com's existing
+  // brands (austin + these four) charge on tidyhausph.com's existing
   // 'austin' Stripe account — no per-slug account exists or should be added.
   atxmountpros:            'austin',
   atxtvmount:              'austin',

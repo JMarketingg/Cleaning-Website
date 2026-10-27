@@ -24,13 +24,13 @@ import { localDayStartUTC, localDateTimeUTC } from './time.js';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STEP_ID = /^[a-z0-9_-]{1,40}$/i;
-export const RED_ALERT_TZS = ['America/Chicago', 'Asia/Manila', 'America/Los_Angeles', 'America/New_York', 'America/Phoenix'];
+export const RED_ALERT_TZS = ['Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila'];
 const MAX_STEPS = 12;
 const MAX_INFO = 8;
 
 function httpErr(status, message) { const e = new Error(message); e.status = status; return e; }
 const ownerOf = (auth) => auth && auth.role === 'owner';
-const meOf = (auth) => String((auth && auth.name) || (ownerOf(auth) ? 'Andrew' : 'Office')).slice(0, 40);
+const meOf = (auth) => String((auth && auth.name) || (ownerOf(auth) ? 'Owner' : 'Office')).slice(0, 40);
 const newStepId = () => 's' + Math.random().toString(36).slice(2, 10);
 
 // Business id/name/tz by slug, cached per warm instance (the banner polls).
@@ -210,7 +210,7 @@ export async function redAlertsAction(req, res, db, auth, body) {
         locked: [409, 'Finish the step before this one first'],
         gone: [410, 'This alert was closed'],
         no_step: [404, 'That step is gone (the owner edited the alert)'],
-        not_yours: [403, `Only ${out.done_by || 'whoever marked it'} or Andrew can undo this`],
+        not_yours: [403, `Only ${out.done_by || 'whoever marked it'} or Owner can undo this`],
       }[out.reason] || [409, 'Could not update that step'];
       return res.status(why[0]).json({ error: why[1], reason: out.reason || null, done_by: out.done_by || null, done_at: out.done_at || null, alert: fresh });
     }

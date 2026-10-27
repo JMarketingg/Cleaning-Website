@@ -1,4 +1,4 @@
-// "Ask Andrew" (owner, 2026-09-24): an AI version of the owner that staff can
+// "Ask Owner" (owner, 2026-09-24): an AI version of the owner that staff can
 // ask anything, so a new hire does a great job from day 1. Owner-only while
 // it is being taught; later each staff role gets its own guidelines.
 //
@@ -21,7 +21,7 @@ const SCHEMA = {
   properties: {
     ask_back: { type: 'boolean', description: 'true when the request is doable from the data but details are missing; answer = the short list of what to ask the customer. Not an "I do not know".' },
     known: { type: 'boolean', description: 'true ONLY if the answer is fully backed by KNOWLEDGE or LIVE CRM DATA below' },
-    answer: { type: 'string', description: 'As few words as possible. If known=false: exactly "I don\'t know. Ask Andrew." plus at most one short sentence on what is missing.' },
+    answer: { type: 'string', description: 'As few words as possible. If known=false: exactly "I don\'t know. Ask Owner." plus at most one short sentence on what is missing.' },
     draft_estimate: {
       type: ['object', 'null'], additionalProperties: false,
       required: ['service_label', 'line_items', 'note', 'customer'],
@@ -39,11 +39,11 @@ const SCHEMA = {
   },
 };
 
-const SYSTEM = `You are "Ask Andrew": the owner of TidyHaus Home Cleaning and Dom's Home Cleaning, answering his office staff.
+const SYSTEM = `You are "Ask Owner": the owner of TidyHaus Home Cleaning and Dom's Home Cleaning, answering his office staff.
 Style: extremely short. As few words as possible. Direct. No greetings, no filler, no explaining unless asked.
 Accuracy is everything:
 - Answer ONLY from KNOWLEDGE and LIVE CRM DATA in the message. Never use outside knowledge about how other companies work.
-- If the answer is not clearly there, set known=false and answer "I don't know. Ask Andrew." Do NOT guess, estimate, or fill gaps. A wrong answer is far worse than "I don't know".
+- If the answer is not clearly there, set known=false and answer "I don't know. Ask Owner." Do NOT guess, estimate, or fill gaps. A wrong answer is far worse than "I don't know".
 - Prices: only numbers that appear in the data. Say "before tax".
 - If the request is doable but details are missing (wall type, wires, bracket...), set ask_back=true and answer with just the missing questions. That is not "I don't know".
 - Business: use CURRENT BUSINESS unless the user names another.
@@ -120,10 +120,10 @@ KNOWLEDGE (the owner's rules):\n${knowledge || '(none yet)'}\n\nLIVE CRM DATA:\n
   catch { return res.status(502).json({ error: 'The AI answer could not be read. Try again.' }); }
   const askBack = !!out.ask_back;
   const known = askBack || !!out.known;
-  const answer = clean(out.answer, 2000) || "I don't know. Ask Andrew.";
+  const answer = clean(out.answer, 2000) || "I don't know. Ask Owner.";
   const draft = known && out.draft_estimate && Array.isArray(out.draft_estimate.line_items) && out.draft_estimate.line_items.length ? out.draft_estimate : null;
   const { data: row } = await db.from('ask_questions').insert({
-    asked_by: auth.name || (auth.role === 'owner' ? 'Andrew' : null), role: auth.role, business_slug: body.business || null,
+    asked_by: auth.name || (auth.role === 'owner' ? 'Owner' : null), role: auth.role, business_slug: body.business || null,
     question, answer, known, draft,
   }).select('id').single();
   return res.status(200).json({ id: row && row.id, answer, known, ask_back: askBack, draft });

@@ -1,7 +1,7 @@
 // /api/reviews.js
 // PUBLIC, read-only feed of real Google reviews for one GBP listing.
 //
-// Consumed by the marketing sites (ihandyandy.com first, Dom's next) to render
+// Consumed by the marketing sites (tidyhausph.com first, Dom's next) to render
 // the newest real reviews on the page that matches the listing — e.g. the
 // Greenway Plaza page shows the Greenway Plaza listing's reviews, not a set of
 // invented testimonials.

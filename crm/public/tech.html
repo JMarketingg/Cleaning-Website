@@ -825,10 +825,10 @@ const HELP_CONTENT = [
       body:`GDS stands for Guaranteed Dismount Service, an add-on some customers buy so that a future dismount (if they move, or want the TV taken down) is already paid for. If you're at a job for a dismount and GDS shows on the line items, that work is prepaid, don't charge the customer again for it.` },
     { id:'policy-professionalism', q:'What’s expected of me on-site?',
       tags:['professionalism','communication','expectations'],
-      body:`[DRAFT, Andrew to confirm/edit] Show up on time or communicate early if you're running behind. Keep the customer updated at each step. Leave the work area as clean as you found it. Represent the company well, you're often the only person from the business a customer ever actually meets.` },
+      body:`[DRAFT, Owner to confirm/edit] Show up on time or communicate early if you're running behind. Keep the customer updated at each step. Leave the work area as clean as you found it. Represent the company well, you're often the only person from the business a customer ever actually meets.` },
     { id:'policy-noshow', q:'What do I do if a customer doesn’t answer or isn’t home?',
       tags:['no show','not home','no answer'],
-      body:`[DRAFT, Andrew to confirm/edit] Try calling and texting the customer first. If you still can't reach them after a reasonable wait, contact the office before you leave, don't just mark the job and drive off.` },
+      body:`[DRAFT, Owner to confirm/edit] Try calling and texting the customer first. If you still can't reach them after a reasonable wait, contact the office before you leave, don't just mark the job and drive off.` },
   ]},
   { id:'contacts', label:'Getting Help', icon:'☎️', entries:[
     { id:'contacts-office', q:'Who do I contact with a question this Help tab doesn’t answer?',
@@ -839,7 +839,7 @@ const HELP_CONTENT = [
       body:`First try closing and reopening the app, or reloading the page. If that doesn't fix it, contact the office, most login issues just need a quick reset on their end.` },
     { id:'contacts-emergency', q:'Something feels unsafe on a job site. What’s the policy?',
       tags:['safety','unsafe','emergency'],
-      body:`[DRAFT, Andrew to confirm/edit] Your safety comes first, always. Leave the situation if you need to, then contact the office as soon as you're somewhere safe to let them know what happened.` },
+      body:`[DRAFT, Owner to confirm/edit] Your safety comes first, always. Leave the situation if you need to, then contact the office as soon as you're somewhere safe to let them know what happened.` },
   ]},
 ];
 
@@ -989,7 +989,7 @@ async function loadTechNotes(){
     const d=await api('tech_notes_active');
     const notes=d.notes||[];
     box.innerHTML=notes.map(n=>`<div class="owner-note" data-id="${esc(n.id)}">
-      <div class="on-h">Note from ${esc(n.created_by||'Andrew')}</div>
+      <div class="on-h">Note from ${esc(n.created_by||'Owner')}</div>
       <div class="on-b">${esc(n.body)}</div>
       ${(n.photo_urls||[]).length?`<div class="on-photos">${n.photo_urls.map(u=>{ const src=notePhotoSrc(u); return `<img src="${esc(src)}" data-photo="${esc(src)}" loading="lazy" alt="Photo attached to the note">`; }).join('')}</div>`:''}
       <button class="on-x" aria-label="Dismiss note" data-dismiss="${esc(n.id)}">✕</button>
@@ -1082,7 +1082,7 @@ function renderTechNotice(){
   const name=String(tech&&tech.name||'');
   const forTech=/\b(tk|gregory)\b/i.test(name);
   if(forTech && isSundayDenver()){
-    el.innerHTML=`<span class="tn-ic">📣</span><span>Joey is off today. Please contact Andrew if you need anything. <a href="tel:3374997817">337-499-7817</a>.</span>`;
+    el.innerHTML=`<span class="tn-ic">📣</span><span>Joey is off today. Please contact Owner if you need anything. <a href="tel:3374997817">337-499-7817</a>.</span>`;
     el.classList.remove('hidden');
   }else{
     el.innerHTML=''; el.classList.add('hidden');

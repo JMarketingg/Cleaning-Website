@@ -1,7 +1,7 @@
 // ============================================================================
 // Jiyah's cycle tracker (2026-10-17, migration 0214). Called from calendar.js.
-// Jiyah: full read/write. Andrew (owner): read-only summary of ONLY what Jiyah
-// shares (cal_cycle_settings). Private notes are never sent to Andrew.
+// Jiyah: full read/write. Owner (owner): read-only summary of ONLY what Jiyah
+// shares (cal_cycle_settings). Private notes are never sent to Owner.
 // Predictions are computed on read from real periods; manual edits and the
 // auto estimate in force when a period starts are kept in cal_cycle_preds.
 // ============================================================================
@@ -14,7 +14,7 @@ const FLOWS = ['spotting', 'light', 'medium', 'heavy'];
 export const MOODS = ['happy', 'calm', 'sensitive', 'irritable', 'anxious', 'sad', 'stressed', 'tired', 'overwhelmed', 'affectionate', 'other'];
 export const SYMPTOMS = ['cramps', 'bloating', 'headache', 'fatigue', 'tender', 'acne', 'cravings', 'backpain', 'sleep', 'other'];
 const SET_KEYS = ['share_dots', 'share_next', 'share_started', 'share_mood', 'share_symptoms', 'share_flow', 'share_logs', 'share_notes', 'share_heads_up', 'remind_on'];
-// Andrew's own reminder (0221). Only his login writes these; Jiyah's save never does.
+// Owner's own reminder (0221). Only his login writes these; Jiyah's save never does.
 const ANDREW_KEYS = ['andrew_remind_on', 'andrew_remind_days'];
 
 // periods: [{start_day,end_day}] sorted asc. manual: active manual row or null.
@@ -128,7 +128,7 @@ export async function cycleLoad(db) {
   return { periods, settings, manual, pred: predict(periods, manual) };
 }
 
-// For the main calendar: dots for Jiyah always, for Andrew only if share (env
+// For the main calendar: dots for Jiyah always, for Owner only if share (env
 // flag CYCLE_SHARE_OWNER, checked in calendar.js) AND share_dots.
 export async function cycleDots(db, me, share) {
   const c = await cycleLoad(db);
@@ -140,7 +140,7 @@ export async function cycleDots(db, me, share) {
   return r;
 }
 
-// Andrew's full shared view (0221). Every part only if its toggle is on.
+// Owner's full shared view (0221). Every part only if its toggle is on.
 // Never: Jiyah's settings row, her reminder, prediction edit history, access log.
 function sharedFor(c, logs) {
   const s = c.settings, p = c.pred, r = {};
@@ -162,7 +162,7 @@ function sharedFor(c, logs) {
   return r;
 }
 
-function summaryFor(c, logs) {   // what Andrew may see
+function summaryFor(c, logs) {   // what Owner may see
   const s = c.settings, p = c.pred, r = { shared: false };
   if (s.share_next && p.has) Object.assign(r, { shared: true, next_start: p.next_start, range_lo: p.range_lo, range_hi: p.range_hi, early: p.early, cycle_day: p.cycle_day, phase: p.phase, late_by: p.late_by });
   if (s.share_started && p.has) Object.assign(r, { shared: true, on_period: p.ongoing, ...(p.ongoing ? { cycle_day: p.cycle_day } : {}) });
@@ -185,8 +185,8 @@ export async function cycleAction(req, res, db, me, op, b, share) {
     const acc = await db.from('cal_cycle_access_log').select('at, route, flag_state').order('at', { ascending: false }).limit(30);
     return res.status(200).json({ me, periods: c.periods, settings: c.settings, pred: c.pred, logs, history: hist, patterns: insights(c, logs, { mood: true, sym: true }).patterns, summary: summaryFor(c, logs), shared: sharedFor(c, logs), access_log: acc.error ? [] : acc.data });
   }
-  if (op === 'cyc_andrew_remind_save') {   // Andrew's own reminder; writes ONLY his 2 fields
-    if (me !== 'andrew') return res.status(403).json({ error: 'Only Andrew can change this' });
+  if (op === 'cyc_andrew_remind_save') {   // Owner's own reminder; writes ONLY his 2 fields
+    if (me !== 'andrew') return res.status(403).json({ error: 'Only Owner can change this' });
     const row = {};
     if (b.andrew_remind_on !== undefined) row.andrew_remind_on = !!b.andrew_remind_on;
     if (b.andrew_remind_days !== undefined) row.andrew_remind_days = Math.min(14, Math.max(0, Math.round(Number(b.andrew_remind_days)) || 0));

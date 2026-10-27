@@ -130,7 +130,7 @@ const STAFF_PHONE_ENV = {
 // notification into nothing. Both owner-confirmed (Joey 2026-08-25, Heather
 // 2026-08-26) and matching both staff_users.phone and each person's
 // tracking-number routing.
-const STAFF_PHONE_FALLBACK = { JOEY_PHONE_NUMBER: '3032190118', HEATHER_PHONE_NUMBER: '7207223653' }; // Heather's number updated 2026-09-18
+const STAFF_PHONE_FALLBACK = { JOEY_PHONE_NUMBER: '0000000000', HEATHER_PHONE_NUMBER: '0000000000' }; // Heather's number updated 2026-09-18
 
 // The ONE place the business-slug -> office-phone mapping is resolved.
 // api/book.js's report_late handler imports this instead of re-deriving it —

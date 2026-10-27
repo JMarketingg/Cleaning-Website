@@ -90,3 +90,7 @@ cross join (values
   ('rules','minimum','Minimum job price',1200,60)
 ) p(section, opt, label, price, ord)
 where b.slug = 'handy-andy';
+
+-- 7. Only TidyHaus remains (Manila, one location). Old sample content removed.
+delete from app.businesses where slug <> 'handy-andy';
+delete from app.prospect_tips; delete from app.multi_tv_discount_config; delete from app.launch_snapshots;

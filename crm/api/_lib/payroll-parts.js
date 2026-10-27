@@ -27,7 +27,7 @@ export function makePartsPlan(preview, input, author) {
     return { id:t.id, name:t.name, business_id:t.business_id, paid_week_total:partsMoney(paid), original_job_pay:t.job_pay, corrected_job_pay:each, deduction, adjustment_id:partsRecordId(preview.id,t.id,'deduction'), settled_at:null };
   });
   const date = preview.job_date;
-  const message = `Parts reimbursement correction — ${preview.customer_name}, ${date}. Your previous payroll included $${techs[0].deduction.toFixed(2)} for parts that Andrew purchased and paid for. That amount is being deducted once from the payroll week beginning ${targetWeek} to correct the reimbursement. This is not a deduction from your labor pay or a penalty.`;
+  const message = `Parts reimbursement correction — ${preview.customer_name}, ${date}. Your previous payroll included $${techs[0].deduction.toFixed(2)} for parts that Owner purchased and paid for. That amount is being deducted once from the payroll week beginning ${targetWeek} to correct the reimbursement. This is not a deduction from your labor pay or a penalty.`;
   if (techs[0].deduction !== techs[1].deduction) fail('The two technicians have different original pay. Review this job before splitting the correction.');
   return { version:1, status:'preparing', source_week:preview.source_week, target_week:targetWeek, corrected_total:partsMoney(input.corrected_total), customer_name:preview.customer_name, job_date:date, techs, message, created_by:author, created_at:new Date().toISOString() };
 }

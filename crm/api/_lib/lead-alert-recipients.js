@@ -12,7 +12,7 @@
 import { coveredSlugsFor, loadCoverageOverrides } from './staff-access.js';
 import { toE164 } from './sms.js';
 
-const JOEY_FALLBACK = '3032190118';
+const JOEY_FALLBACK = '0000000000';
 const EXCLUDE = new Set(['jiyah']);
 
 // Same coverage rule as dashboard access (staff-access.js coveredSlugsFor).

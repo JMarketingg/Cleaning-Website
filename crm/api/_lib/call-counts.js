@@ -5,7 +5,7 @@
 import { localDateStartUTC, addDaysStr } from './time.js';
 
 export const AUTO_COUNT_FROM = '2026-09-22';
-const TZ = 'America/Chicago';
+const TZ = 'Asia/Manila';
 
 // Rows shaped like call_audit_days: { audit_date, grasshopper_number, calls_counted }.
 export async function callDayRows(db, from, to) {

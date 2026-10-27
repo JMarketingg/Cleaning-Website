@@ -412,7 +412,7 @@ async function handleVoiceWhisper(req, res) {
 // Secretary time off (owner 2026-09-27): on a day a secretary marked herself
 // off in My Availability, the lines that ring her handset ring the owner
 // instead, all day. The next day they go back to her automatically.
-const SECRETARY_HANDSETS = { '7207223653': 'handy-andy', '3032190118': 'doms' };
+const SECRETARY_HANDSETS = { '0000000000': 'handy-andy', '0000000000': 'doms' };
 // Shift routing (owner 2026-10-02): a line with route_team rings whoever is
 // scheduled TODAY in staff_schedules (day read in the line's own time zone).
 // Two people on one day: lowest priority wins (Alex before Joe). Nobody
@@ -422,7 +422,7 @@ const DOW_SHORT = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
 async function applyShiftRouting(db, line) {
   if (!line || !line.route_team) return line;
   try {
-    const wd = new Intl.DateTimeFormat('en-US', { timeZone: line.hours_timezone || 'America/Chicago', weekday: 'short' }).format(new Date());
+    const wd = new Intl.DateTimeFormat('en-US', { timeZone: line.hours_timezone || 'Asia/Manila', weekday: 'short' }).format(new Date());
     const dow = DOW_SHORT[wd];
     if (dow == null) return line;
     const { data, error } = await db.from('staff_schedules').select('name, phone, priority')
@@ -431,7 +431,7 @@ async function applyShiftRouting(db, line) {
     // supabase-js returns errors instead of throwing: a failed read keeps the
     // line's own forward_to rather than looking like "nobody scheduled".
     if (error) throw new Error(error.message);
-    const exc = await exceptionsOn(db, dateIn(line.hours_timezone || 'America/Chicago'));
+    const exc = await exceptionsOn(db, dateIn(line.hours_timezone || 'Asia/Manila'));
     const p = applyExceptions(data, exc, line.route_team).find(r => tenDigits(r.phone).length === 10);
     const ownerDigits = tenDigits(process.env.OWNER_PHONE_NUMBER || '');
     const fallback = line.after_hours_forward_to || (ownerDigits.length === 10 ? '+1' + ownerDigits : null);
@@ -450,7 +450,7 @@ async function applyTimeOff(db, line) {
   const ownerTo = line.after_hours_forward_to || (ownerDigits.length === 10 ? '+1' + ownerDigits : null);
   if (!slug || !ownerTo) return line;
   try {
-    const today = new Date().toLocaleDateString('en-CA', { timeZone: line.hours_timezone || 'America/Chicago' });
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: line.hours_timezone || 'Asia/Manila' });
     const { data: biz } = await db.from('businesses').select('id').eq('slug', slug).maybeSingle();
     if (!biz) return line;
     const { data: ex } = await db.from('secretary_availability_exceptions')
@@ -793,7 +793,7 @@ async function handleVoiceStatus(req, res) {
 
 // Backup ring pairs: when the call rang `name` (matched by the phone on their
 // staff_schedules rows) and they missed, ring `backup` next. Add pairs here.
-const BACKUP_RING = [{ name: 'Joe', backup: 'Joey', backupPhone: '3032190118' }];
+const BACKUP_RING = [{ name: 'Joe', backup: 'Joey', backupPhone: '0000000000' }];
 async function backupDialTwiml(params, sid, status) {
   try {
     const db = serviceClient();
@@ -1830,7 +1830,7 @@ async function botDoBooking(db, session, d, line, callerFrom) {
     notes: 'Booked by AI Voice Bot (pilot)',
     // The bot never reads the text-message consent script, so it can never
     // record a yes. Only the office script or the unchecked web checkbox opts
-    // a customer in (A2P 10DLC; see ihandyandy.com/sms-opt-in).
+    // a customer in (A2P 10DLC; see tidyhausph.com/sms-opt-in).
     sms_consent: false,
   };
   try {
@@ -2093,7 +2093,7 @@ async function finishSmsInbound(res, line, from, body, blocked, business_name, t
       // TidyHaus's wording is the opt-out message registered on its A2P
       // campaign (and set as Twilio's Advanced Opt-Out reply), word for word.
       const optText = optBrand === HANDY_ANDY_SMS_BRAND
-        ? `You are unsubscribed and will receive no further messages. Questions? Email contact@ihandyandy.com or call (713) 876-9032.`
+        ? `You are unsubscribed and will receive no further messages. Questions? Email owner@example.invalid or call (713) 876-9032.`
         : `You are unsubscribed and will receive no further messages.`;
       // Twilio sends this itself (no send-result to inspect), so it's logged
       // as a plain "sent" the moment the TwiML is built, same as the HELP
@@ -2130,7 +2130,7 @@ async function finishSmsInbound(res, line, from, body, blocked, business_name, t
     }
     const ld = tenDigits(line && line.phone);
     const contact = brand === HANDY_ANDY_SMS_BRAND
-      ? 'call (713) 876-9032, email contact@ihandyandy.com or visit www.ihandyandy.com'
+      ? 'call (713) 876-9032, email owner@example.invalid or visit tidyhausph.com'
       : (ld.length === 10 ? `call or text (${ld.slice(0, 3)}) ${ld.slice(3, 6)}-${ld.slice(6)}` : 'reply here and a team member will help you');
     await relayInboundText(line, from, body, business_name, ' (auto: HELP reply sent)');
     console.log(`[sms_inbound] HELP from ...${String(from || '').slice(-4)}: answered with support contact, relayed to staff`);

@@ -45,7 +45,7 @@ function eventRow(b, me) {
   return row;
 }
 
-// Cycle sharing safety switch (0221, Jiyah approved 2026-10-19). Andrew's
+// Cycle sharing safety switch (0221, Jiyah approved 2026-10-19). Owner's
 // login gets cycle data ONLY when CYCLE_SHARE_OWNER is exactly 'on'. Missing,
 // empty or any other value = off. Also off for the owner's "view as Jiyah"
 // token and the no-password dev bypass. Jiyah is never affected.
@@ -60,7 +60,7 @@ async function logAccess(db, me, route, auth) {
   if (me !== 'andrew') return;
   try { await db.from('cal_cycle_access_log').insert({ who: 'andrew', route, flag_state: auth.owner_view ? 'view_as' : flagState() }); } catch (_) { /* ignore */ }
 }
-// "Only me" = who 'jiyah'. Andrew never reads or changes those rows.
+// "Only me" = who 'jiyah'. Owner never reads or changes those rows.
 const notPrivate = (me) => (t) => me === 'jiyah' || t.who !== 'jiyah';
 async function privateRow(db, me, id) {
   if (me === 'jiyah' || !id) return false;
@@ -76,7 +76,7 @@ export function calendarAllowed(auth) {
 export async function calendarAction(req, res, db, auth, body) {
   if (!calendarAllowed(auth)) return res.status(403).json({ error: 'Not allowed' });
   const op = String((req.method === 'GET' ? req.query.op : (body && body.op)) || '');
-  // Owner's "view as Jiyah" token is treated as Andrew (no private data).
+  // Owner's "view as Jiyah" token is treated as Owner (no private data).
   const me = auth.auditor && !auth.owner_view ? 'jiyah' : 'andrew';
   const share = me === 'jiyah' || cycleShare(auth);
   const out = (r) => { if (r.error) throw new Error(r.error.message); return r.data; };
@@ -102,7 +102,7 @@ export async function calendarAction(req, res, db, auth, body) {
       db.from('cal_tasks').select('*').is('rrule', null).gte('day', addDay(from, -400)).lte('day', to).order('start_min', { ascending: true, nullsFirst: true }),
       db.from('cal_tasks').select('*').not('rrule', 'is', null).lte('day', to),
       db.from('cal_trips').select('*').lte('start_day', to).gte('end_day', from).order('start_day'),
-      cycleDots(db, me, share),   // from app.cal_periods (0214); Andrew only if Jiyah shares dots
+      cycleDots(db, me, share),   // from app.cal_periods (0214); Owner only if Jiyah shares dots
       db.from('cal_trackers').select('*').order('created_at'),
       db.from('cal_tracker_logs').select('tracker_id, day').gte('day', from).lte('day', to),
       db.from('cal_todos').select('*').order('due_day', { ascending: true, nullsFirst: false }).limit(1000),
@@ -118,7 +118,7 @@ export async function calendarAction(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method' });
   const b = body || {};
   if (op.startsWith('cyc_')) { const r = await cycleAction(req, res, db, me, op, b, share); if (r === null) return res.status(400).json({ error: 'Bad op' }); return r; }
-  // Andrew may never touch an "Only me" event (any of the 6 event writes).
+  // Owner may never touch an "Only me" event (any of the 6 event writes).
   if (me === 'andrew' && ['task_save', 'task_skip', 'task_exception', 'task_move', 'task_done', 'task_delete'].includes(op)) {
     if (b.id && await privateRow(db, me, b.id)) return res.status(403).json({ error: 'Not allowed' });
     if ((op === 'task_save' || op === 'task_exception') && b.who === 'jiyah') return res.status(403).json({ error: 'Not allowed' });

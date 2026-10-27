@@ -54,7 +54,7 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
     if (!emailNotificationsOn()) return { skipped: 'notifications off' };
     const cfg = emailConfig('handy-andy');
     if (!cfg.apiKey) return { skipped: 'no email API key' };
-    const to = process.env.OWNER_NOTIFY_EMAIL || 'contact@ihandyandy.com';
+    const to = process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid';
 
     const db = serviceClient();
     const start = localDayStartUTC(DIGEST_TZ, offset);       // 00:00 Denver of the target day

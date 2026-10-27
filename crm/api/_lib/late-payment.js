@@ -43,7 +43,7 @@ export async function sendLateReminder(db, bookingId, { force = false, key = 'la
   const slug = b.business?.slug || 'handy-andy';
   const brand = brandFor(slug);
   const acct = { account: b.stripe_account || null, slug };
-  const baseUrl = process.env.PUBLIC_URL || 'https://handy-andy-booking.vercel.app';
+  const baseUrl = process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app';
   let payUrl = null;
   if (stripeConfigured(acct)) {
     const session = await stripe('/checkout/sessions', {

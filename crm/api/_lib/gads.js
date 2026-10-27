@@ -10,7 +10,7 @@ import crypto from 'crypto';
 
 // datamanager: Google's required path for uploading booked jobs as conversions (2026-10).
 const SCOPE = 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/datamanager openid email';
-export const GADS_REDIRECT = 'https://handy-andy-booking.vercel.app/api/admin?action=gads_oauth_callback';
+export const GADS_REDIRECT = 'https://tidyhaus-crm.vercel.app/api/admin?action=gads_oauth_callback';
 const ver = () => process.env.GOOGLE_ADS_API_VERSION || 'v26';
 const clean = (x) => String(x || '').replace(/\D/g, '');
 
@@ -151,7 +151,7 @@ export async function gadsReport(db) {
     // d1/p1 (owner 2026-10-17): last 24 hours / the 24 before, by the hour in the
     // account's own time zone (segments.date + segments.hour, current hour included).
     try {
-      const tz = info.timeZone || 'America/Chicago';
+      const tz = info.timeZone || 'Asia/Manila';
       const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map((x) => [x.type, x.value]));
       const hIdx = (d, h) => Math.round(Date.parse(d + 'T00:00:00Z') / 36e5) + Number(h || 0);
       const now = hIdx(`${parts.year}-${parts.month}-${parts.day}`, parts.hour);
@@ -239,7 +239,7 @@ export async function gadsMutate(db, cid, resource, operations, validateOnly, op
 // id (metadata.ad_click, saved by the sites + widgets) are uploaded once to each
 // account's "CRM booking" UPLOAD_CLICKS action. Actions live in integration_tokens
 // 'google_ads_upload_actions' as { "<business slug>": { customer, action } }.
-const GADS_ACCOUNT_CURRENCY = { '4038873594': 'USD', '4616306123': 'PHP', '2893668990': 'THB' };
+const GADS_ACCOUNT_CURRENCY = { '0000000000': 'USD', '0000000000': 'PHP', '0000000000': 'THB' };
 export async function gadsUploadBookings(db) {
   const { data: cfgRow } = await db.from('integration_tokens').select('value').eq('provider', 'google_ads_upload_actions').maybeSingle();
   const cfg = cfgRow ? JSON.parse(cfgRow.value || '{}') : {};

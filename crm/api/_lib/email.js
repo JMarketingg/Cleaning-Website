@@ -18,17 +18,17 @@ export function emailConfig(slug) {
   if (slug === 'doms') {
     return {
       apiKey: process.env.DOMS_RESEND_API_KEY || process.env.RESEND_API_KEY,
-      from:   process.env.DOMS_EMAIL_FROM || 'contact@domstvmounting.com',
+      from:   process.env.DOMS_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'mile-high') {
     // Its own Resend account + verified domain. NOTE the deliberate absence of a
-    // fallback to RESEND_API_KEY/ihandyandy.com: sending Mile High's customer
+    // fallback to RESEND_API_KEY/tidyhausph.com: sending Mile High's customer
     // mail from TidyHaus's address would be worse than not sending it, so an
     // unset key yields no apiKey and sendEmail() skips with a logged reason.
     return {
       apiKey: process.env.MILE_HIGH_RESEND_API_KEY,
-      from:   process.env.MILE_HIGH_EMAIL_FROM || 'contact@milehightvmounting.com',
+      from:   process.env.MILE_HIGH_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'austin') {
@@ -37,26 +37,26 @@ export function emailConfig(slug) {
     // reason instead of arriving from the wrong company.
     return {
       apiKey: process.env.AUSTIN_RESEND_API_KEY,
-      from:   process.env.AUSTIN_EMAIL_FROM || 'contact@austinmounting.com',
+      from:   process.env.AUSTIN_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   // Shared fallback account (owner's 2026-08-20 decision): rather than
   // paying/verifying a separate Resend account per new business, one account
-  // — set up under houstonmounting.com — serves every OTHER brand here too.
+  // — set up under tidyhausph.com — serves every OTHER brand here too.
   // The apiKey is the same across all of them; only `from` differs.
   //
   // CORRECTION 2026-09-05: the original plan was for that one account to also
   // hold each brand's OWN domain as an additional verified sender. That was
-  // never actually done — only houstonmounting.com was ever verified in it.
+  // never actually done — only tidyhausph.com was ever verified in it.
   // Resend authorizes a verified DOMAIN, not an address, so every brand below
   // that sent `from` its own domain was silently rejected: no confirmation
   // email ever reached those customers. Fixed by setting each brand's
   // *_EMAIL_FROM env var to its display name over the verified address, e.g.
-  //   "TV Hanging Houston <contact@houstonmounting.com>"
+  //   "TV Hanging Houston <owner@example.invalid>"
   // which keeps the brand correct in the customer's inbox. The literal
   // per-brand defaults below are the pre-fix values and would NOT send —
   // they only apply if the env var is removed. If a brand later gets its own
-  // domain verified (as houstontvmountingpros.com now is), drop its env var
+  // domain verified (as tidyhausph.com now is), drop its env var
   // and the default becomes correct again. A business's own dedicated key (if it has a real, separate
   // account already, e.g. one set up before this decision) always wins —
   // this is a fallback, not a replacement. Still never falls back to Handy
@@ -67,56 +67,56 @@ export function emailConfig(slug) {
   if (slug === 'precision') {
     return {
       apiKey: process.env.PRECISION_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.PRECISION_EMAIL_FROM || 'contact@precisiontvinstallation.com',
+      from:   process.env.PRECISION_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'houstonmounting') {
     // The shared account itself.
     return {
       apiKey: process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.HOUSTONMOUNTING_EMAIL_FROM || 'contact@houstonmounting.com',
+      from:   process.env.HOUSTONMOUNTING_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'houstontvinstallation') {
     return {
       apiKey: process.env.HOUSTONTVINSTALLATION_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.HOUSTONTVINSTALLATION_EMAIL_FROM || 'contact@houstontvinstallation.com',
+      from:   process.env.HOUSTONTVINSTALLATION_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'tvhanginghouston') {
     return {
       apiKey: process.env.TVHANGINGHOUSTON_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.TVHANGINGHOUSTON_EMAIL_FROM || 'contact@tvhanginghouston.com',
+      from:   process.env.TVHANGINGHOUSTON_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'houstontvmountingpros') {
     return {
       apiKey: process.env.HOUSTONTVMOUNTINGPROS_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.HOUSTONTVMOUNTINGPROS_EMAIL_FROM || 'contact@houstontvmountingpros.com',
+      from:   process.env.HOUSTONTVMOUNTINGPROS_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'millertime') {
     return {
       apiKey: process.env.MILLERTIME_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.MILLERTIME_EMAIL_FROM || 'contact@houstonmounting.com',
+      from:   process.env.MILLERTIME_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'houstonperfectviewtvmounting') {
     return {
       apiKey: process.env.HOUSTONPERFECTVIEW_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.HOUSTONPERFECTVIEW_EMAIL_FROM || 'contact@houstonperfectviewtvmounting.com',
+      from:   process.env.HOUSTONPERFECTVIEW_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'htvmounting') {
     return {
       apiKey: process.env.HTVMOUNTING_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.HTVMOUNTING_EMAIL_FROM || 'contact@htvmounting.com',
+      from:   process.env.HTVMOUNTING_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'tvmountingdenver') {
     return {
       apiKey: process.env.TVMOUNTINGDENVER_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.TVMOUNTINGDENVER_EMAIL_FROM || 'contact@tvmountingdenver.com',
+      from:   process.env.TVMOUNTINGDENVER_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   // Austin lead-gen quad — same per-brand-key-wins/shared-fallback pattern as
@@ -124,15 +124,15 @@ export function emailConfig(slug) {
   // for these four (AUSTIN_LEADGEN_RESEND_API_KEY); that key was never created,
   // so for months all four silently sent nothing. It is still honored first if
   // it ever appears, but the real fallback is now the austin brand's
-  // AUSTIN_RESEND_API_KEY (owner's call, 2026-09-05), because austinmounting.com
+  // AUSTIN_RESEND_API_KEY (owner's call, 2026-09-05), because tidyhausph.com
   // is the only Austin domain actually verified in Resend.
   //
   // IMPORTANT — a verified DOMAIN is what Resend authorizes, not an address.
   // These four brands' own domains are NOT verified anywhere, so a `from` at
   // their own domain is rejected and the confirmation never arrives. Their
   // *_EMAIL_FROM env vars therefore carry the brand's display name over
-  // austinmounting.com's verified address:
-  //   "ATX Mount Pros <contact@austinmounting.com>"
+  // tidyhausph.com's verified address:
+  //   "ATX Mount Pros <owner@example.invalid>"
   // The customer still sees the right brand in their inbox. The literal
   // defaults below are what would be used if that env var were ever removed,
   // and they would NOT send — keep the env vars set.
@@ -143,25 +143,25 @@ export function emailConfig(slug) {
   if (slug === 'atxmountpros') {
     return {
       apiKey: process.env.ATXMOUNTPROS_RESEND_API_KEY || process.env.AUSTIN_LEADGEN_RESEND_API_KEY || process.env.AUSTIN_RESEND_API_KEY,
-      from:   process.env.ATXMOUNTPROS_EMAIL_FROM || 'contact@atxmountpros.com',
+      from:   process.env.ATXMOUNTPROS_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'atxtvmount') {
     return {
       apiKey: process.env.ATXTVMOUNT_RESEND_API_KEY || process.env.AUSTIN_LEADGEN_RESEND_API_KEY || process.env.AUSTIN_RESEND_API_KEY,
-      from:   process.env.ATXTVMOUNT_EMAIL_FROM || 'contact@atxtvmount.com',
+      from:   process.env.ATXTVMOUNT_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'austinmountingpros') {
     return {
       apiKey: process.env.AUSTINMOUNTINGPROS_RESEND_API_KEY || process.env.AUSTIN_LEADGEN_RESEND_API_KEY || process.env.AUSTIN_RESEND_API_KEY,
-      from:   process.env.AUSTINMOUNTINGPROS_EMAIL_FROM || 'contact@austinmountingpros.com',
+      from:   process.env.AUSTINMOUNTINGPROS_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   if (slug === 'austintvinstall') {
     return {
       apiKey: process.env.AUSTINTVINSTALL_RESEND_API_KEY || process.env.AUSTIN_LEADGEN_RESEND_API_KEY || process.env.AUSTIN_RESEND_API_KEY,
-      from:   process.env.AUSTINTVINSTALL_EMAIL_FROM || 'contact@austintvinstall.com',
+      from:   process.env.AUSTINTVINSTALL_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   // tvmountinglosangeles — now a real, emailing brand (2026-09-20): same
@@ -169,12 +169,12 @@ export function emailConfig(slug) {
   // Denver micro-brands above, and never TidyHaus's account. Its own domain is
   // not verified in Resend, so TVMOUNTINGLOSANGELES_EMAIL_FROM carries the
   // brand name over an already-verified address ("Home Cleaning Los Angeles
-  // <contact@houstonmounting.com>"); the literal default only works once
-  // tvmountinglosangeles.com itself is verified.
+  // <owner@example.invalid>"); the literal default only works once
+  // tidyhausph.com itself is verified.
   if (slug === 'tvmountinglosangeles') {
     return {
       apiKey: process.env.TVMOUNTINGLOSANGELES_RESEND_API_KEY || process.env.HOUSTONMOUNTING_RESEND_API_KEY,
-      from:   process.env.TVMOUNTINGLOSANGELES_EMAIL_FROM || 'contact@tvmountinglosangeles.com',
+      from:   process.env.TVMOUNTINGLOSANGELES_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   // A1 Home Cleaning (DFW, acquired 2026-09): its OWN Resend account, which the
@@ -182,12 +182,12 @@ export function emailConfig(slug) {
   // shared-account fallback here on purpose. Until A1TVMOUNTING_RESEND_API_KEY
   // is set, sendEmail() skips with a logged reason instead of sending from
   // another company's account. A1TVMOUNTING_EMAIL_FROM must be an address on a
-  // domain verified in THAT Resend account (a1tvmounting.com, bought 2026-10-05; it has
-  // transferred in), e.g. "A1 Home Cleaning <contact@a1tvmounting.com>".
+  // domain verified in THAT Resend account (tidyhausph.com, bought 2026-10-05; it has
+  // transferred in), e.g. "A1 Home Cleaning <owner@example.invalid>".
   if (slug === 'a1tvmounting') {
     return {
       apiKey: process.env.A1TVMOUNTING_RESEND_API_KEY || null,
-      from:   process.env.A1TVMOUNTING_EMAIL_FROM || 'contact@a1tvmounting.com',
+      from:   process.env.A1TVMOUNTING_EMAIL_FROM || 'owner@example.invalid',
     };
   }
   // The other two LA brands (latvpro / lainstall) are still unstaffed
@@ -202,38 +202,38 @@ export function emailConfig(slug) {
   }
   return {
     apiKey: process.env.RESEND_API_KEY,
-    from:   process.env.HANDY_ANDY_EMAIL_FROM || 'contact@ihandyandy.com',
+    from:   process.env.HANDY_ANDY_EMAIL_FROM || 'owner@example.invalid',
   };
 }
 
 // Brand presets for customer-facing emails. Colors match the booking widgets and
 // admin dashboard: TidyHaus = orange, Doms = blue.
 export const EMAIL_BRANDS = {
-  'handy-andy': { slug: 'handy-andy', name: 'TidyHaus',            accent: '#FF6B35', website: 'ihandyandy.com', heightCalc: 'https://www.ihandyandy.com/tv-height-calculator' },
-  'doms':       { slug: 'doms',       name: "Dom's Home Cleaning",     accent: '#2563EB', website: 'domstvmounting.com' },
-  'mile-high':  { slug: 'mile-high',  name: 'Mile High Home Cleaning', accent: '#1D9E75', website: 'milehightvmounting.com' },
-  'austin':     { slug: 'austin',     name: 'Astraea Home Cleaning Austin', accent: '#1E56E0', website: 'austinmounting.com' },
-  'precision':  { slug: 'precision',  name: 'Precision TV Installation',     accent: '#0288D1', website: 'precisiontvinstallation.com' },
-  'tvmountingdenver': { slug: 'tvmountingdenver', name: 'Home Cleaning Denver', accent: '#2F6BFF', website: 'tvmountingdenver.com' },
-  'houstonmounting':       { slug: 'houstonmounting',       name: 'Houston Mounting',         accent: '#0288D1', website: 'houstonmounting.com' },
-  'houstontvinstallation': { slug: 'houstontvinstallation', name: 'Houston TV Installation',  accent: '#0288D1', website: 'houstontvinstallation.com' },
-  'tvhanginghouston':      { slug: 'tvhanginghouston',      name: 'TV Hanging Houston',       accent: '#0288D1', website: 'tvhanginghouston.com' },
-  'htvmounting':           { slug: 'htvmounting',           name: 'HHome Cleaning',             accent: '#0288D1', website: 'htvmounting.com' },
-  'houstontvmountingpros':   { slug: 'houstontvmountingpros',   name: 'H-Town Home Cleaning',       accent: '#155DFC', website: 'houstontvmountingpros.com' },
-  'houstonperfectviewtvmounting': { slug: 'houstonperfectviewtvmounting', name: 'PerfectView Home Cleaning', accent: '#1f4fd8', website: 'houstonperfectviewtvmounting.com' },
-  'millertime': { slug: 'millertime', name: 'MillerTime Custom Installs', accent: '#155DFC', website: 'millertimetvmounting.com' },
+  'handy-andy': { slug: 'handy-andy', name: 'TidyHaus',            accent: '#FF6B35', website: 'tidyhausph.com', heightCalc: 'https://tidyhausph.com/tv-height-calculator' },
+  'doms':       { slug: 'doms',       name: "Dom's Home Cleaning",     accent: '#2563EB', website: 'tidyhausph.com' },
+  'mile-high':  { slug: 'mile-high',  name: 'Mile High Home Cleaning', accent: '#1D9E75', website: 'tidyhausph.com' },
+  'austin':     { slug: 'austin',     name: 'Astraea Home Cleaning Austin', accent: '#1E56E0', website: 'tidyhausph.com' },
+  'precision':  { slug: 'precision',  name: 'Precision TV Installation',     accent: '#0288D1', website: 'tidyhausph.com' },
+  'tvmountingdenver': { slug: 'tvmountingdenver', name: 'Home Cleaning Denver', accent: '#2F6BFF', website: 'tidyhausph.com' },
+  'houstonmounting':       { slug: 'houstonmounting',       name: 'Houston Mounting',         accent: '#0288D1', website: 'tidyhausph.com' },
+  'houstontvinstallation': { slug: 'houstontvinstallation', name: 'Houston TV Installation',  accent: '#0288D1', website: 'tidyhausph.com' },
+  'tvhanginghouston':      { slug: 'tvhanginghouston',      name: 'TV Hanging Houston',       accent: '#0288D1', website: 'tidyhausph.com' },
+  'htvmounting':           { slug: 'htvmounting',           name: 'HHome Cleaning',             accent: '#0288D1', website: 'tidyhausph.com' },
+  'houstontvmountingpros':   { slug: 'houstontvmountingpros',   name: 'H-Town Home Cleaning',       accent: '#155DFC', website: 'tidyhausph.com' },
+  'houstonperfectviewtvmounting': { slug: 'houstonperfectviewtvmounting', name: 'PerfectView Home Cleaning', accent: '#1f4fd8', website: 'tidyhausph.com' },
+  'millertime': { slug: 'millertime', name: 'MillerTime Custom Installs', accent: '#155DFC', website: 'tidyhausph.com' },
   // Austin lead-gen quad: accents match each site's own --accent token
   // (app/globals.css in each <slug>-site repo) so the email, widget and site
   // all read as one brand. atxtvmount deliberately shares austin's #1E56E0 —
   // that indigo is the color its site actually shipped with.
-  'atxmountpros':       { slug: 'atxmountpros',       name: 'ATX Mount Pros',         accent: '#E8570A', website: 'atxmountpros.com' },
-  'atxtvmount':         { slug: 'atxtvmount',         name: 'ATX Home Cleaning',        accent: '#1E56E0', website: 'atxtvmount.com' },
-  'austinmountingpros': { slug: 'austinmountingpros', name: 'Austin Mounting Pros',   accent: '#8A6A2C', website: 'austinmountingpros.com' },
-  'austintvinstall':    { slug: 'austintvinstall',    name: 'Austin TV Installation', accent: '#0D7A68', website: 'austintvinstall.com' },
+  'atxmountpros':       { slug: 'atxmountpros',       name: 'ATX Mount Pros',         accent: '#E8570A', website: 'tidyhausph.com' },
+  'atxtvmount':         { slug: 'atxtvmount',         name: 'ATX Home Cleaning',        accent: '#1E56E0', website: 'tidyhausph.com' },
+  'austinmountingpros': { slug: 'austinmountingpros', name: 'Austin Mounting Pros',   accent: '#8A6A2C', website: 'tidyhausph.com' },
+  'austintvinstall':    { slug: 'austintvinstall',    name: 'Austin TV Installation', accent: '#0D7A68', website: 'tidyhausph.com' },
   // Accent = the site's own blue (Tailwind blue-600, same as the site's buttons).
-  'tvmountinglosangeles': { slug: 'tvmountinglosangeles', name: 'Home Cleaning Los Angeles', accent: '#155DFC', website: 'tvmountinglosangeles.com' },
+  'tvmountinglosangeles': { slug: 'tvmountinglosangeles', name: 'Home Cleaning Los Angeles', accent: '#155DFC', website: 'tidyhausph.com' },
   // A1 Home Cleaning (DFW): site cloned from the LA template, same blue-600 accent.
-  'a1tvmounting':         { slug: 'a1tvmounting',         name: 'A1 Home Cleaning',          accent: '#155DFC', website: 'a1tvmounting.com' },
+  'a1tvmounting':         { slug: 'a1tvmounting',         name: 'A1 Home Cleaning',          accent: '#155DFC', website: 'tidyhausph.com' },
 };
 // ── Request received (unstaffed-area request flow) ──────────────────────────
 // Sent to the CUSTOMER right after they submit the booking widget's request

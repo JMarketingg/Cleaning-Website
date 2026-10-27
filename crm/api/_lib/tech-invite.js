@@ -35,7 +35,7 @@ export function normalizeInviteCode(raw) {
 // Same PUBLIC_URL -> VERCEL_URL -> prod fallback chain reviewInviteSend uses.
 export function appBaseUrl() {
   return (process.env.PUBLIC_URL
-    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://handy-andy-booking.vercel.app'))
+    || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'https://tidyhaus-crm.vercel.app'))
     .replace(/\/+$/, '');
 }
 // vercel.json rewrites /join to /join.html; the short form keeps the text short.
@@ -71,7 +71,7 @@ export function weakPin(pin) { return WEAK_PINS.has(String(pin || '')); }
 
 export function fmtExpiry(iso, tz) {
   try {
-    return new Date(iso).toLocaleDateString('en-US', { timeZone: tz || 'America/Chicago', month: 'short', day: 'numeric' });
+    return new Date(iso).toLocaleDateString('en-US', { timeZone: tz || 'Asia/Manila', month: 'short', day: 'numeric' });
   } catch { return ''; }
 }
 

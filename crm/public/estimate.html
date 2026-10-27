@@ -139,7 +139,7 @@ document.documentElement.style.setProperty('--accent-soft', hexToSoft(getCompute
 // "Book now" destination for the Home Cleaning tile, per business. The tile links
 // straight to the booking page instead of continuing the estimate flow.
 // target="_top" so an embedding iframe navigates the whole page.
-const BOOK_URLS = { 'handy-andy':'https://www.ihandyandy.com/book', 'doms':'https://www.domstvmounting.com/book' };
+const BOOK_URLS = { 'handy-andy':'https://tidyhausph.com/book', 'doms':'https://tidyhausph.com/book' };
 const BOOK_URL = BOOK_URLS[SLUG] || '';
 
 // Trust-bar copy, per business — same pattern as ACCENTS/BOOK_URLS above. Kept
@@ -165,7 +165,7 @@ let BIZ_NAME = '';
 function consentBrand(){ return CONSENT_BRANDS[SLUG] || BIZ_NAME || 'us'; }
 // Privacy Policy + SMS Terms links shown after the consent label (handy-andy only).
 const CONSENT_LINKS = {
-  'handy-andy': { privacy:'https://www.ihandyandy.com/privacy-policy', terms:'https://www.ihandyandy.com/terms-of-service#sms-terms' },
+  'handy-andy': { privacy:'https://tidyhausph.com/privacy-policy', terms:'https://tidyhausph.com/terms-of-service#sms-terms' },
 };
 
 // Best-effort icon for a service tile, matched by keyword so it degrades

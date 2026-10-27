@@ -1,8 +1,8 @@
-// /api/quote.js — public "Request a Quote" endpoint for the ihandyandy.com
+// /api/quote.js — public "Request a Quote" endpoint for the tidyhausph.com
 // site clone (data-landingsite-contact-form on ~44 service pages). The
 // original landingsite.ai lead form posted to a lambda URL this project
 // doesn't own, so submissions went nowhere. This is a small, dedicated
-// replacement: on submit it ALWAYS emails contact@ihandyandy.com and texts
+// replacement: on submit it ALWAYS emails owner@example.invalid and texts
 // Heather and the owner, independent of the shared /api/estimate flow's
 // per-business routing (which this quote form doesn't need — no line items,
 // no dashboard row, just "someone asked a question, go tell a human").
@@ -23,7 +23,7 @@ function esc(s) {
 // search results) serves the site from (www-)ihandyandy-com.translate.goog with
 // its scripts still running, so a translated visitor's request carries that
 // Origin — without these two, their request was silently dropped as a bot.
-const SITE_HOSTS = new Set(['ihandyandy.com', 'ihandyandy-com.translate.goog', 'www-ihandyandy-com.translate.goog', 'localhost', '127.0.0.1']);
+const SITE_HOSTS = new Set(['tidyhausph.com', 'ihandyandy-com.translate.goog', 'www-ihandyandy-com.translate.goog', 'localhost', '127.0.0.1']);
 
 const THROWAWAY = /@(?:[a-z0-9-]+\.)*(sigismail\.com|mailinator\.com|guerrillamail\.[a-z.]+|sharklasers\.com|grr\.la|10minutemail\.[a-z.]+|temp-?mail\.[a-z.]+|tempmail\.[a-z.]+|yopmail\.[a-z.]+|trashmail\.[a-z.]+|getnada\.com|nada\.email|dispostable\.com|maildrop\.cc|mailnesia\.com|mintemail\.com|throwawaymail\.com|fakeinbox\.com|emailnator\.com|mohmal\.com|burnermail\.io|spamgourmet\.com|mailcatch\.com|tempinbox\.com|tempr\.email|discard\.email|moakt\.[a-z.]+|1secmail\.[a-z.]+|cmail\.club)$/i;
 const TOLL_FREE_AREAS = new Set(['800', '833', '844', '855', '866', '877', '888']);
@@ -58,7 +58,7 @@ export default async function handler(req, res) {
     .trim().slice(0, 200));
 
   // This endpoint has open CORS (it's posted to cross-origin from
-  // ihandyandy.com), which also makes it trivially discoverable and
+  // tidyhausph.com), which also makes it trivially discoverable and
   // spammable by scripts that skip the real page entirely. Real browser
   // submissions always carry an Origin/Referer for a cross-origin fetch, so
   // anything claiming a different site (or none at all) is rejected here.
@@ -67,7 +67,7 @@ export default async function handler(req, res) {
   let fromSite = false;
   try {
     const host = new URL(originHeader).hostname.toLowerCase();
-    fromSite = SITE_HOSTS.has(host) || host.endsWith('.ihandyandy.com');
+    fromSite = SITE_HOSTS.has(host) || host.endsWith('.tidyhausph.com');
   } catch {}
   // Invisible field bots fill in but the real form never shows.
   const isHoneypot = String(body.hp_website || '').trim() !== '';
@@ -145,7 +145,7 @@ export default async function handler(req, res) {
     .map(([k, v]) => `<tr><td style="padding:3px 14px 3px 0;color:#6b7280;font-weight:600;white-space:nowrap;vertical-align:top;">${esc(k)}</td><td style="padding:3px 0;color:#111;">${esc(v)}</td></tr>`)
     .join('');
   const html = `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;color:#111;line-height:1.5;">
-    <h2 style="margin:0 0 12px;">New quote request from ihandyandy.com</h2>
+    <h2 style="margin:0 0 12px;">New quote request from tidyhausph.com</h2>
     <table style="border-collapse:collapse;">${tbl}</table>
     <p style="margin:14px 0 0;"><b>What they need:</b> ${esc(message)}</p>
   </div>`;
@@ -167,7 +167,7 @@ export default async function handler(req, res) {
         source: 'website_form', status: 'unsent', line_items: [], preferred_slots: [], sms_consent: !!phone, ad_click: cleanAdClick(body.ad_click || body.ha_click),
       }).select('id').single();
       if (ins.error) throw ins.error;
-      link = `${(process.env.PUBLIC_URL || 'https://handy-andy-booking.vercel.app').replace(/\/$/, '')}/admin.html?estimate=${encodeURIComponent(ins.data.id)}`;
+      link = `${(process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app').replace(/\/$/, '')}/admin.html?estimate=${encodeURIComponent(ins.data.id)}`;
     }
   } catch (e) { console.error('[quote] could not save estimate', e.message); }
   const smsText = [`New estimate request — ${name}`, link || message.slice(0, 140)].join('\n');
@@ -180,7 +180,7 @@ export default async function handler(req, res) {
   const results = await Promise.allSettled([
     sendEmail({
       slug: 'handy-andy',
-      to: 'contact@ihandyandy.com',
+      to: 'owner@example.invalid',
       subject: repeatSender ? 'New estimate request (repeat sender, not texted)' : 'New estimate request',
       html,
     }),

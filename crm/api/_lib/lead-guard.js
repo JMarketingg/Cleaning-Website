@@ -2,10 +2,10 @@
 // api/doms-lead.js).
 //
 // Why this exists: on 2026-09-04 and 2026-09-07 a bot drove the real
-// ihandyandy.com quote form in a headless browser and fired 13 fake "New quote
+// tidyhausph.com quote form in a headless browser and fired 13 fake "New quote
 // request"s in bursts -- 6 in 12 seconds, then 1, 1, and 5 in 14 seconds --
 // every one of them texting Heather. All 13 used the same Gmail inbox with dots
-// sprinkled through the name (nijujid.a.q.i.z.0.1@gmail.com), which Gmail
+// sprinkled through the name (owner@example.invalid), which Gmail
 // treats as one address. A real customer sends one request, maybe a second if
 // they think the first didn't go through. So once the same connection, the same
 // inbox or the same phone number has sent a few in ten minutes, the rest are

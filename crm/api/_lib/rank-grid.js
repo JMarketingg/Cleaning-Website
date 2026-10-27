@@ -28,23 +28,14 @@ const PAGES = Math.ceil(DEPTH / 10);
 export const PRICE = { maps: 0.0006 * PAGES, organic: 0.0006 * PAGES };
 
 export const RANK_CITIES = [
-  { city: 'Houston', mi: 2.3, metro: 'houston', lat: 29.7604, lng: -95.3698, listings: ['ha-houston', 'ha-greenway', 'perfectview-houston', 'millertime-houston'] },
-  { city: 'Denver', mi: 4, metro: 'denver', lat: 39.7392, lng: -104.9903, listings: ['ha-denver', 'ha-golden', 'doms-colorado'] },
-  { city: 'Los Angeles', metro: 'los angeles', lat: 34.0522, lng: -118.2437, listings: ['ha-los-angeles'] },
-  { city: 'Austin', mi: 4, metro: 'austin', lat: 30.2672, lng: -97.7431, listings: ['ha-austin', 'astraea-austin'] },
-  // One DFW grid between A1 (Euless) and HA Fort Worth (owner 2026-10-21): 4.5 mi covers both.
-  { city: 'Dallas-Fort Worth', mi: 5.2, cols: 8, rows: 4, metro: 'dallas', lat: 32.8000, lng: -97.0500, listings: ['a1-dfw', 'ha-fort-worth'] },
-  { city: 'Oklahoma City', metro: 'oklahoma city', lat: 35.4676, lng: -97.5164, listings: ['doms-okc'] },
-  { city: 'Tulsa', mi: 4, metro: 'tulsa', lat: 36.1540, lng: -95.9928, listings: ['doms-tulsa'] },
+  { city: 'Manila', mi: 2, metro: 'manila', lat: 14.5547, lng: 121.0244, listings: [] },
 ];
-export const OUR_DOMAINS = ['ihandyandy.com', 'domstvmounting.com', 'austinmounting.com', 'a1tvmounting.com'];
+export const OUR_DOMAINS = ['tidyhausph.com'];
 // Every site the owner runs (redirects + lead-gen too): flagged You, never a competitor.
-export const OWN_DOMAINS = [...OUR_DOMAINS, 'domstvmountingokc.com', 'domstvmountingtulsa.com',
-  'precisiontvinstallation.com', 'houstonperfectviewtvmounting.com', 'millertimetvmounting.com', 'tvmountinglosangeles.com', 'tvmountingdenver.com',
-  'milehightvmounting.com', 'houstonmounting.com', 'houstontvmountingpros.com', 'atxmountpros.com'];
+export const OWN_DOMAINS = [...OUR_DOMAINS];
 export const ownDomainOf = (dm) => { dm = String(dm || '').toLowerCase().replace(/^www\./, ''); return dm ? (OWN_DOMAINS.find((d) => dm === d || dm.endsWith('.' + d)) || null) : null; };
 // Organic target for a Maps listing (Launch popup keeps the card's own site on the Organic tab).
-const SITE_OF = { 'handy-andy': 'ihandyandy.com', doms: 'domstvmounting.com', austin: 'austinmounting.com', a1tvmounting: 'a1tvmounting.com' };
+const SITE_OF = { 'handy-andy': 'tidyhausph.com', doms: 'tidyhausph.com', austin: 'tidyhausph.com', a1tvmounting: 'tidyhausph.com' };
 export const siteOf = (key) => SITE_OF[(GMB_LOCATIONS.find((g) => g.key === key) || {}).business] || null;
 // Owner 2026-10-20: exactly these 3 per city.
 export const keywordsFor = (c) => ['tv mounting', `tv mounting ${c.metro}`, 'tv installation'];
@@ -275,18 +266,11 @@ export async function dryRun(db, cityName) {
 // SERP organic live/advanced: ~$0.002 per keyword; 'paid' items = the ads shown.
 export const KW_PRICE = 0.075;
 export const ADS_PRICE = 0.002;
-const LOC = { Houston: 'Houston,Texas,United States', Denver: 'Denver,Colorado,United States', 'Los Angeles': 'Los Angeles,California,United States',
-  Austin: 'Austin,Texas,United States', 'Dallas-Fort Worth': 'Dallas,Texas,United States', 'Oklahoma City': 'Oklahoma City,Oklahoma,United States', Tulsa: 'Tulsa,Oklahoma,United States' };
+const LOC = { Manila: 'Philippines' };
 const SUBURBS = {
-  Houston: ['katy', 'sugar land', 'pearland', 'the woodlands', 'cypress', 'spring', 'pasadena', 'league city', 'missouri city', 'humble'],
-  Denver: ['aurora', 'lakewood', 'littleton', 'arvada', 'westminster', 'thornton', 'centennial', 'highlands ranch', 'parker', 'golden'],
-  Austin: ['round rock', 'cedar park', 'pflugerville', 'georgetown', 'leander', 'kyle', 'buda'],
-  'Dallas-Fort Worth': ['fort worth', 'arlington', 'dallas', 'plano', 'frisco', 'mckinney', 'irving', 'grand prairie', 'mansfield', 'keller'],
-  'Oklahoma City': ['edmond', 'norman', 'moore', 'yukon', 'midwest city'],
-  Tulsa: ['broken arrow', 'owasso', 'jenks', 'bixby', 'sand springs'],
-  'Los Angeles': ['santa monica', 'pasadena', 'glendale', 'burbank', 'long beach', 'torrance', 'irvine'],
+  Manila: ['makati', 'bgc', 'taguig', 'rockwell', 'legaspi village', 'salcedo village'],
 };
-export const locOf = (c) => LOC[c.city] || `${c.city},United States`;
+export const locOf = (c) => LOC[c.city] || 'Philippines';
 export function volumeSeeds(c) {
   const m = c.metro;
   const list = ['tv mounting', `tv mounting ${m}`, 'tv installation', `tv installation ${m}`, 'tv wall mount installation', 'tv mounting near me',

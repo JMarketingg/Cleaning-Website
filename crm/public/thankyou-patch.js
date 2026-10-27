@@ -1,5 +1,5 @@
 // TidyHaus — thank-you page display patches
-// Add to page <head>: <script src="https://handy-andy-booking.vercel.app/thankyou-patch.js"></script>
+// Add to page <head>: <script src="https://tidyhaus-crm.vercel.app/thankyou-patch.js"></script>
 document.addEventListener('DOMContentLoaded', function() {
   // "Estimated total" → "Total" (rename the label)
   var lbl = document.querySelector('#ha-ty .total .tl');
