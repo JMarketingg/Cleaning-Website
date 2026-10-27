@@ -1,14 +1,7 @@
-// Tech calendar (owner 2026-09-29, after Gregory "wasn't aware" of a job he had
-// been texted about twice):
-//   1. A private calendar feed per technician (webcal / .ics). The tech adds it
-//      once to Apple, Google or Samsung Calendar and every job they're on shows
-//      up in the calendar they already look at, and keeps itself up to date.
-//   2. An evening "your jobs tomorrow" text, sent once per tech per day.
-// Read-only: nothing a calendar app does can change a booking.
 import { signToken, verifyToken } from './auth.js';
 import { sendSMSResult } from './sms.js';
 
-const CAL_TTL = 10 * 365 * 86400;   // a subscription should outlive the phone
+const CAL_TTL = 10 * 365 * 86400;
 export const calToken = (techId) => signToken({ kind: 'tech_cal', tech_id: techId }, CAL_TTL);
 export const calTechId = (token) => { const a = verifyToken(String(token || '')); return a && a.kind === 'tech_cal' && a.tech_id ? a.tech_id : null; };
 
@@ -36,7 +29,6 @@ async function techJobs(db, techId, fromISO, toISO) {
   return data || [];
 }
 
-// RFC 5545 text: escape \ ; , and newlines, then fold lines at 75 octets.
 const icsText = (s) => String(s || '').replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 const icsTime = (d) => new Date(d).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
 function fold(line) {
@@ -52,7 +44,6 @@ function fold(line) {
   return out.join('\r\n');
 }
 
-/** The whole feed: 14 days back to 120 days ahead. */
 export async function techIcs(db, techId) {
   const { data: tech } = await db.from('technicians').select('id, name, active').eq('id', techId).maybeSingle();
   if (!tech || tech.active === false) return null;
@@ -75,7 +66,7 @@ export async function techIcs(db, techId) {
       j.customer_notes ? `Notes: ${j.customer_notes}` : null,
       `Open in the app: ${baseUrl()}/tech.html`,
     ].filter(Boolean).join('\n');
-    lines.push('BEGIN:VEVENT', `UID:${j.id}@handy-andy-jobs`, `DTSTAMP:${stamp}`, `DTSTART:${icsTime(start)}`, `DTEND:${icsTime(end)}`,
+    lines.push('BEGIN:VEVENT', `UID:${j.id}@tidyhaus-jobs`, `DTSTAMP:${stamp}`, `DTSTART:${icsTime(start)}`, `DTEND:${icsTime(end)}`,
       fold(`SUMMARY:${icsText(`${j.customer?.name || 'Job'}${second}${j.business?.name ? ' · ' + j.business.name : ''}`)}`),
       addr ? fold(`LOCATION:${icsText(addr)}`) : null,
       fold(`DESCRIPTION:${icsText(desc)}`),
@@ -86,32 +77,22 @@ export async function techIcs(db, techId) {
   return lines.filter(Boolean).join('\r\n') + '\r\n';
 }
 
-/**
- * Evening text: every active tech with a job tomorrow (in the job's own
- * timezone) gets ONE text listing them. Once per tech per day (tech_sms_log
- * kind 'tomorrow' is the guard), so a re-run never texts twice.
- */
 export async function sendTomorrowDigest(db, { dryRun = false, force = false } = {}) {
   const now = Date.now();
-  // Owner 2026-09-29: goes out at 8:30 PM Denver time. The cron fires at both
-  // 02:30 and 03:30 UTC so daylight saving never moves it; only the run that
-  // lands in the 8 PM Denver hour sends.
   const denverHour = Number(new Intl.DateTimeFormat('en-US', { timeZone: 'Asia/Manila', hourCycle: 'h23', hour: '2-digit' }).format(now));
-  if (!force && !dryRun && denverHour !== 20) return { sent: [], skipped: [], note: `not 8 PM in Denver (hour ${denverHour})` };
-  // Tomorrow in Denver/Central is inside this window whenever the cron runs
-  // in the evening US time; each job is then checked against its own day.
+  if (!force && !dryRun && denverHour !== 20) return { sent: [], skipped: [], note: `not 8 PM in Manila (hour ${denverHour})` };
   const q = await db.from('bookings').select(`id, scheduled_at, technician_id, secondary_technician_id, city,
       customer:customers ( name ), business:businesses ( name, timezone ), service_area:service_areas ( timezone )`)
     .not('status', 'in', '(cancelled,no_show,completed)')
     .gte('scheduled_at', new Date(now).toISOString()).lt('scheduled_at', new Date(now + 48 * 3600000).toISOString())
     .order('scheduled_at', { ascending: true });
-  if (q.error) throw q.error;   // a failed lookup must be loud, never "no jobs tomorrow"
+  if (q.error) throw q.error;
   const jobs = q.data || [];
   const byTech = new Map();
   for (const j of jobs) {
     const tz = j.service_area?.timezone || j.business?.timezone || 'Asia/Manila';
     const day = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: tz });
-    if (day(j.scheduled_at) !== day(now + 86400000)) continue;   // only TOMORROW, local to the job
+    if (day(j.scheduled_at) !== day(now + 86400000)) continue;
     for (const t of [j.technician_id, j.secondary_technician_id].filter(Boolean)) {
       if (!byTech.has(t)) byTech.set(t, []);
       byTech.get(t).push({ ...j, tz });
@@ -124,7 +105,6 @@ export async function sendTomorrowDigest(db, { dryRun = false, force = false } =
     const { data: already } = await db.from('tech_sms_log').select('id').eq('technician_id', techId).eq('kind', 'tomorrow')
       .gte('created_at', new Date(now - 20 * 3600000).toISOString()).limit(1);
     if (already && already.length) { skipped.push({ techId, why: 'already sent' }); continue; }
-    // Owner's wording (2026-09-29).
     const msg = `You have ${list.length} job${list.length === 1 ? '' : 's'} tomorrow.\n\nDetails: ${baseUrl()}/tech.html`;
     if (dryRun) { sent.push({ tech: tech.name, jobs: list.length, msg }); continue; }
     const { data: log } = await db.from('tech_sms_log').insert({ technician_id: techId, booking_id: list[0].id, kind: 'tomorrow', status: 'pending', to_phone: tech.phone }).select('id').maybeSingle();

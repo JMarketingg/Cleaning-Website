@@ -74,8 +74,6 @@ export async function savePartsCorrection(db, booking, plan) {
     if (!locked) throw Object.assign(new Error('This job changed. Reload it before saving.'),{status:409});
     booking.metadata=meta;
   }
-  // Fixed IDs make retries safe. Preparing records are hidden from payroll until
-  // the final atomic booking update commits both the override and correction.
   for (const t of plan.techs) {
     const row={id:t.adjustment_id,business_id:t.business_id,technician_id:t.id,amount:-t.deduction,reason:`Parts reimbursement correction — ${plan.customer_name}, ${plan.job_date}`,message:plan.message,awarded_on:plan.target_week};
     await checked(db.from('tech_bonuses').upsert(row,{onConflict:'id',ignoreDuplicates:true}));

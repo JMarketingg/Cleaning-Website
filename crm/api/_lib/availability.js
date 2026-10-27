@@ -1,8 +1,3 @@
-// Shared definition of the FIVE fixed availability time slots and the weekly
-// model. These are the ONLY slots a technician may be marked available for.
-// Both the tech app and the admin dashboard read this (so there is a single
-// source of truth) and every write is validated against it server-side, which
-// is what enforces "no other time slots are allowed".
 import { localDateStartUTC, addDaysStr } from './time.js';
 
 export const SLOTS = [
@@ -15,25 +10,13 @@ export const SLOTS = [
 
 export const SLOT_KEYS = new Set(SLOTS.map(s => s.key));
 
-// extra_slots (migration 0052): a big job reserves additional slots. Read them
-// optimistically and fall back if the column isn't applied yet (mirror of the
-// admin.js pattern) so availability never breaks while the migration lands.
 let _extraCol = true;
 const esCol2 = () => (_extraCol ? ', extra_slots' : '');
 const esOf2 = (b) => (_extraCol && Array.isArray(b && b.extra_slots)) ? b.extra_slots : [];
-// Gate on Postgres's actual "undefined column" code (42703), not just a message
-// match — an unrelated error (network hiccup, an unrelated constraint message
-// that happens to mention "extra_slots") must never permanently disable the
-// column for the rest of the lambda's lifetime.
 const _isExtraErr = (e) => !!(e && e.code === '42703' && /extra_slots/.test(e.message || ''));
 
-// Sunday-first to match JS Date.getDay().
 export const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Validate & normalize an incoming availability set: an array of
-// { day_of_week, slot_key }. Throws (with .status = 400) on any value outside
-// the allowed days (0–6) or the five fixed slot keys. Returns a de-duplicated
-// array of clean { day_of_week, slot_key } rows.
 export function normalizeSlots(input) {
   if (!Array.isArray(input)) {
     const e = new Error('slots must be an array'); e.status = 400; throw e;
@@ -57,7 +40,6 @@ export function normalizeSlots(input) {
   return out;
 }
 
-// A calendar date string must be exactly YYYY-MM-DD and a real date.
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export function assertDate(s) {
   const str = String(s || '');
@@ -67,16 +49,10 @@ export function assertDate(s) {
   return str;
 }
 
-// Day of week (0=Sun..6=Sat) for a YYYY-MM-DD calendar date, timezone-agnostic.
 export function dayOfWeekFor(dateStr) {
   return new Date(assertDate(dateStr) + 'T00:00:00Z').getUTCDay();
 }
 
-// Given the recurring slot keys for a weekday and the slot keys a tech selected
-// for one specific date, return the exception rows that capture ONLY the
-// differences: a recurring slot that's been turned off, or an extra slot turned
-// on. A date that matches the recurring schedule yields zero rows (= "normal").
-// `selected` is validated against the five fixed slot keys.
 export function computeExceptionRows(recurringKeys, selected) {
   if (!Array.isArray(selected)) {
     const e = new Error('selected must be an array'); e.status = 400; throw e;
@@ -98,97 +74,22 @@ export function computeExceptionRows(recurringKeys, selected) {
   return rows;
 }
 
-// ── Public, customer-facing open-slot computation (no Zenbooker) ─────────────
-// Mirrors the admin dashboard's availability math (recurring weekly availability
-// + one-time exceptions − existing bookings) but packaged for a PUBLIC booking
-// widget so a business with no Zenbooker territory (e.g. Doms) can show real
-// open times. Kept self-contained so the public path never imports the large
-// admin handler; the occupancy logic intentionally matches
-// api/admin.js (bookedSlotKeysForTech / singleTechSlotKeys).
 
 const SLOT_BY_KEY = Object.fromEntries(SLOTS.map(s => [s.key, s]));
 
-// ── Cross-company cross-hire (Denver only) ───────────────────────────────────
-// TidyHaus and Doms share the Denver metro. Both companies' public widgets are
-// TV-mount visits, so a Denver customer on EITHER site may be offered the OTHER
-// company's techs as a fallback when their own company's techs are all booked —
-// the host company's own techs are always tried first (see pickOpenTech). This
-// is Denver-only: TidyHaus's Houston/Austin metros never cross-hire, and it
-// stays off automatically if either business has no Denver service area row.
-//
-// This map is a per-slug LOOKUP, not a symmetric pairing — each key names the
-// ONE business its overflow falls back to, and the ONE metro that borrowing is
-// allowed in. TidyHaus <-> Doms happens to be mutual (each is the other's
-// key), which is the original two-business Denver case. Mile High and Austin
-// are deliberately ONE-DIRECTIONAL: neither has technicians of its own, so
-// each always borrows TidyHaus's roster in its own metro -- but TidyHaus's
-// own overflow must never fall to their perpetually-empty pools, so neither
-// appears as anyone's partner value.
 const PARTNER_SLUG = {
-  // Array = one partner per metro; DFW added 2026-10-06 (A1's crew).
-  'handy-andy': [{ slug: 'doms', metro: /denver/i }, { slug: 'a1tvmounting', metro: /dfw|dallas|fort worth/i }],
-  'doms':       { slug: 'handy-andy', metro: /denver/i },
-  'mile-high':  { slug: 'handy-andy', metro: /denver/i },
-  'austin':     { slug: 'handy-andy', metro: /austin/i },
-  'precision':  { slug: 'handy-andy', metro: /houston/i },
-  'tvmountingdenver': { slug: 'handy-andy', metro: /denver/i },
-  'houstonmounting':       { slug: 'handy-andy', metro: /houston/i },
-  'houstontvinstallation': { slug: 'handy-andy', metro: /houston/i },
-  'tvhanginghouston':      { slug: 'handy-andy', metro: /houston/i },
-  'htvmounting':           { slug: 'handy-andy', metro: /houston/i },
-  'houstontvmountingpros':   { slug: 'handy-andy', metro: /houston/i },
-  'houstonperfectviewtvmounting': { slug: 'handy-andy', metro: /houston/i },
-  'millertime':            { slug: 'handy-andy', metro: /houston/i },
-  'atxmountpros':          { slug: 'handy-andy', metro: /austin/i },
-  'atxtvmount':            { slug: 'handy-andy', metro: /austin/i },
-  'austinmountingpros':    { slug: 'handy-andy', metro: /austin/i },
-  'austintvinstall':       { slug: 'handy-andy', metro: /austin/i },
-  // No LA techs exist yet; when they do, they belong to handy-andy's LA roster.
-  'tvmountinglosangeles':  { slug: 'handy-andy', metro: /los angeles/i },
+  'tidyhaus': [{ slug: 'doms', metro: /denver/i }, { slug: 'a1tvmounting', metro: /dfw|dallas|fort worth/i }],
 };
 
-// ── Sole-technician lock ─────────────────────────────────────────────────────
-// A business slug listed here may be served by EXACTLY ONE technician, by id.
-// Every other tech is filtered out of its pool — in the displayed slots AND at
-// booking-time assignment — no matter which business they belong to, which
-// metro they are in, or whether cross-hire would otherwise reach them.
-//
-// WHY THIS EXISTS: the four Austin lead-gen brands borrow TidyHaus's Austin
-// roster (see PARTNER_SLUG above), and that roster happens to contain only
-// Zach today. "Happens to" is the problem: the moment a second Austin tech is
-// added and activated for TidyHaus, all four brands would silently start
-// handing them jobs. The owner's requirement is that these four are Zach's
-// alone, so it is written down here as a rule rather than left as a
-// coincidence of the current data.
-//
-// Locked by ID, not name: names are editable free text in the office UI, and a
-// rename must not quietly unlock a brand. If this id is ever wrong the pool
-// comes back EMPTY and slots stop appearing — a visible, safe failure, rather
-// than jobs leaking to the wrong technician.
 const SOLE_TECH = {
-  'millertime':         'a03d09e2-2099-4e49-b4b2-c6b34be4abc8', // Juan (owner: Millertime is Juan only)
-  'atxmountpros':       '5a443792-2868-46ef-a45e-4b26b7de3006', // Zach
-  'atxtvmount':         '5a443792-2868-46ef-a45e-4b26b7de3006', // Zach
-  'austinmountingpros': '5a443792-2868-46ef-a45e-4b26b7de3006', // Zach
-  'austintvinstall':    '5a443792-2868-46ef-a45e-4b26b7de3006', // Zach
 };
 
-// Apply the lock to a technician list. Returns the list unchanged for any
-// business without a lock, so the other nine brands are entirely unaffected.
-// Exported for the office auto-pick (api/admin.js scopedRosterTechs), which
-// builds its own roster and would otherwise never see this lock.
 export function applySoleTech(businessSlug, techs) {
   const only = SOLE_TECH[businessSlug];
   if (!only) return techs || [];
   return (techs || []).filter(t => t.id === only);
 }
 
-// Resolve the partner business's tech pool in the pairing's own metro for a
-// cross-hire lookup, or null if not eligible (this request isn't for that
-// metro, or the partner has no presence there). `serviceAreaId` is the
-// REQUESTING business's area (TidyHaus always passes one; a single-metro
-// business passes none, so we confirm its one area IS the pairing's metro
-// before treating it as eligible).
 async function crossHirePartner(db, businessSlug, serviceAreaId) {
   const pairings = [].concat(PARTNER_SLUG[businessSlug] || []);
   if (!pairings.length) return null;
@@ -207,20 +108,12 @@ async function crossHirePartner(db, businessSlug, serviceAreaId) {
   const { slug: partnerSlug, metro } = pairing;
   const { data: partnerBiz } = await db.from('businesses').select('id').eq('slug', partnerSlug).single();
   if (!partnerBiz) return null;
-  // The partner's area for THIS metro. TidyHaus names its areas by metro
-  // ('Denver', 'Austin', ...), matched by the pairing's own regex rather than
-  // a hardcoded 'Denver' so an Austin-metro pairing finds the Austin roster.
   const { data: partnerAreas } = await db.from('service_areas').select('id, name').eq('business_id', partnerBiz.id);
   const partnerArea = (partnerAreas || []).find(a => metro.test(a.name || ''));
   if (!partnerArea) return null;
   return { partnerSlug, partnerBizId: partnerBiz.id, partnerServiceAreaId: partnerArea.id };
 }
 
-// Per-tech travel radius (migration 0170): technicians.service_zips. NULL =
-// the tech covers their whole service area (every tech before 0170). When the
-// job's zip is known, drop any tech whose list is set and lacks it. No zip =
-// list unchanged. A lookup error (e.g. column not applied) also leaves the
-// list unchanged, i.e. the pre-0170 behavior.
 export async function filterTechsByZip(db, techs, zip) {
   const z = String(zip || '').trim().slice(0, 5);
   if (!/^\d{5}$/.test(z) || !techs || !techs.length) return techs;
@@ -230,34 +123,28 @@ export async function filterTechsByZip(db, techs, zip) {
   return techs.filter(t => { const list = zipsOf.get(t.id); return !Array.isArray(list) || list.includes(z); });
 }
 
-// 'YYYY-MM-DD' for "today" in a timezone.
 export function todayStr(tz) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
-// Local wall-clock 'HH:MM' (tz) for an instant ISO string.
 export function localHHMM(tz, instantISO) {
   const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' })
     .formatToParts(new Date(instantISO)).reduce((a, x) => (a[x.type] = x.value, a), {});
-  const hh = p.hour === '24' ? '00' : p.hour;   // some envs emit 24 for midnight
+  const hh = p.hour === '24' ? '00' : p.hour;
   return `${hh}:${p.minute}`;
 }
-// Local calendar date 'YYYY-MM-DD' (tz) for an instant.
 export function localDateStr(tz, instantISO) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date(instantISO));
 }
 function toMin(s) { const [h, m] = s.split(':').map(Number); return h * 60 + m; }
-// Which fixed slot (if any) a local wall-clock time falls inside: [start,end).
 export function slotKeyForLocalTime(hhmm) {
   const t = toMin(hhmm);
   for (const s of SLOTS) if (t >= toMin(s.start) && t < toMin(s.end)) return s.key;
-  for (const s of SLOTS) if (toMin(s.start) === t) return s.key;   // exact-start fallback
+  for (const s of SLOTS) if (toMin(s.start) === t) return s.key;
   return null;
 }
 
-// Interpret a LOCAL wall time ('HH:MM' on YYYY-MM-DD in tz) and return its UTC
-// Date. Used to anchor scheduled_at/scheduled_end for a booked slot.
 function localTimeToUTC(tz, dateStr, hhmm) {
   const [y, m, d] = dateStr.split('-').map(Number);
   const [hh, mm] = hhmm.split(':').map(Number);
@@ -268,10 +155,9 @@ function localTimeToUTC(tz, dateStr, hhmm) {
     hour: '2-digit', minute: '2-digit', second: '2-digit',
   }).formatToParts(new Date(ms)).reduce((a, x) => (a[x.type] = x.value, a), {});
   const asUTC = Date.UTC(+p.year, +p.month - 1, +p.day, (+p.hour) % 24, +p.minute, +p.second);
-  return new Date(ms - (asUTC - ms));   // ms - offset(local-utc)
+  return new Date(ms - (asUTC - ms));
 }
 
-// UTC Date for the START / END of a fixed slot on a local calendar date.
 export function slotStartUTC(tz, dateStr, slotKey) {
   const s = SLOT_BY_KEY[slotKey]; return s ? localTimeToUTC(tz, dateStr, s.start) : null;
 }
@@ -279,27 +165,11 @@ export function slotEndUTC(tz, dateStr, slotKey) {
   const s = SLOT_BY_KEY[slotKey]; return s ? localTimeToUTC(tz, dateStr, s.end) : null;
 }
 
-// Parse a public slot id '<slug>_<YYYY-MM-DD>_<slotKey>' back to its parts.
 export function parseSlotId(id) {
   const m = /^(.+)_(\d{4}-\d{2}-\d{2})_(s[1-5])$/.exec(String(id || ''));
   return m ? { businessSlug: m[1], dateStr: m[2], slotKey: m[3] } : null;
 }
 
-// Compute open slots for the next `days` days for a business, from its
-// technicians' availability minus existing bookings. Returns
-//   { days: [{ date, day_of_week, timeslots: [{ id, slot_key, formatted, start, end, bonus }] }], timezone }
-// using the same { days:[{date,timeslots:[{id,formatted}]}] } shape the widget
-// already consumes from the Zenbooker proxy. Four batched queries total.
-// `serviceAreaId` (optional) restricts availability to the technicians assigned
-// to ONE metro and computes slot times in that area's timezone — required for a
-// multi-metro business (e.g. TidyHaus: Denver techs in Mountain, Houston/Austin
-// techs in Central, and only the metro's own techs may take its jobs). `timezone`
-// (optional) overrides the zone explicitly; otherwise the area's, then the
-// business's, then Denver. Omit both for a single-area business (e.g. Doms).
-// A tech is "open" for one exact date + slot when they marked it available
-// (recurring or exception), have no job on it, and are under their daily cap.
-// The same three tests pickOpenTech applies, for ONE named tech — used when an
-// estimate is tied to a specific technician (estimates.technician_id).
 export async function techIsOpenForSlot(db, techId, dateStr, slotKey, tz) {
   const { data: t } = await db.from('technicians').select('id, active, max_jobs_per_day').eq('id', techId).maybeSingle();
   if (!t || !t.active) return false;
@@ -310,15 +180,11 @@ export async function techIsOpenForSlot(db, techId, dateStr, slotKey, tz) {
   return !taken.has(slotKey);
 }
 
-// `onlyTechId` narrows the pool to that ONE technician (whatever business or
-// metro they belong to) — an estimate the office tied to a specific tech.
 export async function publicOpenSlots(db, { businessSlug, days = 30, serviceAreaId = null, timezone = null, crossHire = false, onlyTechId = null, zip = null }) {
-  // Allow booking up to ~3 months out (cap kept as a sanity bound on the batched queries).
   const horizon = Math.max(1, Math.min(Number(days) || 30, 95));
   const { data: biz } = await db.from('businesses').select('id, timezone').eq('slug', businessSlug).single();
   if (!biz) return { days: [], timezone: 'Asia/Manila' };
 
-  // Timezone precedence: explicit arg > the service area's tz > business tz > Denver.
   let areaTz = null;
   if (serviceAreaId && !timezone) {
     const { data: area } = await db.from('service_areas').select('timezone').eq('id', serviceAreaId).maybeSingle();
@@ -326,17 +192,11 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
   }
   const tz = timezone || areaTz || biz.timezone || 'Asia/Manila';
 
-  // Technicians for this business, optionally narrowed to one metro's roster.
-  // max_jobs_per_day (migration 0034) caps how many jobs a tech takes in a day;
-  // selected optimistically with a fallback if the column isn't applied yet.
   const techSel = (cols) => { let q = db.from('technicians').select(cols).eq('business_id', biz.id).eq('active', true); if (serviceAreaId) q = q.eq('service_area_id', serviceAreaId); return q; };
   let { data: techs, error: techErr } = await techSel('id, max_jobs_per_day');
   if (techErr && /max_jobs_per_day/.test(techErr.message || '')) ({ data: techs } = await techSel('id'));
   const maxByTech = new Map((techs || []).map(t => [t.id, (t.max_jobs_per_day == null ? null : Number(t.max_jobs_per_day))]));
 
-  // Cross-hire (Denver only): fold the partner company's Denver techs into the
-  // same pool so the customer sees a slot as open if EITHER company can cover
-  // it. Priority between the two is only enforced at booking time (pickOpenTech).
   if (crossHire) {
     const partner = await crossHirePartner(db, businessSlug, serviceAreaId);
     if (partner) {
@@ -351,14 +211,9 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
     }
   }
 
-  // Sole-technician lock, applied AFTER the cross-hire fold so it also strips
-  // any partner-roster tech that borrowing would otherwise have added.
   techs = applySoleTech(businessSlug, techs);
   techs = await filterTechsByZip(db, techs, zip);
 
-  // Office picked one tech for this customer: only they can be offered, even
-  // if they belong to the partner company, and the sole-tech lock is the
-  // office's own explicit choice here, so it does not strip them.
   if (onlyTechId) {
     const { data: one } = await db.from('technicians').select('id, max_jobs_per_day').eq('id', onlyTechId).eq('active', true).maybeSingle();
     techs = one ? [one] : [];
@@ -371,7 +226,6 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
   const start = todayStr(tz);
   const endExclusive = addDaysStr(start, horizon);
 
-  // Recurring weekly availability: `${techId}:${dow}` -> Set(slot_key)
   const { data: av } = await db.from('technician_availability')
     .select('technician_id, day_of_week, slot_key').in('technician_id', techIds);
   const recur = new Map();
@@ -381,7 +235,6 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
     recur.get(k).add(r.slot_key);
   }
 
-  // One-time exceptions in the window: `${techId}:${date}` -> Map(slot_key -> is_available)
   const { data: exc } = await db.from('technician_availability_exceptions')
     .select('technician_id, exception_date, slot_key, is_available')
     .in('technician_id', techIds)
@@ -393,16 +246,10 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
     excMap.get(k).set(e.slot_key, e.is_available);
   }
 
-  // Existing bookings in the window. NO business filter: a tech booked on ANY
-  // company's job is busy everywhere (technician_id is globally unique), which
-  // is what stops a cross-company double-booking. `${techId}:${date}:${slot}`.
   const winStart = localDateStartUTC(tz, start).toISOString();
   const winEnd = localDateStartUTC(tz, endExclusive).toISOString();
   const idList = techIds.join(',');
   const runB = (withSecond) => {
-    // The SELECT (not just the filter) must drop secondary_technician_id on the
-    // fallback, or a pre-0019 DB errors on BOTH attempts and no slot ever reads
-    // as booked (→ overbooking). Matches admin.js's conditional-select pattern.
     let q = db.from('bookings')
       .select((withSecond ? 'technician_id, secondary_technician_id, scheduled_at' : 'technician_id, scheduled_at') + esCol2())
       .neq('status', 'cancelled').not('scheduled_at', 'is', null)
@@ -411,10 +258,6 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
       ? q.or(`technician_id.in.(${idList}),secondary_technician_id.in.(${idList})`)
       : q.in('technician_id', techIds);
   };
-  // Degrade for either missing column (pre-0019 secondary_technician_id, pre-0052
-  // extra_slots). PostgREST names one missing column at a time, so flip the flag it
-  // names and retry until the select is clean (max 2 flips) — never leaving the
-  // booked set empty (which would overbook the widget).
   let withSecond = true;
   let { data: bk, error: bkErr } = await runB(withSecond);
   for (let i = 0; i < 2 && bkErr; i++) {
@@ -424,44 +267,25 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
     if (!changed) break;
     ({ data: bk, error: bkErr } = await runB(withSecond));
   }
-  // A remaining error here is NOT a missing-column shape we can degrade past —
-  // it's a genuine (likely transient) failure. Proceeding with `bk` treated as
-  // empty would mean every tech reads as free for every slot, offering
-  // already-booked times to the public and guaranteeing a double-book the
-  // moment two people book during the same Supabase hiccup. Fail loud instead
-  // (api/slots.js already turns this into a clean 500).
   if (bkErr) throw bkErr;
   const techIdSet = new Set(techIds);
   const booked = new Set();
-  // Jobs already booked per tech per day: `${techId}:${date}` -> count. Used to
-  // drop a tech from a day once they hit their max_jobs_per_day cap.
   const dayCount = new Map();
   for (const b of (bk || [])) {
     const slotKey = slotKeyForLocalTime(localHHMM(tz, b.scheduled_at));
-    // An odd-time manual booking (doesn't land on one of the 5 fixed slots)
-    // can't be marked busy at any specific slot, but it still occupies the
-    // tech's day — it must still count toward max_jobs_per_day, or a tech with
-    // several off-slot jobs reads as having room for more than they actually
-    // do. Only the slot-level occupancy below is skipped without a slotKey.
     const dateStr = localDateStr(tz, b.scheduled_at);
     const extra = esOf2(b);
     for (const tid of [b.technician_id, b.secondary_technician_id]) {
       if (tid && techIdSet.has(tid)) {
         if (slotKey) {
           booked.add(`${tid}:${dateStr}:${slotKey}`);
-          for (const sk of extra) booked.add(`${tid}:${dateStr}:${sk}`);   // extra slots busy, same job
+          for (const sk of extra) booked.add(`${tid}:${dateStr}:${sk}`);
         }
-        // Cap counts JOBS, not slots — one big job over 2 slots is still one job.
         dayCount.set(`${tid}:${dateStr}`, (dayCount.get(`${tid}:${dateStr}`) || 0) + 1);
       }
     }
   }
 
-  // A customer can't book a slot that starts within the next hour — not enough
-  // notice for a tech to actually get there. Only ever trims today (and maybe
-  // tomorrow very late at night); every later date is already hours out. Strict
-  // "> 60 min", not ">=": at 1:00pm the 2:00pm slot is EXACTLY 60 minutes away
-  // and must still be blocked, leaving 5:00pm as the next real option.
   const MIN_LEAD_MS = minLeadMsFor(serviceAreaId);
   const earliestBookableMs = Date.now() + MIN_LEAD_MS;
 
@@ -471,7 +295,6 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
     const dow = dayOfWeekFor(dateStr);
     const open = new Set();
     for (const tid of techIds) {
-      // Skip a tech who's already at their daily job cap for this date.
       const cap = maxByTech.get(tid);
       if (cap != null && (dayCount.get(`${tid}:${dateStr}`) || 0) >= cap) continue;
       const set = new Set(recur.get(`${tid}:${dow}`) || []);
@@ -496,7 +319,6 @@ export async function publicOpenSlots(db, { businessSlug, days = 30, serviceArea
   return { days: out, timezone: tz };
 }
 
-// Recurring weekly availability ± one-time exceptions for ONE tech on a date.
 async function recurringPlusExceptions(db, techId, dateStr, dow) {
   const { data: av } = await db.from('technician_availability')
     .select('slot_key').eq('technician_id', techId).eq('day_of_week', dow);
@@ -507,17 +329,6 @@ async function recurringPlusExceptions(db, techId, dateStr, dow) {
   return set;
 }
 let _liftOne = true;
-// Slot keys already occupied by a non-cancelled booking for ONE tech on a date
-// (across ANY business — a tech booked anywhere is busy everywhere), PLUS how
-// many distinct JOBS that is. Two different questions: `taken` answers "is
-// this exact slot free"; `jobCount` answers "how many jobs does this tech
-// already have today" for the max_jobs_per_day cap. jobCount must count ONE
-// per booking ROW regardless of how many slot keys it touches (a multi-slot
-// job via extra_slots) or whether it has a matching slotKey at all (an
-// odd-time manual booking has no slotKey to add to `taken`, but it still
-// occupies a full slot in the tech's day and must still count toward the
-// cap) — mirrors the same job-vs-slot distinction publicOpenSlots already
-// makes via its own dayCount (see that function's comment).
 async function bookedSlotsOneTech(db, techId, dateStr, tz) {
   const dayStart = localDateStartUTC(tz, dateStr).toISOString();
   const dayEnd = localDateStartUTC(tz, addDaysStr(dateStr, 1)).toISOString();
@@ -537,14 +348,6 @@ async function bookedSlotsOneTech(db, techId, dateStr, tz) {
     if (!changed) break;
     ({ data, error } = await run(_liftOne));
   }
-  // Same reasoning as publicOpenSlots above: a remaining error here isn't a
-  // degradable missing-column shape, it's a genuine failure. This function
-  // decides whether a tech is free to actually BE ASSIGNED a booking — treating
-  // an error as "no bookings found" would let pickOpenTech hand a slot to a
-  // tech who may already be booked then, a real double-book, not just a
-  // display glitch. book.js fails CLOSED on a thrown pickOpenTech: it retries
-  // once, then rejects the booking with a 409 rather than ever creating a
-  // technician-less job (see the tech guard in bookDoms/bookNative).
   if (error) throw error;
   const taken = new Set();
   let jobCount = 0;
@@ -556,11 +359,6 @@ async function bookedSlotsOneTech(db, techId, dateStr, tz) {
   return { taken, jobCount };
 }
 
-// Count each tech's ACTIVE jobs (primary or secondary) in the Sun-Sat payroll
-// week containing dateStr. Used by pickOpenTech to round-robin fairly among
-// several techs who are all free for the same slot, instead of always handing
-// it to whichever tech happens to sort first (previously: insertion order —
-// the earliest-added tech on the roster silently got every tie forever).
 async function weekJobCounts(db, techIds, dateStr, tz) {
   const counts = new Map(techIds.map(id => [id, 0]));
   if (!techIds.length) return counts;
@@ -590,16 +388,8 @@ async function weekJobCounts(db, techIds, dateStr, tz) {
   return counts;
 }
 
-// Among a pool of already-eligible techs (available + free + under cap for
-// this slot), pick whichever has the FEWEST jobs this payroll week — the
-// round-robin. A tie keeps the pool's existing (created_at) order, so the
-// result stays deterministic instead of flapping between equally-loaded techs
-// on repeated calls.
 async function pickFairest(db, eligible, dateStr, tz) {
   if (!eligible.length) return null;
-  // Owner-set booking priority (technicians.booking_priority, higher first)
-  // narrows the pool to the top tier; the fairness round-robin then only runs
-  // among techs of equal priority. Everyone at 0 = the old behaviour exactly.
   const top = Math.max(...eligible.map(t => Number(t.booking_priority) || 0));
   eligible = eligible.filter(t => (Number(t.booking_priority) || 0) === top);
   if (eligible.length === 1) return eligible[0].id;
@@ -607,21 +397,11 @@ async function pickFairest(db, eligible, dateStr, tz) {
   let best = eligible[0], bestCount = counts.get(eligible[0].id) || 0;
   for (const t of eligible.slice(1)) {
     const c = counts.get(t.id) || 0;
-    // Strictly fewer wins; an exact tie falls back to the lower id purely so the
-    // result is STABLE. The pool is ordered by created_at, but techs onboarded
-    // in the same batch share an identical created_at (Steve and Kregg both
-    // '2026-06-17 07:22:16.363923+00'), so Postgres returns those in arbitrary
-    // order -- without this, two equally-loaded techs could swap picks between
-    // otherwise-identical calls.
     if (c < bestCount || (c === bestCount && t.id < best.id)) { best = t; bestCount = c; }
   }
   return best.id;
 }
 
-// Pick an active tech who is available (recurring/exception) AND free for an
-// exact date+slot, so a public booking actually OCCUPIES the slot (prevents
-// two customers grabbing the same window). Falls back to any tech free that slot,
-// else null (the office will assign). Returns a CRM technician id.
 export async function pickOpenTech(db, { businessSlug, dateStr, slotKey, serviceAreaId = null, timezone = null, crossHire = false, zip = null }) {
   const { data: biz } = await db.from('businesses').select('id, timezone').eq('slug', businessSlug).single();
   if (!biz) return null;
@@ -632,31 +412,12 @@ export async function pickOpenTech(db, { businessSlug, dateStr, slotKey, service
   }
   const tz = timezone || areaTz || biz.timezone || 'Asia/Manila';
   const dow = dayOfWeekFor(dateStr);
-  // Only this metro's technicians may be assigned its jobs (Houston -> Juan,
-  // Austin -> Zach, …), so a booking never lands on a tech from another city.
   const baseQ = (cols) => { let q = db.from('technicians').select(cols).eq('business_id', biz.id).eq('active', true); if (serviceAreaId) q = q.eq('service_area_id', serviceAreaId); return q.order('created_at', { ascending: true }); };
   let { data: techs, error: techErr } = await baseQ('id, max_jobs_per_day, booking_priority');
   if (techErr && /booking_priority/.test(techErr.message || '')) ({ data: techs, error: techErr } = await baseQ('id, max_jobs_per_day'));
   if (techErr && /max_jobs_per_day/.test(techErr.message || '')) ({ data: techs } = await baseQ('id'));
-  // Sole-technician lock: for a locked brand this leaves at most one tech, and
-  // the cross-hire fallback below is likewise filtered, so no path can assign
-  // anyone else.
   const list = await filterTechsByZip(db, applySoleTech(businessSlug, techs), zip);
-  // A tech at their daily job cap is not eligible for this date. Counts JOBS
-  // (bookedSlotsOneTech's jobCount), not slots — see that function's comment.
-  // Previously this compared against `booked.size` (a slot-KEY count), which
-  // both undercounted (an off-slot manual booking added nothing) and
-  // overcounted (one multi-slot job added 2+ entries) — a tech could be
-  // auto-assigned past their real daily capacity.
   const atCap = (t, jobCount) => { const c = (t.max_jobs_per_day == null ? null : Number(t.max_jobs_per_day)); return c != null && jobCount >= c; };
-  // Only a tech who actually marked this exact slot available (recurring or a
-  // positive exception) is eligible — a tech who opted out of a day entirely
-  // (e.g. never works Mondays) must never be auto-booked into it just because
-  // they happen to have no conflicting job. Any slot nobody has opted into
-  // falls through to null so the office assigns it manually.
-  // Collect every tech in the pool who is actually available + free + under
-  // cap for this exact slot (was: return the FIRST one found, which meant one
-  // tech absorbed every tie between equally-available techs forever).
   const eligibleFrom = async (pool) => {
     const eligible = [];
     for (const t of pool) {
@@ -669,12 +430,9 @@ export async function pickOpenTech(db, { businessSlug, dateStr, slotKey, service
     }
     return eligible;
   };
-  // Host company's own techs always go first.
   const hostEligible = await eligibleFrom(list);
   const hostPick = await pickFairest(db, hostEligible, dateStr, tz);
   if (hostPick) return hostPick;
-  // Cross-hire fallback (Denver only): only reached once every host tech is
-  // unavailable for this slot/date.
   if (crossHire) {
     const partner = await crossHirePartner(db, businessSlug, serviceAreaId);
     if (partner) {
@@ -692,9 +450,6 @@ export async function pickOpenTech(db, { businessSlug, dateStr, slotKey, service
   return null;
 }
 
-// Validate & normalize an incoming exception set for ONE date: an array of
-// { slot_key, is_available }. Throws (.status = 400) on any unknown slot key.
-// Returns a de-duplicated array of clean { slot_key, is_available } rows.
 export function normalizeExceptionSlots(input) {
   if (!Array.isArray(input)) {
     const e = new Error('slots must be an array'); e.status = 400; throw e;
@@ -713,6 +468,5 @@ export function normalizeExceptionSlots(input) {
   return out;
 }
 
-// Online-booking notice per branch (owner 2026-10-09): OKC needs 12 hours; everyone else 1 hour.
 const LEAD_HOURS_BY_AREA = { '87844ace-8282-4893-a64e-3cdeca0efcdc': 12 };
 export function minLeadMsFor(serviceAreaId) { return (LEAD_HOURS_BY_AREA[serviceAreaId] || 1) * 60 * 60 * 1000; }

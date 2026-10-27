@@ -1,8 +1,3 @@
-// Scheduled review-link emails (owner 2026-10-15): a one-off review email sent
-// at a set time (e.g. 10am in the customer's time zone) with its own subject.
-// Queue = bookings.metadata.review_email_sched { at, subject }. Run every 10
-// minutes from the estimate_followup_check cron. Logs to the customer's
-// message thread and the job notes, and bumps the Review tab's email stamps.
 import { sendEmail, reviewEmail, brandFor, emailConfig } from './email.js';
 
 export async function runScheduledReviewEmails(db) {
@@ -15,7 +10,7 @@ export async function runScheduledReviewEmails(db) {
   for (const b of data || []) {
     const sc = b.metadata && b.metadata.review_email_sched;
     if (!sc || sc.sent_at || !sc.at || sc.at > nowIso) continue;
-    const slug = b.business?.slug || 'handy-andy';
+    const slug = b.business?.slug || 'tidyhaus';
     const to = b.customer?.email;
     let ok = false, err = null;
     if (to && b.review_token) {

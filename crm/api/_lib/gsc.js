@@ -1,15 +1,3 @@
-// ============================================================================
-// api/_lib/gsc.js — Google Search Console Search Analytics (free keyword data)
-// ----------------------------------------------------------------------------
-// Pulls "what did people type into Google to find us" for a domain, using a
-// service account with read-only ("Restricted") access added directly in
-// Search Console — no OAuth login flow, no paid API, just a stored JSON key
-// (GSC_SERVICE_ACCOUNT_JSON env var).
-//
-// No googleapis dependency: a service-account JWT is just a signed token, and
-// Node's built-in crypto module can RS256-sign it directly (same pattern this
-// codebase already uses elsewhere — minimal dependencies, plain fetch calls).
-// ============================================================================
 
 const SCOPE = 'https://www.googleapis.com/auth/webmasters.readonly';
 const TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -24,8 +12,6 @@ function credentials() {
   try { return JSON.parse(raw); } catch { return null; }
 }
 
-// Cached in module scope so a warm serverless instance reuses the token for
-// its ~1hr lifetime instead of re-signing + re-requesting on every call.
 let _tokenCache = null;
 async function getAccessToken() {
   if (_tokenCache && _tokenCache.expiresAt > Date.now() + 30000) return _tokenCache.token;
@@ -52,21 +38,11 @@ async function getAccessToken() {
   return _tokenCache.token;
 }
 
-// A domain can be verified in Search Console as a Domain property
-// (sc-domain:example.com, covers every protocol/subdomain) or a URL-prefix
-// property (https://example.com/, optionally with www) — we don't ask the
-// caller to know which, we just try the common shapes.
 const _siteCache = new Map();
 function siteCandidates(domain) {
   return [`sc-domain:${domain}`, `https://${domain}/`, `https://www.${domain}/`, `http://${domain}/`];
 }
 
-// Search Analytics query for a domain over [startDate, endDate] ('YYYY-MM-DD').
-// `dimensions` controls the grouping — ['query'] for plain top-queries,
-// ['query','page'] to pair each query with its landing page, etc. Each row's
-// `keys` array lines up positionally with the requested dimensions.
-// Best-effort: throws with a clear message on total failure so callers can
-// degrade gracefully (this is a bonus data source, not core functionality).
 export async function gscQuery({ domain, startDate, endDate, dimensions = ['query'], rowLimit = 25 }) {
   const token = await getAccessToken();
   const known = _siteCache.get(domain);

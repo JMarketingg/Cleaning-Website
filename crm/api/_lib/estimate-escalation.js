@@ -1,24 +1,3 @@
-// api/_lib/estimate-escalation.js
-// Unsent-estimate alarm (owner, 2026-10-22). Driven by the
-// estimate_escalation_check Vercel cron (vercel.json, every 10 min):
-//   GET /api/migrate?action=estimate_escalation_check&secret=CRON_SECRET
-//
-// "Unsent" = never texted and never emailed (texted_at and emailed_at both
-// null), not approved, not deleted, and not closed (archived / lost /
-// expired / declined / out_of_area). Same rule as unsentEstimateFilter in
-// api/admin.js, which feeds the "Needs sending" list on the Estimates screen.
-//
-//   STEP 1, 30 min unsent: text the staffer who created it (estimates.created_by),
-//           else the business's secretaries (leadAlertRecipients).
-//   STEP 2, 2 hours unsent: the same people + the owner.
-//
-// Only 8 AM-8 PM in the business's time zone. An alert that comes due off
-// hours is not stamped, so the first run after 8 AM sends it. If both steps
-// are due at once, only step 2 goes out and both stamps are set.
-//
-// Once-only stamps (migration 0097): escalated_1h_at = the 30-minute step,
-// escalated_2_5h_at = the 2-hour step. A failed SMS still stamps (no retry
-// loop every 10 min).
 import { serviceClient } from './supabase.js';
 import { sendSMSResult, toE164 } from './sms.js';
 import { leadAlertRecipients } from './lead-alert-recipients.js';
@@ -26,7 +5,7 @@ import { leadAlertRecipients } from './lead-alert-recipients.js';
 const MIN = 60 * 1000;
 export const UNSENT_REMIND_MS = 30 * MIN;
 export const UNSENT_ESCALATE_MS = 120 * MIN;
-const LOOKBACK_MS = 36 * 60 * MIN;   // covers an overnight wait; older = stale data
+const LOOKBACK_MS = 36 * 60 * MIN;
 export const CLOSED_STATUSES = ['lost', 'expired', 'booked', 'out_of_area'];
 const OPEN_HOUR = 8, CLOSE_HOUR = 20;
 
@@ -60,7 +39,6 @@ async function creatorPhone(db, name, cache) {
   return p;
 }
 
-// Run one pass. opts.dryRun: report, send nothing, stamp nothing.
 export async function checkEstimateEscalations(opts = {}) {
   const dryRun = !!opts.dryRun;
   const db = serviceClient();
@@ -115,7 +93,6 @@ export async function checkEstimateEscalations(opts = {}) {
       ? `Estimate for ${who} still NOT sent after 2 hrs. ${link}`
       : `Estimate for ${who} not sent yet (30 min). ${link}`;
     const to = new Set(staff);
-    // Owner gets no estimate texts (owner 2026-10-22).
 
     if (dryRun) {
       summary.details.push({ id: est.id, slug: biz.slug, step: step2 ? 2 : 1, to: [...to] });

@@ -1,10 +1,3 @@
-// ============================================================================
-// Jiyah's cycle tracker (2026-10-17, migration 0214). Called from calendar.js.
-// Jiyah: full read/write. Owner (owner): read-only summary of ONLY what Jiyah
-// shares (cal_cycle_settings). Private notes are never sent to Owner.
-// Predictions are computed on read from real periods; manual edits and the
-// auto estimate in force when a period starts are kept in cal_cycle_preds.
-// ============================================================================
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const day = (v) => (DAY.test(String(v || '')) ? String(v) : null);
 const addDay = (s, n) => { const d = new Date(s + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0, 10); };
@@ -14,10 +7,8 @@ const FLOWS = ['spotting', 'light', 'medium', 'heavy'];
 export const MOODS = ['happy', 'calm', 'sensitive', 'irritable', 'anxious', 'sad', 'stressed', 'tired', 'overwhelmed', 'affectionate', 'other'];
 export const SYMPTOMS = ['cramps', 'bloating', 'headache', 'fatigue', 'tender', 'acne', 'cravings', 'backpain', 'sleep', 'other'];
 const SET_KEYS = ['share_dots', 'share_next', 'share_started', 'share_mood', 'share_symptoms', 'share_flow', 'share_logs', 'share_notes', 'share_heads_up', 'remind_on'];
-// Owner's own reminder (0221). Only his login writes these; Jiyah's save never does.
 const ANDREW_KEYS = ['andrew_remind_on', 'andrew_remind_days'];
 
-// periods: [{start_day,end_day}] sorted asc. manual: active manual row or null.
 export function predict(periods, manual, today) {
   const t = today || manilaToday();
   const ps = periods.slice().sort((a, b) => a.start_day.localeCompare(b.start_day));
@@ -47,13 +38,12 @@ export function predict(periods, manual, today) {
     else if (t < nextStart) phase = 'luteal';
     else phase = 'late';
   }
-  const pred = [];   // estimated period days for the next 6 cycles
+  const pred = [];
   if (ongoing && !last.end_day) for (let i = 0; i < plen; i++) { const d = addDay(last.start_day, i); if (d > t) pred.push(d); }
   for (let k = 0; k < 6; k++) {
     const s = k === 0 ? nextStart : addDay(nextStart, cyc * k), e = k === 0 ? nextEnd : addDay(s, plen - 1);
     for (let d = s; d <= e; d = addDay(d, 1)) if (d >= t || k > 0) pred.push(d);
   }
-  // Phase dates (estimates): this cycle and the next two. ov = 14 days before the next start.
   const phases = [];
   const segs = (cs, ns) => {
     const o = addDay(ns, -14), pe = addDay(cs, plen - 1);
@@ -73,7 +63,6 @@ export function predict(periods, manual, today) {
     ov_day: ov, fertile_lo: addDay(ov, -5), fertile_hi: addDay(ov, 1), pred_days: Array.from(new Set(pred)),
   };
 }
-// Phase of a past/any day, from real period starts (estimate). null if unknown.
 function phaseOfDay(d, ps, p) {
   let i = -1; for (let k = 0; k < ps.length; k++) if (ps[k].start_day <= d) i = k;
   if (i < 0 || !p.has) return null;
@@ -86,7 +75,6 @@ function phaseOfDay(d, ps, p) {
   if (d < ns) return 'luteal';
   return 'late';
 }
-// Patterns + outlook (stage 3). One helper for both views. opt.mood / opt.sym pick what may be used.
 export function insights(c, logs, opt) {
   const p = c.pred, ps = c.periods.slice().sort((a, b) => a.start_day.localeCompare(b.start_day));
   const items = (l) => [...(opt.mood ? (l.moods || []).filter((m) => m !== 'other') : []), ...(opt.sym ? Object.keys(l.symptoms || {}).filter((k) => k !== 'other').map((k) => 's:' + k) : [])];
@@ -128,8 +116,6 @@ export async function cycleLoad(db) {
   return { periods, settings, manual, pred: predict(periods, manual) };
 }
 
-// For the main calendar: dots for Jiyah always, for Owner only if share (env
-// flag CYCLE_SHARE_OWNER, checked in calendar.js) AND share_dots.
 export async function cycleDots(db, me, share) {
   const c = await cycleLoad(db);
   if (me !== 'jiyah' && !share) return { period_days: [], pred_days: [] };
@@ -140,8 +126,6 @@ export async function cycleDots(db, me, share) {
   return r;
 }
 
-// Owner's full shared view (0221). Every part only if its toggle is on.
-// Never: Jiyah's settings row, her reminder, prediction edit history, access log.
 function sharedFor(c, logs) {
   const s = c.settings, p = c.pred, r = {};
   if (s.share_dots) r.periods = c.periods.map((x) => ({ start_day: x.start_day, end_day: x.end_day, ...(s.share_notes && x.note ? { note: x.note } : {}) }));
@@ -162,7 +146,7 @@ function sharedFor(c, logs) {
   return r;
 }
 
-function summaryFor(c, logs) {   // what Owner may see
+function summaryFor(c, logs) {
   const s = c.settings, p = c.pred, r = { shared: false };
   if (s.share_next && p.has) Object.assign(r, { shared: true, next_start: p.next_start, range_lo: p.range_lo, range_hi: p.range_hi, early: p.early, cycle_day: p.cycle_day, phase: p.phase, late_by: p.late_by });
   if (s.share_started && p.has) Object.assign(r, { shared: true, on_period: p.ongoing, ...(p.ongoing ? { cycle_day: p.cycle_day } : {}) });
@@ -177,7 +161,7 @@ export async function cycleAction(req, res, db, me, op, b, share) {
   const out = (r) => { if (r.error) throw new Error(r.error.message); return r.data; };
   const isJ = me === 'jiyah';
   if (op === 'cycle') {
-    if (!isJ && !share) return res.status(200).json({ me, summary: { shared: false }, off: true });   // flag off: nothing
+    if (!isJ && !share) return res.status(200).json({ me, summary: { shared: false }, off: true });
     const c = await cycleLoad(db);
     const logs = out(await db.from('cal_cycle_days').select('*').order('day'));
     if (!isJ) return res.status(200).json({ me, summary: summaryFor(c, logs), shared: sharedFor(c, logs) });
@@ -185,7 +169,7 @@ export async function cycleAction(req, res, db, me, op, b, share) {
     const acc = await db.from('cal_cycle_access_log').select('at, route, flag_state').order('at', { ascending: false }).limit(30);
     return res.status(200).json({ me, periods: c.periods, settings: c.settings, pred: c.pred, logs, history: hist, patterns: insights(c, logs, { mood: true, sym: true }).patterns, summary: summaryFor(c, logs), shared: sharedFor(c, logs), access_log: acc.error ? [] : acc.data });
   }
-  if (op === 'cyc_andrew_remind_save') {   // Owner's own reminder; writes ONLY his 2 fields
+  if (op === 'cyc_andrew_remind_save') {
     if (me !== 'andrew') return res.status(403).json({ error: 'Only Owner can change this' });
     const row = {};
     if (b.andrew_remind_on !== undefined) row.andrew_remind_on = !!b.andrew_remind_on;
@@ -213,7 +197,7 @@ export async function cycleAction(req, res, db, me, op, b, share) {
       const isNewest = !b.id && (!all.length || s > all[all.length - 1].start_day);
       const r = b.id ? await db.from('cal_periods').update(row).eq('id', b.id).select().single() : await db.from('cal_periods').insert(row).select().single();
       const saved = out(r);
-      if (isNewest && c.pred.has) {   // keep what was predicted, so history shows early/late
+      if (isNewest && c.pred.has) {
         out(await db.from('cal_cycle_preds').insert({ kind: c.pred.manual ? 'manual' : 'auto', start_day: c.pred.next_start, end_day: c.pred.next_end, auto_start: c.pred.auto_start, auto_end: c.pred.auto_end, actual_start: s, active: false }));
         out(await db.from('cal_cycle_preds').update({ active: false, cleared_at: now, actual_start: s }).eq('active', true));
       }

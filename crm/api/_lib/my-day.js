@@ -1,17 +1,3 @@
-// api/_lib/my-day.js
-// "My Day" -- the owner's personal notepad planner (owner rule 2026-09-23).
-// Owner-only, one action (admin.js `my_day`): GET reads a page, POST { op }
-// changes it. Tables: migration 0137.
-//
-// Notepad model: every task is written on a page (origin_day). If it isn't
-// crossed off it simply keeps appearing on every later page -- "turn to the
-// next sheet" without copying anything -- with a "carried N days" count.
-// A crossed-off task stays on the page it was crossed off (done_day), struck
-// through, like ink on paper.
-//
-// A "day" is Bangkok time and turns over at 5 AM, not midnight: the owner
-// works late, so 2 AM is still "today" (owner picked Bangkok; 5 AM was the
-// suggested turnover since his bedtime goal is 1 AM).
 import Anthropic from '@anthropic-ai/sdk';
 
 const TZ = 'Asia/Bangkok';
@@ -29,12 +15,9 @@ const clean = (s, max = 300) => String(s || '').trim().replace(/\s+/g, ' ').slic
 async function readPage(db, day) {
   const today = myDayToday();
   const isToday = day === today;
-  // Open tasks written on or before this page, plus tasks crossed off ON it.
   const [{ data: open, error: e1 }, { data: done, error: e2 }] = await Promise.all([
     isToday
       ? db.from('owner_tasks').select('*').is('done_at', null).is('deleted_at', null).lte('origin_day', day)
-      // A past page shows what was still open at the end of that day: written
-      // by then and crossed off later (or never).
       : db.from('owner_tasks').select('*').is('deleted_at', null).lte('origin_day', day).or(`done_day.is.null,done_day.gt.${day}`),
     db.from('owner_tasks').select('*').is('deleted_at', null).eq('done_day', day),
   ]);
@@ -51,13 +34,10 @@ async function readPage(db, day) {
     const { data, error } = await db.from('owner_habit_checks').select('habit_id, day, skipped').in('habit_id', ids).gte('day', addDays(day, -120)).lte('day', day);
     if (error) throw error; checks = data || [];
   }
-  const byHabit = new Map(ids.map(id => [id, new Map()]));   // day -> 'done' | 'skip'
+  const byHabit = new Map(ids.map(id => [id, new Map()]));
   for (const c of checks) byHabit.get(c.habit_id)?.set(String(c.day).slice(0, 10), c.skipped ? 'skip' : 'done');
   const habitRows = (habits || []).map(h => {
     const m = byHabit.get(h.id);
-    // Streak = consecutive done days ending on this page (or yesterday if this
-    // page isn't settled yet). A SKIPPED day ("took a nap") neither breaks the
-    // streak nor adds to it.
     let d = m.has(day) ? day : addDays(day, -1), streak = 0;
     while (m.has(d)) { if (m.get(d) === 'done') streak++; d = addDays(d, -1); }
     return { id: h.id, name: h.name, done: m.get(day) === 'done', skipped: m.get(day) === 'skip', streak };
@@ -83,7 +63,6 @@ export async function myDay(req, res, db, auth, body) {
     case 'task_add': {
       const title = clean(body.title); if (!title) return res.status(400).json({ error: 'Write a task first' });
       const pr = [0, 1, 2].includes(Number(body.priority)) ? Number(body.priority) : (body.starred ? 1 : 0);
-      // Subtask (owner 2026-09-25): one level under a main task.
       const parent = /^[0-9a-f-]{36}$/i.test(String(body.parent_id || '')) ? String(body.parent_id) : null;
       q = db.from('owner_tasks').insert({ title, origin_day: today, priority: pr, starred: pr > 0, parent_id: parent, time_hint: clean(body.time_hint, 40) || null }); break;
     }
@@ -96,12 +75,10 @@ export async function myDay(req, res, db, auth, body) {
       const patch = {};
       if ('title' in body) { const t = clean(body.title); if (!t) return res.status(400).json({ error: 'Title can\'t be empty' }); patch.title = t; }
       if ('starred' in body) { patch.starred = !!body.starred; patch.priority = body.starred ? 1 : 0; }
-      // Three levels (owner 2026-09-25): 0 white, 1 green, 2 red.
       if ('priority' in body) { const p = Number(body.priority); if (![0, 1, 2].includes(p)) return res.status(400).json({ error: 'Bad level' }); patch.priority = p; patch.starred = p > 0; }
       if ('time_hint' in body) patch.time_hint = clean(body.time_hint, 40) || null;
       q = db.from('owner_tasks').update(patch).eq('id', id); break;
     }
-    // Deleting a main task takes its subtasks with it.
     case 'task_delete': if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'Bad id' });
       q = db.from('owner_tasks').update({ deleted_at: new Date().toISOString() }).or(`id.eq.${id},parent_id.eq.${id}`); break;
     case 'habit_check':
@@ -133,12 +110,6 @@ export async function myDay(req, res, db, auth, body) {
   return res.status(200).json(await readPage(db, today));
 }
 
-// ── "Tell it anything" ──────────────────────────────────────────────────────
-// Owner rule 2026-09-23: "a place i can enter complex things and it arranges
-// it accordingly -- like today i took a nap so asleep by 1am isnt needed."
-// Claude reads the sentence against today's page and returns a list of plain
-// actions (structured output, schema below); the server applies them with
-// the same writes the buttons use, then replies with what it did.
 const ACTION_TYPES = ['add_task', 'complete_task', 'delete_task', 'star_task', 'set_time', 'check_habit', 'skip_habit', 'add_habit', 'add_list_item'];
 const SMART_SCHEMA = {
   type: 'object', additionalProperties: false, required: ['reply', 'actions'],
@@ -174,7 +145,6 @@ Unused fields are null.`;
 let _client;
 async function smart(req, res, db, body) {
   const text = clean(body.text, 2000);
-  // Screenshots (owner, 2026-09-24): up to 4 compressed images as data URLs.
   const images = (Array.isArray(body.images) ? body.images : []).slice(0, 4)
     .map(u => /^data:(image\/(?:jpeg|png|webp|gif));base64,([A-Za-z0-9+/=]+)$/.exec(String(u || '')))
     .filter(m => m && m[2].length < 6000000)
@@ -195,7 +165,6 @@ async function smart(req, res, db, body) {
   _client ||= new Anthropic();
   let msg;
   try {
-    // Owner, 2026-09-24: Opus 5.5 only -- no fallback to any other model.
     msg = await _client.messages.create({
       model: 'claude-opus-5-5',
       max_tokens: 4000,

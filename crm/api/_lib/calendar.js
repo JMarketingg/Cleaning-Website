@@ -1,11 +1,3 @@
-// ============================================================================
-// Private calendar (owner 2026-10-07): ONLY the owner and Jiyah (auditor
-// token). Every other login gets 403 here. Never in reports, never to staff.
-// One action 'private_cal': GET op=range&from&to | op=search&q, POST op=... (below).
-// Tables: migration 0183/0184 (app.cal_*) + 0195 (v2: event fields, todos, prefs).
-// Events live in cal_tasks (history: they were called tasks). Real tasks with
-// checklists live in cal_todos.
-// ============================================================================
 import { cycleAction, cycleDots } from './cycle.js';
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const WHO = ['andrew', 'jiyah', 'both'];
@@ -39,34 +31,28 @@ function eventRow(b, me) {
     remind_min: (b.remind_min === null || b.remind_min === '' || b.remind_min === undefined) ? null : Math.min(20160, Math.max(0, Math.round(Number(b.remind_min)) || 0)),
     rrule: cleanRule(b.rrule), end_day: day(b.end_day),
   };
-  if (row.start_min != null) row.end_day = null;               // timed events stay on one day
+  if (row.start_min != null) row.end_day = null;
   if (row.end_day && row.day && row.end_day <= row.day) row.end_day = null;
   if (b.dur_min) row.dur_min = Math.min(1440, Math.max(15, Math.round(Number(b.dur_min)) || 60));
   return row;
 }
 
-// Cycle sharing safety switch (0221, Jiyah approved 2026-10-19). Owner's
-// login gets cycle data ONLY when CYCLE_SHARE_OWNER is exactly 'on'. Missing,
-// empty or any other value = off. Also off for the owner's "view as Jiyah"
-// token and the no-password dev bypass. Jiyah is never affected.
 function devBypass() {
-  const noPw = !process.env.ADMIN_PASSWORD && !process.env.HANDY_ANDY_PASSWORD && !process.env.DOMS_PASSWORD;
+  const noPw = !process.env.ADMIN_PASSWORD && !process.env.TIDYHAUS_PASSWORD && !process.env.DOMS_PASSWORD;
   return noPw || ['1', 'true', 'yes', 'on'].includes(String(process.env.ADMIN_DEV_BYPASS || '').toLowerCase());
 }
 const flagState = () => (process.env.CYCLE_SHARE_OWNER === 'on' ? 'on' : (process.env.CYCLE_SHARE_OWNER ? 'invalid' : 'missing'));
 function cycleShare(auth) { return flagState() === 'on' && !auth.owner_view && !devBypass(); }
-// Time + route only. Never cycle data or notes. Failure never blocks the read.
 async function logAccess(db, me, route, auth) {
   if (me !== 'andrew') return;
   try { await db.from('cal_cycle_access_log').insert({ who: 'andrew', route, flag_state: auth.owner_view ? 'view_as' : flagState() }); } catch (_) { /* ignore */ }
 }
-// "Only me" = who 'jiyah'. Owner never reads or changes those rows.
 const notPrivate = (me) => (t) => me === 'jiyah' || t.who !== 'jiyah';
 async function privateRow(db, me, id) {
   if (me === 'jiyah' || !id) return false;
   const r = await db.from('cal_tasks').select('who').eq('id', id).maybeSingle();
   if (r.error) throw new Error(r.error.message);
-  return !r.data || r.data.who === 'jiyah';   // unknown id is refused too
+  return !r.data || r.data.who === 'jiyah';
 }
 
 export function calendarAllowed(auth) {
@@ -76,7 +62,6 @@ export function calendarAllowed(auth) {
 export async function calendarAction(req, res, db, auth, body) {
   if (!calendarAllowed(auth)) return res.status(403).json({ error: 'Not allowed' });
   const op = String((req.method === 'GET' ? req.query.op : (body && body.op)) || '');
-  // Owner's "view as Jiyah" token is treated as Owner (no private data).
   const me = auth.auditor && !auth.owner_view ? 'jiyah' : 'andrew';
   const share = me === 'jiyah' || cycleShare(auth);
   const out = (r) => { if (r.error) throw new Error(r.error.message); return r.data; };
@@ -102,7 +87,7 @@ export async function calendarAction(req, res, db, auth, body) {
       db.from('cal_tasks').select('*').is('rrule', null).gte('day', addDay(from, -400)).lte('day', to).order('start_min', { ascending: true, nullsFirst: true }),
       db.from('cal_tasks').select('*').not('rrule', 'is', null).lte('day', to),
       db.from('cal_trips').select('*').lte('start_day', to).gte('end_day', from).order('start_day'),
-      cycleDots(db, me, share),   // from app.cal_periods (0214); Owner only if Jiyah shares dots
+      cycleDots(db, me, share),
       db.from('cal_trackers').select('*').order('created_at'),
       db.from('cal_tracker_logs').select('tracker_id, day').gte('day', from).lte('day', to),
       db.from('cal_todos').select('*').order('due_day', { ascending: true, nullsFirst: false }).limit(1000),
@@ -118,7 +103,6 @@ export async function calendarAction(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method' });
   const b = body || {};
   if (op.startsWith('cyc_')) { const r = await cycleAction(req, res, db, me, op, b, share); if (r === null) return res.status(400).json({ error: 'Bad op' }); return r; }
-  // Owner may never touch an "Only me" event (any of the 6 event writes).
   if (me === 'andrew' && ['task_save', 'task_skip', 'task_exception', 'task_move', 'task_done', 'task_delete'].includes(op)) {
     if (b.id && await privateRow(db, me, b.id)) return res.status(403).json({ error: 'Not allowed' });
     if ((op === 'task_save' || op === 'task_exception') && b.who === 'jiyah') return res.status(403).json({ error: 'Not allowed' });
@@ -131,13 +115,13 @@ export async function calendarAction(req, res, db, auth, body) {
                      : await db.from('cal_tasks').insert({ ...row, created_by: me }).select().single();
       return res.status(200).json({ task: out(r) });
     }
-    case 'task_skip': {   // delete ONE occurrence of a series (exdate)
+    case 'task_skip': {
       const d = day(b.occ_day); if (!d || !b.id) return res.status(400).json({ error: 'Bad occurrence' });
       const cur = out(await db.from('cal_tasks').select('exdates').eq('id', b.id).single());
       const ex = Array.from(new Set([...(cur.exdates || []), d])).sort();
       return res.status(200).json({ task: out(await db.from('cal_tasks').update({ exdates: ex, updated_at: new Date().toISOString() }).eq('id', b.id).select().single()) });
     }
-    case 'task_exception': {   // edit/move ONE occurrence: skip it in the series + one standalone row
+    case 'task_exception': {
       const d = day(b.occ_day); const row = eventRow(b, me);
       if (!d || !b.id || !row.title || !row.day) return res.status(400).json({ error: 'Bad occurrence' });
       const cur = out(await db.from('cal_tasks').select('exdates').eq('id', b.id).single());
@@ -146,13 +130,13 @@ export async function calendarAction(req, res, db, auth, body) {
       out(await db.from('cal_tasks').update({ exdates: ex, updated_at: new Date().toISOString() }).eq('id', b.id));
       row.rrule = null;
       const ins = await db.from('cal_tasks').insert({ ...row, series_id: b.id, created_by: me }).select().single();
-      if (ins.error) {   // roll the skip back so nothing is lost
+      if (ins.error) {
         await db.from('cal_tasks').update({ exdates: old }).eq('id', b.id);
         throw new Error(ins.error.message);
       }
       return res.status(200).json({ task: ins.data });
     }
-    case 'task_move': {   // drag & drop: day and/or hour
+    case 'task_move': {
       const patch = { updated_at: new Date().toISOString() };
       if (b.day !== undefined) { if (!day(b.day)) return res.status(400).json({ error: 'Bad day' }); patch.day = b.day; }
       if (b.end_day !== undefined) patch.end_day = day(b.end_day);
@@ -172,7 +156,7 @@ export async function calendarAction(req, res, db, auth, body) {
     case 'trip_delete':
       out(await db.from('cal_trips').delete().eq('id', b.id)); return res.status(200).json({ ok: true });
     case 'period_toggle': {
-      return res.status(400).json({ error: 'Use the Cycle tab' });   // legacy list kept read-only since 0214
+      return res.status(400).json({ error: 'Use the Cycle tab' });
       const d = day(b.day); if (!d) return res.status(400).json({ error: 'Bad day' });
       if (b.on) out(await db.from('cal_period_days').upsert({ day: d }, { onConflict: 'day' }));
       else out(await db.from('cal_period_days').delete().eq('day', d));
@@ -208,7 +192,7 @@ export async function calendarAction(req, res, db, auth, body) {
       return res.status(200).json({ todo: out(await db.from('cal_todos').update({ items: cleanItems(b.items), updated_at: new Date().toISOString() }).eq('id', b.id).select().single()) });
     case 'todo_delete':
       out(await db.from('cal_todos').delete().eq('id', b.id)); return res.status(200).json({ ok: true });
-    case 'mark_seen': {   // one-time notices (e.g. 'onway'); merged into prefs.seen
+    case 'mark_seen': {
       const k = String(b.key || '').replace(/[^a-z0-9_]/gi, '').slice(0, 30);
       if (!k) return res.status(400).json({ error: 'Bad key' });
       const old = out(await db.from('cal_prefs').select('prefs').eq('who', me).maybeSingle());
@@ -225,7 +209,7 @@ export async function calendarAction(req, res, db, auth, body) {
         view: ['month', 'week', 'day'].includes(p.view) ? p.view : 'month', weekStart: p.weekStart === 'sun' ? 'sun' : 'mon',
         hidden: Array.isArray(p.hidden) ? p.hidden.map((x) => String(x).slice(0, 20)).slice(0, 20) : [], colors, notify: !!p.notify,
       };
-      { const old = out(await db.from('cal_prefs').select('prefs').eq('who', me).maybeSingle()); if (old && old.prefs && old.prefs.seen) clean.seen = old.prefs.seen; }   // keep one-time notice flags
+      { const old = out(await db.from('cal_prefs').select('prefs').eq('who', me).maybeSingle()); if (old && old.prefs && old.prefs.seen) clean.seen = old.prefs.seen; }
       out(await db.from('cal_prefs').upsert({ who: me, prefs: clean, updated_at: new Date().toISOString() }, { onConflict: 'who' }));
       return res.status(200).json({ prefs: clean });
     }

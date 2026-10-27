@@ -23,31 +23,14 @@ import { officePhoneFor, onDutySecretaryPhones } from './_lib/tech-late.js';
 const BAD_ADDRESS = 'Please enter a valid street address (with a house number) — not an email or phone number.';
 const BAD_NAME = 'Please enter your name using letters only — no numbers.';
 
-// Owner rule (2026-08-31): no paid job, any business, any metro, ever books
-// under $139 — "if it's not 139 then I don't want it." A flat floor, not
-// per-metro (Austin's cheaper widget price no longer means a cheaper actual
-// minimum). GDS redemptions, Assurion, No Charge/Callback, and Handyman Labor
-// are intentionally exempt — they're office-only flows that never touch this
-// file; see NB_MINIMUMS / the exemption checks in admin.html's New Booking.
-const MIN_TICKET_PRICE = 139;
+const MIN_TICKET_PRICE = 0;
 
-// service_area_zips stores bare 5-digit zips; a ZIP+4 ("80220-1032") from any
-// caller misses the exact-match lookup and reads a covered address as
-// out-of-area. Keep the leading 5 digits (same helper as api/admin.js and
-// api/service-area.js). STRICT shape: only a bare zip or a real ZIP+4 tail
-// normalizes; a 6-digit typo ("800122") must NOT silently become the
-// different-but-real zip 80012, it stays as typed and fails closed.
 function zip5(raw) {
   const s = String(raw || '').trim();
   const m = s.match(/^(\d{5})(?:[-\s]\d{1,4})?$/);
   return m ? m[1] : s;
 }
 
-// Best-effort record of whether the confirmation email actually sent, so the
-// booking detail card can show real status instead of nothing at all. Never
-// allowed to affect the booking itself — swallow a missing-column error the
-// same way every other optimistic-column write in this codebase does (migration
-// 0075 not applied yet).
 async function persistConfirmationEmailStatus(db, bookingId, status) {
   try {
     await db.from('bookings')
@@ -56,9 +39,6 @@ async function persistConfirmationEmailStatus(db, bookingId, status) {
   } catch (e) { /* migration 0075 not applied yet — status just won't show */ }
 }
 
-// Public Google Places proxy for the booking widget's address autocomplete (the
-// admin's places endpoint requires a login). No auth: it only reads address
-// suggestions. Lives here to stay under Vercel's function cap.
 async function placesAutocompletePublic(req, res) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   const input = ((req.query || {}).input || '').toString().trim();
@@ -79,7 +59,6 @@ async function placesAutocompletePublic(req, res) {
     return res.status(200).json({ predictions: [] });
   }
 }
-// Resolve a place_id to its parts: { line1 (street # + name), city, state, zip }.
 async function placeDetailsPublic(req, res) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   const placeId = ((req.query || {}).place_id || '').toString().trim();
@@ -106,58 +85,16 @@ async function placeDetailsPublic(req, res) {
     return res.status(200).json({ address: null });
   }
 }
-// Public price overrides for the booking widget (app.widget_prices, edited from
-// the admin dashboard's Other -> Widget Pricing page). No auth: it only reads
-// prices, same trust level as the static numbers it's replacing. Returns
-// {option_id: price} — the widget overlays this onto its own hardcoded
-// SERVICE_CONFIGS at load, so a fetch failure or an empty/new deploy just
-// falls back to the widget's built-in numbers instead of breaking checkout.
-// Public: the Stripe PUBLISHABLE key for a business, so one widget file can
-// serve several businesses instead of hardcoding one company's key. Publishable
-// keys are designed to ship in client code — this exposes nothing secret.
-//
-// `configured` reports whether the matching SECRET key is present on the server
-// (a boolean, never the key). Without it, a business whose secret key is missing
-// looks fine right up until a real customer's card fails at checkout.
 const STRIPE_PK_ENV = {
-  'handy-andy': 'STRIPE_PUBLISHABLE_KEY',
-  doms:         'DOMS_STRIPE_PUBLISHABLE_KEY',
-  'mile-high':  'MILE_HIGH_STRIPE_PUBLISHABLE_KEY',
-  austin:       'AUSTIN_STRIPE_PUBLISHABLE_KEY',
-  precision:    'PRECISION_STRIPE_PUBLISHABLE_KEY',
-  // Home Cleaning Denver now shares Mile High's Stripe account/publishable key.
-  tvmountingdenver: 'MILE_HIGH_STRIPE_PUBLISHABLE_KEY',
-  // Houston lead-gen quad — all four share one Stripe account (houstonmounting's,
-  // see ACCOUNT_KEY_ENV in stripe.js), so all four also share this one
-  // publishable key. Var name is `Publishable_key_houston_mounting`, not the
-  // usual `HOUSTONMOUNTING_STRIPE_PUBLISHABLE_KEY` pattern — it's exactly what
-  // was typed into Vercel, so match it verbatim rather than rename in Vercel.
-  houstonmounting:        'Publishable_key_houston_mounting',
-  houstontvinstallation:  'Publishable_key_houston_mounting',
-  tvhanginghouston:       'Publishable_key_houston_mounting',
-  htvmounting:            'Publishable_key_houston_mounting',
-  houstontvmountingpros:  'Publishable_key_houston_mounting',
-  houstonperfectviewtvmounting: 'Publishable_key_houston_mounting',
-  millertime:             'Publishable_key_houston_mounting',
-  // Austin lead-gen quad — all four charge on the existing 'austin' Stripe
-  // account (tidyhausph.com's, see LEGACY_SLUG_ACCOUNT in stripe.js), so
-  // all four share austin's publishable key too.
-  atxmountpros:           'AUSTIN_STRIPE_PUBLISHABLE_KEY',
-  atxtvmount:             'AUSTIN_STRIPE_PUBLISHABLE_KEY',
-  austinmountingpros:     'AUSTIN_STRIPE_PUBLISHABLE_KEY',
-  austintvinstall:        'AUSTIN_STRIPE_PUBLISHABLE_KEY',
-  // Own account, keys still to come from the owner.
-  tvmountinglosangeles:   'TVMOUNTINGLOSANGELES_STRIPE_PUBLISHABLE_KEY',
-  // A1 Home Cleaning (DFW): own account, keys still to come from the owner.
-  a1tvmounting:           'A1TVMOUNTING_STRIPE_PUBLISHABLE_KEY',
+  'tidyhaus': 'STRIPE_PUBLISHABLE_KEY',
 };
 async function stripePublicConfig(req, res) {
-  const business = ((req.query || {}).business || 'handy-andy').toString().trim();
+  const business = ((req.query || {}).business || 'tidyhaus').toString().trim();
   const envName = STRIPE_PK_ENV[business];
   if (!envName) return res.status(400).json({ error: `Unknown business "${business}"` });
   let configured = false;
   try { configured = stripeConfigured({ account: business }); }
-  catch (e) { configured = false; }   // no Stripe account mapped for this slug
+  catch (e) { configured = false; }
   let connection = {};
   if (business === 'neverfailstvmounting') {
     const pk = process.env[envName] || '';
@@ -181,17 +118,9 @@ async function stripePublicConfig(req, res) {
   });
 }
 
-// Public: create a SetupIntent so the widget can VERIFY the card in-page
-// before booking — the bank actually checks the card while the customer is
-// still at checkout and can fix a typo'd CVC on the spot, instead of the
-// attach silently failing server-side after the booking already went through
-// (the Caplan/Alleman incidents, 2026-08-20). Returns only the client secret
-// and customer id — never any key material. Any failure returns
-// { disabled: true } so the widget falls back to the old tokenize-only flow:
-// verification must never be able to break checkout.
 async function cardSetupPublic(req, res) {
   const b = req.body || {};
-  const business = (b.business || (req.query || {}).business || 'handy-andy').toString().trim();
+  const business = (b.business || (req.query || {}).business || 'tidyhaus').toString().trim();
   if (!STRIPE_PK_ENV[business]) return res.status(400).json({ error: `Unknown business "${business}"` });
   let configured = false;
   try { configured = stripeConfigured({ account: business }); }
@@ -213,13 +142,6 @@ async function cardSetupPublic(req, res) {
   }
 }
 
-// Public: the landing page after an invoice's Stripe Checkout redirects back
-// (pay.html) calls this to find out whether the payment actually went through
-// and, the first time it's confirmed, to record it on the booking. No login —
-// the only thing a caller can do with a booking id + a real Stripe session id
-// is learn/settle THAT session's own payment, which Stripe itself already
-// authorized; there's nothing here an attacker could use to pay someone
-// else's invoice or see anything beyond "paid: true/false".
 async function payStatusPublic(req, res) {
   const q = req.query || {};
   const bookingId = (q.booking || '').toString().trim();
@@ -236,7 +158,6 @@ async function payStatusPublic(req, res) {
   try { session = await stripe(`/checkout/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET', ...acct }); }
   catch (e) { return res.status(400).json({ error: 'Could not verify this payment with Stripe: ' + e.message }); }
 
-  // The session must be THIS booking's own — never trust a session id alone.
   if ((session.metadata || {}).booking_id !== bookingId) {
     return res.status(400).json({ error: 'This payment link does not match this invoice.' });
   }
@@ -244,15 +165,11 @@ async function payStatusPublic(req, res) {
   const paid = session.payment_status === 'paid';
   if (!paid) return res.status(200).json({ ok: true, paid: false });
   if (b.payment_status === 'paid') {
-    // A pay link sent for a BALANCE on an already-paid ticket (invoice_send stamps
-    // metadata.balance=1): record that one session exactly once, keep the
-    // original payment intent untouched so Refund still works on it.
     if ((session.metadata || {}).balance !== '1') return res.status(200).json({ ok: true, paid: true });
     const extras = Array.isArray(b.metadata && b.metadata.extra_payments) ? b.metadata.extra_payments : [];
     if (extras.some(x => x && x.session === session.id)) return res.status(200).json({ ok: true, paid: true });
     const amt = (Number(session.amount_total) || 0) / 100;
     const newMeta = { ...(b.metadata || {}), extra_payments: [...extras, { session: session.id, pi: session.payment_intent || null, amount: amt, method: 'link', at: new Date().toISOString() }] };
-    // CAS on amount_paid + the extras length: a reload that races this call loses cleanly.
     const { data: rec } = await db.from('bookings').update({
       amount_paid: Math.round(((Number(b.amount_paid) || 0) + amt) * 100) / 100, metadata: newMeta,
     }).eq('id', bookingId).eq('payment_status', 'paid').eq('amount_paid', b.amount_paid).select('id').maybeSingle();
@@ -272,7 +189,6 @@ async function payStatusPublic(req, res) {
     amount_paid: Math.round(((Number(b.amount_paid) || 0) + amount) * 100) / 100,
   };
   if (session.payment_intent) patch.stripe_payment_intent_id = session.payment_intent;
-  // Guard against double-recording if the success page reloads/re-fires.
   await db.from('bookings').update(patch).eq('id', bookingId).neq('payment_status', 'paid');
   try {
     await db.from('booking_notes').insert({
@@ -284,14 +200,10 @@ async function payStatusPublic(req, res) {
   return res.status(200).json({ ok: true, paid: true, amount });
 }
 
-// Public: whether a business's transactional email is wired up. Reports the
-// from-address and a boolean 'configured' -- NEVER the Resend API key itself.
-// Same purpose as stripe_config above: surface a missing key before a real
-// customer's confirmation email silently fails to send.
-const EMAIL_BUSINESSES = new Set(['handy-andy', 'doms', 'mile-high', 'austin', 'precision',
+const EMAIL_BUSINESSES = new Set(['tidyhaus', 'doms', 'mile-high', 'austin', 'precision',
   'atxmountpros', 'atxtvmount', 'austinmountingpros', 'austintvinstall', 'tvmountinglosangeles', 'a1tvmounting']);
 function emailPublicConfig(req, res) {
-  const business = ((req.query || {}).business || 'handy-andy').toString().trim();
+  const business = ((req.query || {}).business || 'tidyhaus').toString().trim();
   if (!EMAIL_BUSINESSES.has(business)) return res.status(400).json({ error: `Unknown business "${business}"` });
   const cfg = emailConfig(business);
   return res.status(200).json({ business, from: cfg.from, configured: !!cfg.apiKey,
@@ -299,7 +211,7 @@ function emailPublicConfig(req, res) {
 }
 
 async function widgetPricesPublic(req, res) {
-  const business = ((req.query || {}).business || 'handy-andy').toString().trim();
+  const business = ((req.query || {}).business || 'tidyhaus').toString().trim();
   const city = ((req.query || {}).city || 'default').toString().trim();
   try {
     const db = serviceClient();
@@ -314,11 +226,6 @@ async function widgetPricesPublic(req, res) {
       return data || [];
     };
     let data = await fetchCity(city);
-    // A metro with no price rows of its own falls back to 'default' (Denver,
-    // the canonical set every other city was copied from) rather than to
-    // widget.js's baked-in constants. Those constants drift the moment anyone
-    // edits a price in the dashboard, so without this a brand-new market would
-    // quietly quote whatever was hardcoded at the last deploy.
     if (!data.length && city !== 'default') {
       console.warn(`[book] no widget_prices for ${business}/${city} — falling back to default`);
       data = await fetchCity('default');
@@ -332,14 +239,8 @@ async function widgetPricesPublic(req, res) {
   }
 }
 
-// GET /api/book?action=coupons&business=<slug>
-// The live promo codes, so the widget stops shipping its own copy. That copy
-// had already drifted from the enforcing list (FB20 worked server-side but the
-// widget called it invalid), which reads to a customer as a broken code.
-// Amounts are public by nature — a customer types the code and sees the
-// discount — so this needs no auth, same as widget_prices above.
 async function couponsPublic(req, res) {
-  const business = ((req.query || {}).business || 'handy-andy').toString().trim();
+  const business = ((req.query || {}).business || 'tidyhaus').toString().trim();
   try {
     const map = await couponMapFor(serviceClient(), business);
     return res.status(200).json({ coupons: map });
@@ -349,10 +250,6 @@ async function couponsPublic(req, res) {
   }
 }
 
-// No business param -- the config is global, not per-business (see
-// multiTvDiscountConfigFor above). Falls back to MULTI_TV_CFG_DEFAULTS on any
-// failure so a DB hiccup degrades to today's known-correct numbers rather than
-// to a broken widget quote.
 async function multiTvDiscountPublic(req, res) {
   try {
     const cfg = await multiTvDiscountConfigFor(serviceClient());
@@ -363,27 +260,8 @@ async function multiTvDiscountPublic(req, res) {
   }
 }
 
-// GET/POST /api/book?action=review_click&token=<review_token>&ch=email|sms
-// Records the first time a customer clicks the review link from either channel,
-// then redirects to review.html. Replaces the old email open-pixel with a
-// click-tracking redirect that works identically for email and SMS.
-//
-// The redirect ALWAYS carries the customer's original token, no matter what
-// happens with tracking — a tracking failure (DB error, migration not applied
-// yet) must never break the review page for the customer.
-//
-// Exception: a token we can't use at all (missing, or not one of our review
-// tokens) goes to the TidyHaus home page instead of a review page that can
-// only show an error. That covers mangled links and the placeholder link in
-// the A2P campaign sample (tidyhausph.com/r/<token> redirects here), which
-// a carrier reviewer will click. A REAL review token that has merely expired
-// still goes to review.html, which explains that in the customer's own
-// business's branding.
 const REVIEW_CLICK_FALLBACK_URL = 'https://tidyhausph.com/';
 
-// Shape check only (no signature or expiry check): "is this one of our review
-// tokens, even if expired?" Decides between two redirect targets and nothing
-// else; review.html re-verifies whatever it is handed.
 function looksLikeReviewToken(raw) {
   if (!raw || !raw.includes('.')) return false;
   try {
@@ -394,12 +272,6 @@ function looksLikeReviewToken(raw) {
 
 async function serveReviewClick(req, res) {
   const rawCode = ((req.query || {}).token || '').toString();
-  // Every brand's /r/<code> redirect (already live on all 15 site domains) was
-  // built for review links only and blindly forwards whatever code it's given
-  // here — so an estimate-approval short link can reuse the exact same site
-  // route with zero changes there: try it as an estimate code first (domain-
-  // separated MAC, so a real review code always fails this check and falls
-  // through below unchanged).
   const estimateToken = expandEstimateCode(rawCode);
   if (estimateToken) return serveEstimateClick(req, res, estimateToken);
   const rawToken = expandReviewCode(rawCode) || '';
@@ -407,25 +279,12 @@ async function serveReviewClick(req, res) {
   const perChannelCol = channel === 'sms' ? 'review_sms_clicked_at' : 'review_email_clicked_at';
   let t = null;
   try { t = verifyToken(rawToken); } catch { t = null; }
-  // Accept BOTH token shapes: kind:'review' (admin.js mint, and mirror.js
-  // going forward) AND legacy kindless { booking_id } tokens — mirror.js
-  // minted those for every widget booking until Jul 2026, they live 30
-  // days, and resends reuse the STORED token, so they'll circulate for a
-  // while. A kindless token with a booking_id can only be a review token:
-  // every other token type (admin/tech/on_the_way/estimate_approve) always
-  // sets kind. Without this, the per-channel "opened" stamp was silently
-  // skipped for all widget bookings.
   const isReview = !!(t && t.booking_id && (t.kind === 'review' || !t.kind));
   if (!isReview && !looksLikeReviewToken(rawToken)) return res.redirect(302, REVIEW_CLICK_FALLBACK_URL);
   try {
     if (isReview) {
       const db = serviceClient();
       const now = new Date().toISOString();
-      // Per-channel click (migration 0063) — each channel records its OWN first
-      // click, so a customer who opens both links shows as having opened both,
-      // not just whichever channel they clicked first. review_clicked_at/
-      // review_click_channel (0062) are kept in step for anything still reading
-      // them. If the 0063/0062 columns aren't applied yet, fall back to metadata.
       const { error } = await db.from('bookings')
         .update({ [perChannelCol]: now, review_clicked_at: now, review_click_channel: channel })
         .eq('id', t.booking_id)
@@ -446,67 +305,34 @@ async function serveReviewClick(req, res) {
   return res.redirect(302, `${base}/review.html?token=${encodeURIComponent(rawToken)}`);
 }
 
-// A brand's /r/<code> redirect handed us a code that expanded into a real
-// estimate_approve token (expandEstimateCode already verified shape+MAC+TTL
-// before calling this) — send the customer on to the approve-and-schedule
-// page, same as the long-URL link the email button has always used.
 async function serveEstimateClick(req, res, rawToken) {
   const base = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   return res.redirect(302, `${base}/estimate-approve.html?token=${encodeURIComponent(rawToken)}`);
 }
 
-// After creating the booking this handler does several more sequential calls
-// (tech pick, CRM mirror, notify-tech SMS, confirmation email). At Vercel's
-// default ~10s timeout the function could die AFTER the booking was created,
-// leaving the customer with no confirmation — so they'd click again and
-// create a duplicate. Give the post-booking work room to finish so the client
-// always gets a clean success and never needs to retry.
 export const config = { maxDuration: 60 };
 
-// Valid coupon codes → discount in dollars (owner-provided, June 2026).
-// Zenbooker has no native coupon support, so a valid code is applied to the
-// job as a negative-price custom service line item. Kept in its own map per
-// business (renamed from a single shared COUPONS) so a code minted for one
-// business can never accidentally apply to the other's booking.
 const HA_COUPONS = {
   MCDENVER20: 20, MP10: 10, AUS10: 10, HOU10: 10, DEN10: 10,
   ISREAL15: 15, STEVE15: 15, BATCITY10: 10, FBD15: 15, FB15: 15,
   ANNIVERSARY15: 15, BING10: 10, OLIVE10: 10, STV10: 10, G10TV: 10,
   TV2026: 10, HG20: 20, LA10: 10, AB20: 20, FBA20: 20, FB10: 10,
-  FB20: 20,   // Facebook ad code, Houston, Aug 2026
-  LASTCHANCE10: 10,   // exit-intent offer
+  FB20: 20,
+  LASTCHANCE10: 10,
 };
 const DOMS_COUPONS = {
-  DONTGO10: 10,   // exit-intent offer
+  DONTGO10: 10,
 };
 
-// Mile High runs the same Denver playbook as TidyHaus, so it honors the same
-// promo codes. Kept as a per-slug map rather than a shared reference so either
-// business can diverge without touching the other.
 const NATIVE_COUPONS = {
-  'handy-andy': HA_COUPONS,
-  'mile-high':  HA_COUPONS,
-  'austin':     {},   // Astraea: no coupons (owner 2026-10-08, near-cost pricing)
-  'precision':  HA_COUPONS,   // same playbook as TidyHaus's Houston market
-  // Austin lead-gen quad — same Austin-market playbook as 'austin' above.
-  'atxmountpros':       HA_COUPONS,
-  'atxtvmount':         HA_COUPONS,
-  'austinmountingpros': HA_COUPONS,
-  'austintvinstall':    HA_COUPONS,
+  'tidyhaus': HA_COUPONS,
 };
 
-// The hardcoded maps above are now only a FALLBACK. app.coupons is the live
-// list (Other -> Coupons), so a code can be added, repriced or retired without
-// a deploy. If that table is missing or unreadable we fall back to the maps
-// rather than silently rejecting every code a customer types.
 const COUPON_TTL_MS = 60000;
-const _couponCache = new Map();   // slug -> { at, map }
+const _couponCache = new Map();
 function couponFallbackMap(businessSlug) {
   return businessSlug === 'doms' ? DOMS_COUPONS : (NATIVE_COUPONS[businessSlug] || {});
 }
-// { CODE: amount } for every ACTIVE, unexpired coupon this business honors.
-// Cached for a minute — this sits in the booking hot path and the list changes
-// a few times a month at most.
 export async function couponMapFor(db, businessSlug, { strict = false } = {}) {
   const slug = String(businessSlug || '');
   const hit = _couponCache.get(slug);
@@ -526,56 +352,35 @@ export async function couponMapFor(db, businessSlug, { strict = false } = {}) {
         verified = true;
         map = {};
         for (const c of data) {
-          if (c.expires_on && String(c.expires_on) < today) continue;   // lapsed
+          if (c.expires_on && String(c.expires_on) < today) continue;
           map[String(c.code || '').trim().toUpperCase()] = Number(c.amount) || 0;
         }
       }
     }
     if (strict && !verified) throw new Error('Could not verify coupon codes. Please try again.');
   } catch (error) {
-    // Office quotes must distinguish a failed check from a retired/invalid
-    // coupon. Public callers retain the historical fallback for compatibility.
     if (strict) throw error;
   }
   if (!map) map = couponFallbackMap(slug);
   _couponCache.set(slug, { at: Date.now(), map, verified });
   return map;
 }
-// Drop the cache so an edit in the dashboard takes effect immediately rather
-// than up to a minute later (the office repricing a code then testing it must
-// not see the old amount).
 export function couponCacheClear(businessSlug) {
   if (businessSlug) _couponCache.delete(String(businessSlug));
   else _couponCache.clear();
 }
-// The one place any surface resolves a promo code to a dollar amount, so the
-// office's phone-quote flow (api/admin.js quote_coupon) honors EXACTLY the
-// codes a customer can use online — a second hand-maintained list would drift
-// the moment a code changes, and the office would be telling callers a code is
-// invalid while the website accepts it.
 export async function couponAmountFor(db, businessSlug, rawCode, options) {
   const code = String(rawCode || '').trim().toUpperCase();
   if (!code) return 0;
   const map = await couponMapFor(db, businessSlug, options);
   return Number(map[code]) || 0;
 }
-// Every code this business honors. Used by the phone flow to offer a "did they
-// mean…" on a near miss — a customer reading a code down the phone is one
-// dropped letter away from being told, wrongly, that their code is no good.
 export async function couponCodesFor(db, businessSlug, options) {
   return Object.keys(await couponMapFor(db, businessSlug, options));
 }
 
-// The multi-TV discount used to be these exact numbers hardcoded three times
-// (here, public/widget.js, and public/admin.html's phone-in booking form) with
-// no way to change one without a deploy. Same cache-with-TTL / graceful-
-// fallback shape as couponMapFor above: one global row (not per-business --
-// today's rule is identical for both companies), and if the table or row is
-// ever missing (migration not applied, or someone deletes the row), these
-// DEFAULTS are the exact values that were hardcoded before this existed, so a
-// missing config degrades to today's behavior rather than to no discount at all.
 const MULTI_TV_CFG_TTL_MS = 60000;
-let _multiTvCfgCache = null;   // { at, cfg }
+let _multiTvCfgCache = null;
 const MULTI_TV_CFG_DEFAULTS = {
   tv_threshold: 3, zero_fee_per_tv: 10, full_cut_fee: 15,
   partial_cut_pct: 0.60, partial_cut_fees: [65, 100],
@@ -592,24 +397,18 @@ export async function multiTvDiscountConfigFor(db) {
   _multiTvCfgCache = { at: Date.now(), cfg };
   return cfg;
 }
-// So the owner's dashboard edit takes effect on the very next booking, not up
-// to a minute later, same reasoning as couponCacheClear above.
 export function multiTvDiscountConfigCacheClear() { _multiTvCfgCache = null; }
 
-// ── Calendar (.ics) generation for confirmation-email "Add to calendar" ──────
-// RFC 5545 text escaping: backslash, comma, semicolon, and newlines.
 function icsEscape(s) {
   return String(s == null ? '' : s)
     .replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
 }
-// Epoch seconds -> UTC stamp "YYYYMMDDTHHMMSSZ".
 function icsStamp(sec) {
   const d = new Date(Number(sec) * 1000);
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getUTCFullYear()}${p(d.getUTCMonth() + 1)}${p(d.getUTCDate())}` +
          `T${p(d.getUTCHours())}${p(d.getUTCMinutes())}${p(d.getUTCSeconds())}Z`;
 }
-// Fold long lines to <=75 octets per RFC 5545 (continuation lines start with a space).
 function icsFold(line) {
   if (line.length <= 73) return line;
   const out = [line.slice(0, 73)];
@@ -618,13 +417,11 @@ function icsFold(line) {
   if (s.length) out.push(' ' + s);
   return out.join('\r\n');
 }
-// GET /api/book?action=ics&title=&start=<epochSec>&end=<epochSec>&location=&details=
-// Returns a downloadable single-event calendar file.
 function serveIcs(req, res) {
   const { title, start, end, location, details } = req.query || {};
   const startSec = Number(start), endSec = Number(end);
   if (!startSec || !endSec) return res.status(400).json({ error: 'start and end (epoch seconds) are required' });
-  const uid = `booking-${startSec}-${Math.random().toString(36).slice(2, 10)}@handyandy`;
+  const uid = `booking-${startSec}-${Math.random().toString(36).slice(2, 10)}@tidyhaus`;
   const lines = [
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TidyHaus//Booking//EN',
     'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'BEGIN:VEVENT',
@@ -645,39 +442,6 @@ function serveIcs(req, res) {
   return res.status(200).send(lines.join('\r\n'));
 }
 
-// ── Doms native booking (no Zenbooker) ───────────────────────────────────────
-// Writes the booking straight into the CRM, saves the card on file in Doms' OWN
-// Stripe account, assigns an available Doms tech (so the slot is occupied), and
-// sends a Doms-branded confirmation. `selectedSlot` is the
-// 'doms_<YYYY-MM-DD>_<slotKey>' id returned by /api/slots?business=doms.
-// Multi-TV batching discount (3+ TVs on one ticket): rewards big jobs since
-// mounting several TVs in one drive is highly profitable. Shared by bookDoms
-// and bookNative so the two businesses can never drift out of sync. Computed
-// server-side from the REAL line items (never trusts the client's TV count),
-// so a stale/tampered widget can never grant a bigger discount than earned.
-// The cut depends on the travel-fee zone (`surcharge`) — the bigger the
-// existing fee, the bigger the cut, since that is exactly the case where the
-// fee is the reason a big job gets skipped. Zone with no travel fee instead
-// gets a flat $10 off PER TV. Mirrored client-side in public/widget.js
-// (multiTvDiscount / steppedMultiTvPriceDiscount) — keep in sync.
-//
-// isTvSizeLine excludes "Second Technician" explicitly: that line's admin
-// label embeds a size range (e.g. `70–85"`), so a naive "does the name
-// contain a quote mark" check would miscount a 2-TV job with a large TV as
-// 3 TVs and grant an unearned discount. Caught in a code audit before it
-// ever fired in production.
-//
-// SECOND BUG, caught in a later audit: "contains a quote mark anywhere" ALSO
-// matched the XL bracket options every large TV requires, since HA/Mile High
-// sell them as `85"-100" TV Tilting Bracket` and Dom's as `Tilting
-// (recommended) 85"-100"`; both embed the same size range as a descriptor
-// alongside the mount type. A 2-TV booking
-// with one 85"+ TV and its (mandatory) XL bracket was counted as 3 TVs and
-// granted an unearned multi-TV discount live in production. A genuine
-// TV-SIZE selection is nothing but the size (32" Or Less, 33"-59", 98+); a
-// bracket line always has extra words around the range. Matching the WHOLE
-// trimmed string against the size pattern, not just checking it contains one
-// anywhere, is what actually distinguishes them.
 function isTvSizeLine(name) {
   const n = String(name || '').trim();
   if (/second technician/i.test(n)) return false;
@@ -685,11 +449,6 @@ function isTvSizeLine(name) {
       || /^\d{2,3}["″]\s*[-–]\s*\d{2,3}["″]$/.test(n)
       || /^98["″]?\s*\+$/.test(n);
 }
-// `cfg` is a row from multi_tv_discount_config (or MULTI_TV_CFG_DEFAULTS),
-// fetched once by the caller via multiTvDiscountConfigFor() above and passed
-// in here rather than re-fetched per call. This function itself stays sync
-// and side-effect-free apart from mutating `lines`, same as before the config
-// became editable.
 function applyMultiTvDiscounts(lines, surcharge, cfg) {
   const c = cfg || MULTI_TV_CFG_DEFAULTS;
   const tvCount = lines.reduce((n, l) => isTvSizeLine(l.name) ? n + (Number(l.quantity) || 1) : n, 0);
@@ -721,8 +480,6 @@ function applyMultiTvDiscounts(lines, surcharge, cfg) {
   return multiTvDiscountAmt;
 }
 
-// Shared copy for the "your slot filled while you were checking out" rejection
-// (no em dashes in customer-facing text, per owner style rule).
 const SLOT_TAKEN_MSG = 'That time was just booked by another customer. Please pick a different time.';
 
 function fmtWhen(startUTC, tz, fallback) {
@@ -730,10 +487,6 @@ function fmtWhen(startUTC, tz, fallback) {
   catch { return fallback; }
 }
 
-// An idempotent RETRY of a submit whose first attempt already created a
-// booking must be answered with that booking's original success, never a 409
-// (the first attempt's own row is what makes the tech pick come up empty).
-// Returns a ready-to-send response body, or null when there is no prior row.
 async function idempotentPrior(db, bizId, idempotencyKey) {
   if (!idempotencyKey) return null;
   try {
@@ -750,25 +503,12 @@ async function idempotentPrior(db, bizId, idempotencyKey) {
   } catch (e) { console.warn('[book] idempotent lookup failed:', e.message); return null; }
 }
 
-// A widget booking must never sit in the CRM without a technician (the Connor
-// Hasselman job, 2026-08-12 8am Denver: booked techless, discovered 25 minutes
-// after its start time). Both public paths now guarantee a tech BEFORE the
-// booking is created (they 409 instead), so the main way a booking can still
-// land techless is losing the bookings_tech_slot_unique race inside
-// mirrorBooking. This re-runs the pick (the race winner's booking now occupies
-// that tech, so a different tech can still come back), updates the row, and if
-// nobody is left it alerts the office immediately so a human assigns or calls
-// the customer while they are still at their screen.
 async function recoverUnassignedBooking(db, { slug, bizId, bookingId, dateStr, slotKey, serviceAreaId = null, timezone = null, zip = null, businessName, customerName, whenStr }) {
   let rescueId = null;
   try { rescueId = await pickOpenTech(db, { businessSlug: slug, dateStr, slotKey, serviceAreaId, timezone, crossHire: true, zip }); }
   catch (e) { console.warn('[book] rescue pick failed:', e.message); }
   if (rescueId) {
     try {
-      // `.is('technician_id', null)` so a tech the office assigned in the
-      // meantime is never clobbered, and `.neq('status','cancelled')` so a
-      // just-cancelled booking is never resurrected to 'assigned'. A 23505
-      // here (rescue tech also got taken) falls through to the re-read below.
       const upd = await db.from('bookings')
         .update({ technician_id: rescueId, status: 'assigned' })
         .eq('id', bookingId).is('technician_id', null).neq('status', 'cancelled')
@@ -784,9 +524,6 @@ async function recoverUnassignedBooking(db, { slug, bizId, bookingId, dateStr, s
       }
     } catch (e) { console.warn('[book] rescue assign failed:', e.message); }
   }
-  // No rescue landed. Re-read before crying wolf: the office may have assigned
-  // someone in the window (update matched 0 rows), or the booking may have
-  // been cancelled; neither is owed an emergency alert.
   try {
     const { data: row } = await db.from('bookings').select('technician_id, status').eq('id', bookingId).maybeSingle();
     if (row?.technician_id) return row.technician_id;
@@ -817,8 +554,6 @@ async function bookDoms(req, res) {
   try { db = serviceClient(); }
   catch (e) { return res.status(500).json({ error: 'Booking storage not configured', message: e.message }); }
 
-  // Resolve Doms business + the per-zip surcharge + the zip's service area
-  // (Denver, or Oklahoma City since 2026-10). No zip row = Denver, as before.
   const { data: biz } = await db.from('businesses').select('id').eq('slug', 'doms').single();
   if (!biz) return res.status(500).json({ error: 'Doms business not configured' });
 
@@ -834,30 +569,22 @@ async function bookDoms(req, res) {
   if (zipAreaId) ({ data: area } = await db.from('service_areas')
     .select('id, name, state, timezone').eq('id', zipAreaId).eq('business_id', biz.id).maybeSingle());
   if (!area) ({ data: area } = await db.from('service_areas')
-    .select('id, name, state, timezone').eq('business_id', biz.id).eq('name', 'Denver').maybeSingle());
-  const isDenver = !area || area.name === 'Denver';
-  const tz = isDenver ? 'Asia/Manila' : (area.timezone || 'Asia/Manila');
-  const defCity = isDenver ? 'Denver' : area.name;
-  const defState = isDenver ? 'CO' : (area.state || 'CO');
+    .select('id, name, state, timezone').eq('business_id', biz.id).eq('name', 'Manila').maybeSingle());
+  const isManila = !area || area.name === 'Manila';
+  const tz = isManila ? 'Asia/Manila' : (area.timezone || 'Asia/Manila');
+  const defCity = isManila ? 'Manila' : area.name;
+  const defState = isManila ? 'CO' : (area.state || 'CO');
 
   const startUTC = slotStartUTC(tz, dateStr, slotKey);
   const endUTC   = slotEndUTC(tz, dateStr, slotKey);
   if (!startUTC) return res.status(400).json({ error: 'Invalid time slot' });
-  // The public slot list already omits anything starting within the next hour
-  // (publicOpenSlots), but a page can sit open long enough for a slot that WAS
-  // fine when it loaded to cross that line by the time they actually submit —
-  // re-check here so a stale page can never book a same-hour job. Strict "not
-  // more than 60 min out", matching the listing filter exactly.
   if (startUTC.getTime() - Date.now() <= minLeadMsFor(area && area.id)) {
     return res.status(409).json({ error: "That time is too soon to book now. Please pick a later time.", conflict: true });
   }
 
-  // Coupon (validated server-side; unknown codes are ignored, never trusted).
   const couponCode = String(b.coupon || '').trim().toUpperCase();
   const couponAmt = await couponAmountFor(db, 'doms', couponCode);
 
-  // ── Line items for storage. Prefer explicit line_items; else map the
-  // email_summary lines the widget already computed for display.
   const sum = b.email_summary || {};
   let lines = [];
   if (Array.isArray(b.line_items) && b.line_items.length) {
@@ -871,13 +598,11 @@ async function bookDoms(req, res) {
   } else if (Array.isArray(sum.lines) && sum.lines.length) {
     lines = sum.lines.map(l => {
       const qty = Number(l.qty) || 1;
-      const amount = Number(l.amount) || 0;   // line total as displayed
+      const amount = Number(l.amount) || 0;
       return { kind: 'option', name: String(l.label || 'Item').slice(0, 200),
         quantity: qty, unit_price: qty ? amount / qty : amount, line_total: amount };
     });
   }
-  // Add the travel surcharge server-side if the widget didn't already include it,
-  // so a stale/tampered widget can never drop it.
   if (surcharge !== 0 && !lines.some(l => /surcharge|local travel credit/i.test(l.name))) {
     lines.push({ kind: 'fee', name: surcharge > 0 ? 'Service area surcharge' : 'Local travel credit', quantity: 1, unit_price: surcharge, line_total: surcharge });
   }
@@ -885,13 +610,6 @@ async function bookDoms(req, res) {
     lines.push({ kind: 'coupon', name: `Coupon ${couponCode}`, quantity: 1, unit_price: -couponAmt, line_total: -couponAmt });
   }
   const multiTvDiscountAmt = applyMultiTvDiscounts(lines, surcharge, await multiTvDiscountConfigFor(db));
-  // Sales tax (8.25%), same block as bookNative; Dom's never had this. Without
-  // it, `subtotal` was tax-EXCLUSIVE while the widget's own total is
-  // tax-INCLUSIVE, so the two were never comparable amounts to begin with; the
-  // gap happened to look like a safety margin only because tax+tip are
-  // (almost) always positive. Placed before the coupon so tax is on the
-  // pre-discount amount, matching what the Dom's widget itself already shows
-  // on screen (tax computed on sub+afterHoursFee+surcharge before the coupon).
   if (!lines.some(l => /^tax\b/i.test(l.name))) {
     const taxable = lines
       .filter(l => l.kind !== 'coupon' && !/^tax\b/i.test(l.name || ''))
@@ -899,50 +617,19 @@ async function bookDoms(req, res) {
     const tax = Math.round(taxable * 0.0825 * 100) / 100;
     if (tax > 0) lines.push({ kind: 'fee', name: 'Tax (8.25%)', quantity: 1, unit_price: tax, line_total: tax });
   }
-  // Canonical ticket order (owner rule 2026-08-24): TVs smallest-first, then
-  // work, then travel fee, discounts, tax last — so the stored ticket, the
-  // office dashboard, and the confirmation email all read the same way.
   lines = canonicalizeLineItems(lines);
   const tip = Number(b.tip) || 0;
   const subtotal = lines.reduce((s, l) => s + (Number(l.line_total) || 0), 0);
   const widgetTotal = sum.total != null ? Number(sum.total) : subtotal;
-  // `subtotal` is now the authoritative number: real surcharge, real
-  // server-validated coupon/multi-TV discount, and now real tax, all computed
-  // from data the server itself resolved. The OLD `Math.max(subtotal,
-  // widgetTotal)` treated the higher of the two as safer, which is backwards
-  // whenever the client's total is stale or simply did not know about a
-  // discount the server just validated (e.g. the live coupon fetch failed and
-  // the code was not in the widget's hardcoded fallback map), meaning a real,
-  // server-approved discount could never actually reduce what the customer
-  // was quoted, while the stored line items still listed it, so the receipt's
-  // own rows did not sum to its own total. A mismatch beyond a few cents is
-  // still worth knowing about (stale cache, a bug, or genuine tampering), so
-  // it is logged, but it no longer overrides the number the server just
-  // computed from real, validated data.
   const price = subtotal;
   if (Number.isFinite(widgetTotal) && Math.abs(widgetTotal - subtotal) > 0.5) {
     console.warn('[book-doms] price mismatch: server', subtotal, 'vs widget', widgetTotal,
       '- charging the server total; widget total is stale or the client-side preview did not match.');
   }
-  // Hard $139 minimum ticket (owner rule 2026-08-31): "if it's not 139 then I
-  // don't want it." Enforced here, not just in the widget's client-side
-  // realItemsFloor(), so a stale/tampered client (or a request that skips the
-  // widget's own topup, e.g. an add-on-only booking) can never create a job
-  // under the floor. This is a hard reject, not a topup — the customer must
-  // add more service or the booking doesn't happen.
   if (price < MIN_TICKET_PRICE) {
     return res.status(400).json({ error: `Jobs must total at least $${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
   }
 
-  // ── Pick an available Doms tech BEFORE saving the card or writing anything.
-  // The customer's slot list is a snapshot from when they reached the calendar
-  // step; while they type their details, another customer (on either company's
-  // widget, the Denver cross-hire pool is shared) can take the last free tech
-  // for this slot. That is exactly how the Connor Hasselman job (2026-08-12
-  // 8am) was created with no technician. If nobody is available anymore,
-  // REJECT with a 409 so the widget sends them back to a fresh calendar; a job
-  // must never be created without a technician. One retry so a transient
-  // database hiccup does not turn into a lost booking.
   let technician_id = null, pickBroken = false;
   try { technician_id = await pickOpenTech(db, { businessSlug: 'doms', dateStr, slotKey, serviceAreaId: area?.id || null, timezone: tz, crossHire: true, zip }); }
   catch (e) {
@@ -951,21 +638,13 @@ async function bookDoms(req, res) {
     catch (e2) { pickBroken = true; console.error('[book-doms] tech pick failed twice:', e2.message); }
   }
   if (!technician_id) {
-    // An idempotent RETRY of a submit that already succeeded must not be
-    // turned away: the first attempt's own booking is what is occupying the
-    // tech, so re-picking finds nobody. Return the existing booking as the
-    // success it already is.
     const dup = await idempotentPrior(db, biz.id, b.idempotency_key);
     if (dup) return res.status(200).json(dup);
     if (pickBroken) {
-      // Both pick attempts THREW (a database problem, not a full slot). Be
-      // honest instead of blaming a phantom competing customer.
       return res.status(409).json({ error: 'We could not confirm that time is still open. Please try again in a moment.', conflict: true });
     }
     return res.status(409).json({ error: SLOT_TAKEN_MSG, conflict: true, slot_taken: true });
   }
-  // Resolve the assigned tech's name (+ photo/bio for the "Meet your tech"
-  // confirmation-email block) — best-effort.
   let technicianName = null, technicianPhoto = null;
   try {
     const { data: _t } = await db.from('technicians').select('name, photo_url, bio_years, bio_blurb').eq('id', technician_id).maybeSingle();
@@ -973,20 +652,11 @@ async function bookDoms(req, res) {
     technicianPhoto = _t || null;
   } catch (e) { /* name is best-effort */ }
 
-  // ── Save the card on file in DOMS' Stripe account (best-effort). The card was
-  // tokenized client-side with Doms' publishable key, so only Doms' secret key
-  // can attach/charge it. Never fail the booking if this errors. Runs AFTER the
-  // tech guard on purpose: a rejected booking must not leave a customer + card
-  // sitting in Stripe.
   let stripeCustomerId = null, paymentStatus = 'unpaid', cardNote = '';
   if (b.payment_method_id) {
     if (!stripeConfigured('doms')) {
       cardNote = `Card captured (${b.payment_method_id}) but DOMS_STRIPE_SECRET_KEY is not set — card was NOT saved on file.`;
     } else {
-      // Widget-verified flow: the card was already bank-checked + attached via
-      // a SetupIntent during checkout (action=card_setup). Never take the
-      // client's word for it — confirm with Stripe that the pm really is
-      // attached to that customer before treating the card as on file.
       if (b.stripe_customer_id) {
         try {
           const pm = await retrieveCard(b.payment_method_id, 'doms');
@@ -1014,26 +684,13 @@ async function bookDoms(req, res) {
       }
     }
   } else if (b.card_skipped) {
-    // The widget's verified card step rejected their card twice and they took
-    // the "book without a card" escape hatch — the booking is real, but the
-    // office must know to collect payment at service.
     cardNote = 'Customer booked WITHOUT a card after their card failed verification at checkout — collect payment at service.';
   }
 
   if (cardNote) console.log('[book-doms] card:', cardNote);
-  // A card was offered but never actually attached (wrong/unset key, a Stripe
-  // error) — the exact silent-failure class that left a real customer's card
-  // untracked until charge time (the "Annie" incident). The booking still
-  // proceeds either way, but this must be VISIBLE, not just a server log line:
-  // written into the booking's own internal notes so the office sees it the
-  // moment they open the job, and a direct alert email so nobody has to
-  // stumble onto it days later at time of service.
   const cardSaveFailed = !!(b.payment_method_id && paymentStatus !== 'card_on_file')
     || !!(!b.payment_method_id && b.card_skipped);
 
-  // ── Write the booking (creates customer, booking, line items, status event,
-  // review token) and get the new id back.
-  // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
   const smsConsent = await textConsentFor(db, customer.phone);
   let result = {};
   try {
@@ -1056,13 +713,10 @@ async function bookDoms(req, res) {
         name: `${customer.first_name || ''} ${customer.last_name || ''}`.trim(),
         email: customer.email, phone: customer.phone,
       },
-      address: { line1: customer.address, line2: customer.address_line2 || null, city: isDenver ? (b.city || 'Denver') : defCity, state: isDenver ? (b.state || 'CO') : defState, postal_code: zip },
+      address: { line1: customer.address, line2: customer.address_line2 || null, city: isManila ? (b.city || 'Manila') : defCity, state: isManila ? (b.state || 'CO') : defState, postal_code: zip },
       line_items: lines, subtotal, price, tip,
       payment_status: paymentStatus,
       stripe_customer_id: stripeCustomerId,
-      // Never persist a pm that failed to attach: it reads back as a saved
-      // card everywhere downstream, but it is not chargeable. The pm id is
-      // still preserved in `notes` via cardNote for the no-secret-key case.
       stripe_payment_method_id: cardSaveFailed ? null : (b.payment_method_id || null),
       notes: cardSaveFailed ? `⚠ ${cardNote}` : null,
       customer_notes: b.customer_notes || sum.notes || null,
@@ -1072,17 +726,10 @@ async function bookDoms(req, res) {
     return res.status(500).json({ error: 'Could not save booking', message: e.message });
   }
   const bookingId = result.booking_id || null;
-  // mirrorBooking swallows its own pre-insert failures and returns undefined.
-  // No booking id means NOTHING was created; claiming success would leave the
-  // customer confident in a booking that does not exist.
   if (!bookingId) {
     console.error('[book-doms] mirror returned no booking id');
     return res.status(500).json({ error: 'Could not save your booking. Please try again.' });
   }
-  // mirrorBooking falls back to unassigned if this exact tech+slot lost a race
-  // to a concurrent booking (bookings_tech_slot_unique, migration 0073). A
-  // technician-less job must never sit in the CRM silently, so try once to
-  // assign a different free tech, and failing that alert the office right now.
   if (bookingId && !result.technician_id) {
     result.technician_id = await recoverUnassignedBooking(db, {
       slug: 'doms', bizId: biz.id, bookingId, dateStr, slotKey, serviceAreaId: area?.id || null, timezone: tz, zip,
@@ -1091,9 +738,6 @@ async function bookDoms(req, res) {
       whenStr: fmtWhen(startUTC, tz, dateStr),
     });
   }
-  // Never let the confirmation email say "Meet [Tech]" for a job that isn't
-  // actually assigned to them (the recovery above may have landed on a
-  // different tech than the one picked before the insert).
   if (result.technician_id !== technician_id) {
     technicianName = null; technicianPhoto = null;
     if (result.technician_id) {
@@ -1105,12 +749,6 @@ async function bookDoms(req, res) {
     }
   }
 
-  // Text the assigned tech. This is the whole reason techs stopped hearing about
-  // website bookings: this path auto-assigns (pickOpenTech above) and writes
-  // status:'assigned', but for its entire existence never notified anyone — the
-  // notify helper was private to admin.js and unimportable from here. Keyed off
-  // result.technician_id (not the locally picked id) so a tech who LOST the
-  // slot race just above is never told about a job that isn't theirs.
   if (result.technician_id) {
     await notifyTechAssigned(db, { id: biz.id, name: "Dom's Home Cleaning", timezone: tz },
       result.technician_id, startUTC.toISOString(), tz, { bookingId })
@@ -1146,7 +784,6 @@ async function bookDoms(req, res) {
     });
   }
 
-  // ── Doms-branded confirmation email (best-effort; never fails the booking).
   const domsEmail = emailConfig('doms');
   const willSend = emailNotificationsOn() && !!domsEmail.apiKey && !!customer.email;
   if (willSend) {
@@ -1166,7 +803,7 @@ async function bookDoms(req, res) {
         technicianPhotoUrl: technicianPhoto?.photo_url || null,
         technicianBioYears: technicianPhoto?.bio_years || null,
         technicianBioBlurb: technicianPhoto?.bio_blurb || null,
-        address:     { line1: customer.address, city: isDenver ? (b.city || 'Denver') : defCity, state: isDenver ? (b.state || 'CO') : defState, zip },
+        address:     { line1: customer.address, city: isManila ? (b.city || 'Manila') : defCity, state: isManila ? (b.state || 'CO') : defState, zip },
         lines:       emailLines,
         total:       price,
         tip,
@@ -1185,7 +822,6 @@ async function bookDoms(req, res) {
     }
   }
 
-  // ── "You're booked" text. Awaited on purpose (see _lib/booking-confirm-sms.js).
   await sendBookingConfirmSms({
     customerPhone: customer.phone,
     smsConsent,
@@ -1201,21 +837,11 @@ async function bookDoms(req, res) {
   return res.status(200).json({
     success: true,
     booking_id: bookingId, job_id: bookingId,
-    // From the mirror RESULT, not the locally-picked tech: if this exact
-    // tech+slot lost a race to a concurrent booking, mirrorBooking inserted
-    // the booking unassigned ('confirmed') and the response must say so.
     status: result.technician_id ? 'assigned' : 'confirmed',
     card_saved: paymentStatus === 'card_on_file',
   });
 }
 
-// ── TidyHaus native booking (no Zenbooker) ─────────────────────────────────
-// Multi-metro version of bookDoms. The customer's ZIP resolves the service area
-// (Denver / Houston / Austin), which fixes BOTH the timezone the slot is anchored
-// in AND the technician roster the slot may be assigned from (Houston -> Juan,
-// Austin -> Zach, Denver -> Kregg/Steve). Surcharge, after-hours fee, and coupon
-// are enforced server-side. `selectedSlot` is the 'handy-andy_<YYYY-MM-DD>_<slotKey>'
-// id returned by /api/slots?business=handy-andy.
 async function bookNative(req, res, slug) {
   const DISPLAY = NATIVE_BUSINESS[slug] || { name: slug, legalName: slug };
   const b = req.body || {};
@@ -1240,9 +866,6 @@ async function bookNative(req, res, slug) {
   const { data: biz } = await db.from('businesses').select('id, name').eq('slug', slug).single();
   if (!biz) return res.status(500).json({ error: `${DISPLAY.name} business not configured` });
 
-  // ZIP -> service area: timezone, tech roster scope, per-zip surcharge, and
-  // the per-zip FLAT price adjustment (0 = no-op; resilient select in case
-  // migration 0083 hasn't landed on this deploy yet).
   const zip = zip5(b.postal_code || customer.zip || '');
   if (!zip) return res.status(400).json({ error: 'A ZIP code is required' });
   let z, zErr;
@@ -1266,28 +889,15 @@ async function bookNative(req, res, slug) {
   const startUTC = slotStartUTC(tz, dateStr, slotKey);
   const endUTC   = slotEndUTC(tz, dateStr, slotKey);
   if (!startUTC) return res.status(400).json({ error: 'Invalid time slot' });
-  // The public slot list already omits anything starting within the next hour
-  // (publicOpenSlots), but a page can sit open long enough for a slot that WAS
-  // fine when it loaded to cross that line by the time they actually submit —
-  // re-check here so a stale page can never book a same-hour job. Strict "not
-  // more than 60 min out", matching the listing filter exactly.
   if (startUTC.getTime() - Date.now() <= minLeadMsFor(serviceAreaId)) {
     return res.status(409).json({ error: "That time is too soon to book now. Please pick a later time.", conflict: true });
   }
 
-  // After-hours fee: the 8 PM slot (s5) is a flat $75 EVERY day, every brand
-  // (owner, 2026-10-09: "8pm should be 75 added"). The old Zenbooker-era
-  // "$100 on Sundays" rule is gone; public/widget.js slotSurcharge(),
-  // api/analytics.js botAfterHoursFee() and admin.html's New Booking / Take a
-  // Call fees all charge the same $75.
   const afterHours = slotKey === 's5' ? 75 : 0;
 
-  // Coupon (validated server-side; unknown codes are ignored, never trusted).
   const couponCode = String(b.coupon || '').trim().toUpperCase();
   const couponAmt = await couponAmountFor(db, slug, couponCode);
 
-  // ── Line items for storage. Prefer explicit line_items; else the email_summary
-  // lines the widget computed for display.
   const sum = b.email_summary || {};
   let lines = [];
   if (Array.isArray(b.line_items) && b.line_items.length) {
@@ -1306,26 +916,12 @@ async function bookNative(req, res, slug) {
         quantity: qty, unit_price: qty ? amount / qty : amount, line_total: amount };
     });
   }
-  // Enforce the money the customer must owe, server-side, so a stale/tampered
-  // widget can never drop the surcharge or after-hours fee.
   if (surcharge !== 0 && !lines.some(l => /surcharge|local travel credit/i.test(l.name))) {
     lines.push({ kind: 'fee', name: surcharge > 0 ? 'Service area surcharge' : 'Local travel credit', quantity: 1, unit_price: surcharge, line_total: surcharge });
   }
   if (afterHours > 0 && !lines.some(l => /after.?hours/i.test(l.name))) {
     lines.push({ kind: 'fee', name: 'After-hours fee', quantity: 1, unit_price: afterHours, line_total: afterHours });
   }
-  // Per-zip FLAT price adjustment (owner-set, 0 for every zip until
-  // configured — see migration 0083). ALWAYS enforced here — unlike the
-  // surcharge/after-hours guards above, the widget never sends this as a
-  // named line at all (see widget.js zipFlatAdjustment()/calcTotal() — it's
-  // folded silently into the totals the customer sees, with no line to
-  // check for). This IS the one and only place the charge gets applied.
-  // kind:'fee' so payroll skips it outright — it changes what the customer
-  // pays, never what the tech is paid. Named plainly (not "zip"/"pricing
-  // adjustment") and EXCLUDED from the customer's emailed receipt below
-  // (see the `emailLines` filter) — the office can see it on the ticket in
-  // the dashboard and in the daily digest; the customer never sees why (or
-  // that) their price differs from another address.
   const ZIP_ADJUSTMENT_LINE_NAME = 'Location-based pricing';
   if (priceAdjustmentAmount) {
     lines.push({ kind: 'fee', name: ZIP_ADJUSTMENT_LINE_NAME, quantity: 1, unit_price: priceAdjustmentAmount, line_total: priceAdjustmentAmount });
@@ -1333,15 +929,7 @@ async function bookNative(req, res, slug) {
   if (couponAmt > 0 && !lines.some(l => /coupon|discount/i.test(l.name))) {
     lines.push({ kind: 'coupon', name: `Coupon ${couponCode}`, quantity: 1, unit_price: -couponAmt, line_total: -couponAmt });
   }
-  // Multi-TV batching + price discounts -- see applyMultiTvDiscounts() above
-  // (shared with bookDoms). Numbers live in multi_tv_discount_config now, not
-  // hardcoded here; the widget (public/widget.js, multiTvDiscount /
-  // steppedMultiTvPriceDiscount) fetches the same row via the public
-  // multi_tv_discount action below.
   const multiTvDiscountAmt = applyMultiTvDiscounts(lines, surcharge, await multiTvDiscountConfigFor(db));
-  // Sales tax (8.25%) on the taxable subtotal (services + fees, not coupons or
-  // an existing tax line) — added server-side so a stale/tampered widget can't
-  // drop it. Placed before the coupon so tax is on the pre-discount amount.
   if (!lines.some(l => /^tax\b/i.test(l.name))) {
     const taxable = lines
       .filter(l => l.kind !== 'coupon' && !/^tax\b/i.test(l.name || ''))
@@ -1349,26 +937,15 @@ async function bookNative(req, res, slug) {
     const tax = Math.round(taxable * 0.0825 * 100) / 100;
     if (tax > 0) lines.push({ kind: 'fee', name: 'Tax (8.25%)', quantity: 1, unit_price: tax, line_total: tax });
   }
-  // Canonical ticket order (owner rule 2026-08-24): TVs smallest-first, then
-  // work, then travel fee, discounts, tax last — so the stored ticket, the
-  // office dashboard, and the confirmation email all read the same way.
   lines = canonicalizeLineItems(lines);
   const tip = Number(b.tip) || 0;
   const subtotal = lines.reduce((s, l) => s + (Number(l.line_total) || 0), 0);
   const widgetTotal = sum.total != null ? Number(sum.total) : subtotal;
   const price = Math.max(subtotal, widgetTotal) || subtotal;
-  // Hard $139 minimum ticket (owner rule 2026-08-31) — see the matching
-  // comment in bookDoms above. Applies to every native business/metro, not
-  // just Denver's own $139 default; Austin's cheaper $119 widget price is no
-  // longer allowed to actually book under $139.
   if (price < MIN_TICKET_PRICE) {
     return res.status(400).json({ error: `Jobs must total at least $${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
   }
 
-  // ── Pick a tech from THIS metro's roster BEFORE saving the card or writing
-  // anything, and REJECT with a 409 if nobody is available anymore. Same guard
-  // as bookDoms above (see the comment there): the customer's slot list is a
-  // snapshot, and a job must never be created without a technician.
   let technician_id = null, pickBroken = false;
   try { technician_id = await pickOpenTech(db, { businessSlug: slug, dateStr, slotKey, serviceAreaId, timezone: tz, crossHire: true, zip }); }
   catch (e) {
@@ -1377,10 +954,6 @@ async function bookNative(req, res, slug) {
     catch (e2) { pickBroken = true; console.error('[book-ha] tech pick failed twice:', e2.message); }
   }
   if (!technician_id) {
-    // See the matching comment in bookDoms: an idempotent retry of an
-    // already-successful submit finds its OWN booking occupying the tech
-    // (guaranteed in single-tech metros: Houston, Austin) and must get its
-    // original success back, not a phantom 409.
     const dup = await idempotentPrior(db, biz.id, b.idempotency_key);
     if (dup) return res.status(200).json(dup);
     if (pickBroken) {
@@ -1395,19 +968,11 @@ async function bookNative(req, res, slug) {
     technicianPhoto = _t || null;
   } catch (e) { /* name is best-effort */ }
 
-  // ── Save the card on file in this business's own Stripe account (best-effort), using
-  // HANDY_ANDY_STRIPE_SECRET_KEY. The card is tokenized in the browser with the
-  // matching publishable key, so the publishable/secret pair are the same account.
-  // Runs AFTER the tech guard on purpose: a rejected booking must not leave a
-  // customer + card sitting in Stripe.
   let stripeCustomerId = null, paymentStatus = 'unpaid', cardNote = '';
   if (b.payment_method_id) {
     if (!stripeConfigured({ account: slug })) {
       cardNote = `Card captured (${b.payment_method_id}) but this business's Stripe secret key is not set — card was NOT saved on file.`;
     } else {
-      // Widget-verified flow — same as bookDoms above: confirm with Stripe
-      // that the pm is really attached to the claimed customer before
-      // trusting the client-supplied stripe_customer_id.
       if (b.stripe_customer_id) {
         try {
           const pm = await retrieveCard(b.payment_method_id, { account: slug });
@@ -1435,20 +1000,15 @@ async function bookNative(req, res, slug) {
       }
     }
   } else if (b.card_skipped) {
-    // Same escape hatch as bookDoms: booked without a card after verification
-    // rejected it — office must collect at service.
     cardNote = 'Customer booked WITHOUT a card after their card failed verification at checkout — collect payment at service.';
   }
 
   const city = b.city || area.name || null;
   const state = b.state || area.state || null;
   if (cardNote) console.log('[book-ha] card:', cardNote);
-  // Same silent-failure class as bookDoms above — see the comment there.
   const cardSaveFailed = !!(b.payment_method_id && paymentStatus !== 'card_on_file')
     || !!(!b.payment_method_id && b.card_skipped);
 
-  // ── Write the booking (customer, booking, line items, status event, review token).
-  // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
   const smsConsent = await textConsentFor(db, customer.phone);
   let result = {};
   try {
@@ -1475,7 +1035,6 @@ async function bookNative(req, res, slug) {
       line_items: lines, subtotal, price, tip,
       payment_status: paymentStatus,
       stripe_customer_id: stripeCustomerId,
-      // Same as bookDoms: a pm that failed to attach is not a saved card.
       stripe_payment_method_id: cardSaveFailed ? null : (b.payment_method_id || null),
       notes: cardSaveFailed ? `⚠ ${cardNote}` : null,
       customer_notes: b.customer_notes || sum.notes || null,
@@ -1485,13 +1044,10 @@ async function bookNative(req, res, slug) {
     return res.status(500).json({ error: 'Could not save booking', message: e.message });
   }
   const bookingId = result.booking_id || null;
-  // See the matching comment in bookDoms: no id means nothing was created.
   if (!bookingId) {
     console.error('[book-ha] mirror returned no booking id');
     return res.status(500).json({ error: 'Could not save your booking. Please try again.' });
   }
-  // Same race-fallback recovery as bookDoms above (see the comment there): a
-  // technician-less job must never sit in the CRM silently.
   if (bookingId && !result.technician_id) {
     result.technician_id = await recoverUnassignedBooking(db, {
       slug, bizId: biz.id, bookingId, dateStr, slotKey, serviceAreaId, timezone: tz, zip,
@@ -1511,9 +1067,6 @@ async function bookNative(req, res, slug) {
     }
   }
 
-  // Text the assigned tech — see the matching comment in bookDoms. `tz` here is
-  // the METRO's timezone (an Austin job is Central), so the tech is told the
-  // job's real local time rather than the company's Mountain clock.
   if (result.technician_id) {
     await notifyTechAssigned(db, { id: biz.id, name: DISPLAY.name, timezone: tz },
       result.technician_id, startUTC.toISOString(), tz, { bookingId })
@@ -1554,7 +1107,6 @@ async function bookNative(req, res, slug) {
     });
   }
 
-  // ── Business-branded confirmation email (best-effort; never fails booking).
   const haEmail = emailConfig(slug);
   const willSend = emailNotificationsOn() && !!haEmail.apiKey && !!customer.email;
   if (willSend) {
@@ -1564,10 +1116,6 @@ async function bookNative(req, res, slug) {
         { timeZone: 'UTC', weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
       const slot = SLOTS.find(s => s.key === slotKey);
       const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-      // The zip price adjustment is real money the customer pays (it's inside
-      // `price`/`subtotal` below), but is NEVER itemized to them — filtered
-      // out of the receipt they actually see. It still lives in `lines`
-      // (stored on the booking) for the office/admin and the daily digest.
       const emailLines = lines
         .filter(l => l.name !== ZIP_ADJUSTMENT_LINE_NAME)
         .map(l => ({ label: l.name, qty: l.quantity, amount: l.line_total }));
@@ -1599,9 +1147,6 @@ async function bookNative(req, res, slug) {
     }
   }
 
-  // ── "You're booked" text. Awaited on purpose (see _lib/booking-confirm-sms.js).
-  // DISPLAY.name is the JOB's business (Mile High / Precision / Austin), never
-  // the cross-hired tech's home company.
   await sendBookingConfirmSms({
     customerPhone: customer.phone,
     smsConsent,
@@ -1617,24 +1162,11 @@ async function bookNative(req, res, slug) {
   return res.status(200).json({
     success: true,
     booking_id: bookingId, job_id: bookingId,
-    // From the mirror RESULT, not the locally-picked tech: if this exact
-    // tech+slot lost a race to a concurrent booking, mirrorBooking inserted
-    // the booking unassigned ('confirmed') and the response must say so.
     status: result.technician_id ? 'assigned' : 'confirmed',
     card_saved: paymentStatus === 'card_on_file',
   });
 }
 
-// ── One-tap "on my way" from the pre-job nudge text ─────────────────────────
-// The nudge (_lib/tech-late.js stage 1) texts the tech a link to /otw.html
-// carrying a signed { kind:'otw_quick', booking_id, tech_id } token. That page
-// reads the job with action=otw_info and only acts when the tech taps the
-// button, which POSTs action=otw_send.
-//
-// GET is deliberately read-only. SMS clients, carriers and link scanners
-// routinely prefetch URLs in a message — if tapping were a plain GET, a link
-// preview would mark the job en route and text the customer before the tech
-// had even seen the message.
 const OTW_OPEN_STATUSES = ['pending', 'confirmed', 'assigned'];
 
 function otwToken(req) {
@@ -1673,12 +1205,8 @@ async function otwInfo(req, res) {
     customer: b.customer?.name || 'your customer',
     when: whenTxt,
     business: b.business?.name || null,
-    // The page warns the tech up front when tapping won't text anyone, so
-    // they know to call with their ETA instead of assuming the customer knows.
     sms_opt_out: b.sms_consent === false,
     phone: b.customer?.phone || null,
-    // Lets the landing page re-render "Office notified" on reload, e.g. if
-    // the tech already reported late and comes back to the same link.
     already_late: !already && !!(b.metadata && b.metadata.late_reported_at),
   });
 }
@@ -1693,13 +1221,10 @@ async function otwSend(req, res) {
     .eq('id', t.booking_id).maybeSingle();
   if (!b) return res.status(200).json({ ok: false, reason: 'invalid' });
 
-  // Idempotent, and safe against a stale link: a job already en route (or
-  // further along) is never dragged backwards, it just reports success.
   if (b.on_the_way_at || !OTW_OPEN_STATUSES.includes(b.status)) {
     return res.status(200).json({ ok: true, already: true, customer: b.customer?.name || 'your customer' });
   }
 
-  // Only a tech actually on this job may act on it, even with a valid token.
   const tokenTech = String(t.tech_id || '');
   const onThisJob = tokenTech && (tokenTech === String(b.technician_id) || tokenTech === String(b.secondary_technician_id));
   if (!onThisJob) return res.status(200).json({ ok: false, reason: 'not_assigned' });
@@ -1708,17 +1233,14 @@ async function otwSend(req, res) {
   const { error: upErr } = await db.from('bookings')
     .update({ status: 'on_the_way', on_the_way_at: nowISO })
     .eq('id', b.id)
-    .is('on_the_way_at', null);          // lost race with the app = no double send
+    .is('on_the_way_at', null);
   if (upErr) {
     console.error('[otw_send] status update failed:', upErr.message);
     return res.status(200).json({ ok: false, reason: 'error' });
   }
 
-  // Mirror the tech app: show them as on a job in the dashboard.
   try { await db.from('technicians').update({ status: 'on_job' }).eq('id', tokenTech); } catch { /* cosmetic */ }
 
-  // Awaited on purpose — an un-awaited send is silently killed when Vercel
-  // freezes the lambda on response.
   const sms = await sendEnRouteSms(db, {
     bookingId: b.id,
     technicianId: tokenTech,
@@ -1734,13 +1256,6 @@ async function otwSend(req, res) {
   });
 }
 
-// ── "I'm running late" tech self-report from the SAME tap link ─────────────
-// A second, lower-emphasis action on otw.html next to "Send on my way". This
-// does NOT touch on_the_way_at or status — the job hasn't started from the
-// customer's side — it just stamps metadata.late_reported_at/by (a PERMANENT
-// stop that api/_lib/tech-late.js's checkLateTechs() checks first thing, per
-// booking, before any stage-due computation) and lets the office know once.
-// "Send on my way" keeps working normally afterward (or before), independently.
 async function reportLate(req, res) {
   const t = otwToken(req);
   if (!t) return res.status(200).json({ ok: false, reason: 'invalid' });
@@ -1755,34 +1270,23 @@ async function reportLate(req, res) {
     .eq('id', t.booking_id).maybeSingle();
   if (!b) return res.status(200).json({ ok: false, reason: 'invalid' });
 
-  // A job that's already progressed past "not yet en route" makes a
-  // late-report moot, not an error. `moot` tells the page the office was NOT
-  // texted, so it doesn't claim otherwise.
   if (b.on_the_way_at || !OTW_OPEN_STATUSES.includes(b.status)) {
     return res.status(200).json({ ok: true, already: true, moot: true, customer: b.customer?.name || 'your customer' });
   }
 
-  // Only a tech actually on this job may act on it, even with a valid token —
-  // same "onThisJob" check as otwSend.
   const tokenTech = String(t.tech_id || '');
   const onThisJob = tokenTech && (tokenTech === String(b.technician_id) || tokenTech === String(b.secondary_technician_id));
   if (!onThisJob) return res.status(200).json({ ok: false, reason: 'not_assigned' });
 
   const existingMeta = b.metadata || {};
   if (existingMeta.late_reported_at) {
-    // Idempotent re-tap: already reported, nothing else to do.
     return res.status(200).json({ ok: true, already: true, customer: b.customer?.name || 'your customer' });
   }
 
   const nowISO = new Date().toISOString();
-  // Re-read fresh right before writing, same pattern as the cron pass in
-  // _lib/tech-late.js, so a key written elsewhere in the meantime isn't clobbered.
   const { data: freshRow, error: reErr } = await db.from('bookings').select('metadata').eq('id', b.id).maybeSingle();
   const freshMeta = (!reErr && freshRow && freshRow.metadata) || existingMeta;
   const newMeta = { ...freshMeta, late_reported_at: nowISO, late_reported_by: tokenTech };
-  // DB-level conditional, same idea as otwSend's `.is('on_the_way_at', null)`:
-  // if two taps race, only the one that still finds late_reported_at unset
-  // actually writes and updates 0 rows otherwise — no double office SMS.
   const { data: updRows, error: upErr } = await db.from('bookings')
     .update({ metadata: newMeta })
     .eq('id', b.id)
@@ -1793,12 +1297,9 @@ async function reportLate(req, res) {
     return res.status(200).json({ ok: false, reason: 'error' });
   }
   if (!updRows || !updRows.length) {
-    // Lost the race to a concurrent report_late tap — it already wrote
-    // late_reported_at and sent the office text, nothing left to do here.
     return res.status(200).json({ ok: true, already: true, customer: b.customer?.name || 'your customer' });
   }
 
-  // Exactly one text, to the office only — no owner cc, no customer text.
   const slug = b.business?.slug || null;
   const officePhone = officePhoneFor(slug);
   if (officePhone) {
@@ -1807,9 +1308,6 @@ async function reportLate(req, res) {
       : (tokenTech === String(b.secondary_technician_id) ? b.secondary_technician?.name : null);
     const techFirstName = (techName || '').trim().split(/\s+/)[0] || 'Your tech';
     const customerName = b.customer?.name || 'the customer';
-    // The job's OWN metro clock, not the business row's generic default — an
-    // Austin/Houston job under handy-andy must read Central, not the
-    // business default of Mountain. Same fallback chain as otwInfo/tech-late.js.
     let tz = b.business?.timezone || 'Asia/Manila';
     if (b.service_area_id) {
       try {
@@ -1826,7 +1324,6 @@ async function reportLate(req, res) {
     const msg = `${techFirstName} says they're running late to ${customerName}'s job (${whenTxt}).`;
     const r = await sendSMSResult(officePhone, msg);
     if (!r.ok) console.warn(`[report_late] office SMS failed for booking ${b.id}:`, r.error || r.skipped);
-    // Dom's: today's on-duty secretary (Alex or Joe) too (owner 2026-10-07).
     for (const p of await onDutySecretaryPhones(db, slug)) {
       if (p === toE164(officePhone)) continue;
       const r2 = await sendSMSResult(p, msg);
@@ -1840,12 +1337,6 @@ async function reportLate(req, res) {
   return res.status(200).json({ ok: true, already: false, customer: b.customer?.name || 'your customer' });
 }
 
-// ── Voicemail deep link ─────────────────────────────────────────────────────
-// The alert text sent to the secretary (notifyCallRecipient in api/admin.js)
-// carries a signed link to /voicemail.html so they can read what the caller
-// actually said and tap to ring them back, without logging into the dashboard
-// on a phone first. Read-only: this exposes nothing but the one voicemail the
-// token names, and the token is unguessable (HMAC, see _lib/auth.js).
 async function voicemailInfo(req, res) {
   const t = verifyToken(((req.query || {}).token || '').toString());
   if (!t || t.kind !== 'voicemail' || !t.call_id) return res.status(200).json({ ok: false, reason: 'invalid' });
@@ -1866,10 +1357,6 @@ async function voicemailInfo(req, res) {
   });
 }
 
-// Public "Real customer bookings" counter for the Dom's sites. Returns how many
-// Dom's bookings (online widget AND phone/office entries, all cities) were made
-// since the counter went live; the site adds that to its own starting number.
-// Counts only; no customer data. Cancelled bookings do not count.
 const BOOKING_COUNT_SINCE = { doms: '2026-10-05T07:52:16.681Z' };
 async function bookingCountPublic(req, res) {
   const business = ((req.query || {}).business || 'doms').toString().trim();
@@ -1893,43 +1380,26 @@ export default async function handler(req, res) {
   res.setHeader('Access-Control-Max-Age', '86400');
 
   if (req.method === 'OPTIONS') return res.status(200).end();
-  // Public calendar (.ics) download for the "Add to Apple Calendar" button in
-  // booking-confirmation emails. Lives here (rather than its own api/ file) to
-  // stay under Vercel's 12-function Hobby cap.
   if (req.method === 'GET' && (req.query || {}).action === 'ics') return serveIcs(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'review_click') return serveReviewClick(req, res);
-  // Public address-autocomplete proxy for the booking widget.
   if (req.method === 'GET' && (req.query || {}).action === 'places_autocomplete') return placesAutocompletePublic(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'place_details') return placeDetailsPublic(req, res);
-  // Public price overrides for the booking widget — see widgetPricesPublic() below.
   if (req.method === 'GET' && (req.query || {}).action === 'widget_prices') return widgetPricesPublic(req, res);
-  // Live promo codes for the widget — see couponsPublic() above.
   if (req.method === 'GET' && (req.query || {}).action === 'coupons') return couponsPublic(req, res);
-  // Live multi-TV discount numbers for the widget, see multiTvDiscountPublic() below.
   if (req.method === 'GET' && (req.query || {}).action === 'multi_tv_discount') return multiTvDiscountPublic(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'stripe_config') return stripePublicConfig(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'booking_count') return bookingCountPublic(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'pay_status') return payStatusPublic(req, res);
   if (req.method === 'POST' && ((req.query || {}).action === 'card_setup' || (req.body || {}).action === 'card_setup')) return cardSetupPublic(req, res);
   if (req.method === 'GET' && (req.query || {}).action === 'email_config') return emailPublicConfig(req, res);
-  // One-tap "on my way" link from the pre-job nudge text. Read on GET, act on POST.
   if (req.method === 'GET' && (req.query || {}).action === 'otw_info') return otwInfo(req, res);
-  // Signed voicemail link from the secretary's alert text.
   if (req.method === 'GET' && (req.query || {}).action === 'vm_info') return voicemailInfo(req, res);
   if (req.method === 'POST' && ((req.query || {}).action === 'otw_send' || (req.body || {}).action === 'otw_send')) return otwSend(req, res);
-  // "I'm running late" self-report from the same tap link — see reportLate() above.
   if (req.method === 'POST' && ((req.query || {}).action === 'report_late' || (req.body || {}).action === 'report_late')) return reportLate(req, res);
   if (req.method !== 'POST')    return res.status(405).json({ error: 'Method not allowed' });
 
-  // Native CRM businesses — branch before any Zenbooker work.
   if (req.body && req.body.business === 'doms') return bookDoms(req, res);
   if (req.body && NATIVE_BUSINESS[req.body.business]) return bookNative(req, res, req.body.business);
 
-  // Zenbooker was canceled 2026-07-31 — see the matching comment in
-  // api/service-area.js. This entire branch (job creation, card-on-file
-  // linking, unstaffed-job detection, confirmation email) was the legacy
-  // Zenbooker booking flow. Every real business is caught by the native
-  // branches above; nothing legitimate should ever reach here, so this is a
-  // hard dead-end rather than a live fallback that could ever call out.
-  return res.status(410).json({ error: 'Unknown or missing business. Zenbooker is no longer used — pass business=handy-andy, mile-high, or doms.' });
+  return res.status(410).json({ error: 'Unknown or missing business. Zenbooker is no longer used — pass business=tidyhaus, mile-high, or doms.' });
 }

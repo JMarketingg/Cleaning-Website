@@ -1,45 +1,14 @@
-// ============================================================================
-// Payroll calculation engine — TidyHaus + Dom's Home Cleaning
-// ----------------------------------------------------------------------------
-// Single source of truth for "how much does a tech earn on a job?". Encodes the
-// owner's rate sheet (Payroll Rules & Rates Reference, rev. 2026-06-19).
-//
-// DESIGN PRINCIPLE: "perfect, no exceptions" means we NEVER silently guess. A
-// line item is either matched to a known rate (deterministic) or pushed to
-// `flags[]` for owner review. The UI surfaces flags so a human resolves the
-// ambiguous cases instead of paying a wrong number.
-//
-// Pure module: no DB, no network. computeJobPay(job, techName) -> result.
-// Run `node api/_lib/payroll.js` to execute the built-in self-tests.
-// ============================================================================
 
-// ── Payroll week math (Sunday–Saturday; paid the SECOND Monday after close) ──
-// Period ends Saturday; money hits accounts on the Saturday + 9 days, which is
-// always the second Monday after the week closes. Owner's examples:
-//   week May 31–Jun 6 (Sat) -> paid Mon Jun 15  (Jun 6 + 9)
-//   week Jun 7 –Jun 13 (Sat) -> paid Mon Jun 22  (Jun 13 + 9)
-export const PAY_DATE_OFFSET_DAYS = 9;    // days after the period-end Saturday
+export const PAY_DATE_OFFSET_DAYS = 9;
 
-// ── Tech classification ──────────────────────────────────────────────────────
-// Juan earns enhanced rates on base + wires + fireplace. He USED to also get a
-// bracket reimbursement ($25/$35/$60); that ended 2026-08-16 by owner rule --
-// see JUAN_BRACKET_ZERO_FROM. Everyone
-// else ("Other Techs") earns the standard column — TK included for rates.
-// Evan is retired — never paid (callers should exclude; we also guard here).
 export function isJuan(techName) {
   return /\bjuan\b/i.test(String(techName || ''));
 }
 export function isRetired(techName) {
-  // Dismissed techs — never paid (rate sheet §10): Evan and Israel.
   return /\b(evan|israel)\b/i.test(String(techName || ''));
 }
 
-// ── Rate sheet ───────────────────────────────────────────────────────────────
-// Each entry: { juan, other }. Whole dollars. Matching is by a normalized name
-// (see normalize()) so DB label variants between TidyHaus and Dom's collapse
-// to one key.
 
-// TV base pay by size bracket (TidyHaus 6-bracket sheet).
 const TV_SIZE_RATES = [
   { test: /(32|thirty.?two).*(less|under|below)|under.*32|32"?\s*or\s*less/, juan: 50, other: 50, label: '32" & under' },
   { test: /33.*59|33"?–?59/,                                                  juan: 60, other: 60, label: '33"–59"' },
@@ -49,45 +18,28 @@ const TV_SIZE_RATES = [
   { test: /98|98"?\+|9[0-9]"?\s*\+/,                                          juan: 130, other: 130, label: '98"+' },
 ];
 
-// Brackets, add-ons, wires, fireplace, surface, lifting — keyed by normalized name.
-// `null` rate-pair means "known item that pays nothing" (no flag).
 const ITEM_RATES = {
-  // Brackets (Other techs paid $0 — bracket cost is a customer add-on, not labor).
-  // Juan's 25/35/60 below are HISTORICAL ONLY: they still apply to jobs
-  // scheduled before 2026-08-16 so re-running an old week reproduces what was
-  // actually paid. From 2026-08-16 on, JUAN_BRACKET_ZERO_FROM zeroes them.
   'flat bracket':            { juan: 25, other: 0 },
   'flat':                    { juan: 25, other: 0 },
   'tilting bracket':         { juan: 35, other: 0 },
   'tilting':                 { juan: 35, other: 0 },
   'full motion bracket':     { juan: 60, other: 0 },
   'full motion':             { juan: 60, other: 0 },
-  // Mantel Mount: $195 to the customer, $110 to the tech (paid labor, all techs).
   'mantel mount':            { juan: 110, other: 110 },
   'install customer supplied mantel mount': { juan: 110, other: 110 },
   'customer supplied bracket': { juan: 0, other: 0 },
   'i have my own bracket':   { juan: 0, other: 0 },
   'i have my own mounting bracket': { juan: 0, other: 0 },
-  // Bracket choice for 85"–100" TVs (verbose widget labels). Brackets still pay
-  // $0 to other techs; Juan keeps his bracket reimbursement.
   '85 100 flat bracket':        { juan: 25, other: 0 },
   '85 100 tilting bracket':     { juan: 35, other: 0 },
   '85 100 full motion bracket': { juan: 60, other: 0 },
-  // Samsung Frame "bracket in the box" (verbose widget wording -> $15 both).
   'i will be using the bracket that comes in the box samsung frame tv': { juan: 15, other: 15 },
 
-  // Add-ons (same for everyone).
   'samsung frame box':       { juan: 15, other: 15 },
   'samsung frame tv in box bracket': { juan: 15, other: 15 },
-  // Frame/Gallery TV in-box bracket choice (Samsung Frame, LG Gallery) -> $15.
   'samsung frame lg gallery in box bracket': { juan: 15, other: 15 },
   'samsung frame lg gallery':                { juan: 15, other: 15 },
   'frame lg gallery in box bracket':         { juan: 15, other: 15 },
-  // TV recycle / haul-away: the tech takes the old set away. $75 to the tech
-  // (owner rate, set Jul 2026 — expected to change; this is the only place to
-  // edit it). Both spellings of the key are listed because the name normalizer
-  // strips the word "tv", so "Tv recycle" can arrive as either.
-  // Remount (take an existing TV down and hang it again): $60 (owner 2026-10-12).
   'remount tv':              { juan: 60, other: 60 },
   'remount':                 { juan: 60, other: 60 },
   'tv recycle':              { juan: 75, other: 75 },
@@ -107,7 +59,6 @@ const ITEM_RATES = {
   'install samsung frame oneconnect box': { juan: 170, other: 170 },
   'install samsung frame oneconnect box behind tv': { juan: 170, other: 170 },
 
-  // Wires / fireplace / surface.
   'behind wall wires':       { juan: 45, other: 35 },
   'hide wires behind the wall': { juan: 45, other: 35 },
   'yes hide the wires behind the wall': { juan: 45, other: 35 },
@@ -138,7 +89,6 @@ const ITEM_RATES = {
   'wall already has plug behind tv': { juan: 0, other: 0 },
 };
 
-// Assurion fixed rates (Steve only; never deferred). Matched from job notes.
 const ASSURION_RATES = {
   'tv installation': 60,
   'television': 60,
@@ -147,29 +97,16 @@ const ASSURION_RATES = {
   'frame tv': 75,
 };
 
-// ── Travel / service-area surcharge → tech payout ────────────────────────────
-// The customer's travel/service-area fee is SHARED: the tech keeps a fixed 80%,
-// the house keeps 20%. Owner rule (2026-07) — replaced the old fixed $15/$65/$100
-// tier table so ANY fee the ticket carries pays the tech proportionally, and a
-// non-standard amount can never round to the wrong tier. Derived straight from
-// the charged surcharge line so the tech always gets their share even when the
-// per-zip payout column was never configured. The standard service-area fees map
-// cleanly:  customer $15 → $12,  $65 → $52,  $100 → $80  (in-town $0 → $0).
-// On a two-tech job this one-trip share is split in half between the two techs.
-export const TECH_TRAVEL_SHARE = 0.8;   // tech keeps 80% of the travel fee; house 20%
+export const TECH_TRAVEL_SHARE = 0.8;
 export function travelPayoutForSurcharge(amount) {
   const a = Number(amount) || 0;
   if (a <= 0) return 0;
   return Math.round(a * TECH_TRAVEL_SHARE);
 }
 
-// Job-number overrides from the rate sheet (zenbooker_job_number -> tech pay).
 export const CUSTOM_PAY = { '020989': 60, '690071': 50 };
 export const ASSURION_TOTAL = { '143430': 60, '708972': 60, '811856': 70 };
 
-// ── Normalization ────────────────────────────────────────────────────────────
-// Collapse a DB label to a stable lookup key: lowercase, strip punctuation and
-// filler words, squeeze whitespace.
 function normalize(s) {
   return String(s || '')
     .toLowerCase()
@@ -179,7 +116,6 @@ function normalize(s) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-// A looser key that keeps a few structural words (for wires/fireplace/brackets).
 function keyOf(s) {
   return String(s || '')
     .toLowerCase()
@@ -189,29 +125,14 @@ function keyOf(s) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-// Some stored labels bake the quantity into the name ("Full Motion ×3"). The
-// count is handled separately (payQty), so a trailing "×N" must be stripped
-// before the exact-key rate lookup, or a real bracket/add-on silently fails to
-// match. Only the × sign counts — a plain letter "x" (e.g. "Dry Erase Board
-// 4 x 6" dimensions) is left intact so genuine custom jobs aren't mangled.
 function stripQtySuffix(s) {
   return String(s || '').replace(/\s*[×✕✖]\s*\d+\s*$/, '').trim();
 }
 
 function matchSize(name) {
   const n = String(name || '').toLowerCase();
-  // The booking widget's LIFTING question answers ("My TV is 70-85 inches and I
-  // can help lift it", "My TV is 85 inches or larger", "2 technicians") embed a
-  // size range but are NOT a TV-size base selection. Never let them score base
-  // pay; the real size options ("70\"-85\"", "33\"-59\"") never say "my tv is" /
-  // "lift" / "help" / "larger" / "technician".
   if (/my tv is|\b(?:lift|help|larger|technicians?)\b/i.test(n)) return null;
   for (const r of TV_SIZE_RATES) if (r.test.test(n)) return r;
-  // A bare inch value ('75"', '75 inch') — some bookings store the exact size
-  // instead of the range. Map the number to the bracket it belongs to so it still
-  // pays the correct base (a 75" TV is the 70"–84" bracket), never the custom
-  // hourly fallback.
-  // A plain range like '50-59” TV' (curly quote, no 33): bracket by its LOW end.
   const bare = n.match(/^\s*(\d{2,3})\s*(?:"|inch(?:es)?|in|”|″)?\s*(?:tvs?)?\s*$/)
     || n.match(/^\s*(\d{2,3})\s*["”″]?\s*[-–]\s*\d{2,3}\s*(?:"|”|″|inch(?:es)?|in)?\s*(?:tvs?)?\s*$/);
   if (bare) {
@@ -225,41 +146,19 @@ function matchSize(name) {
   }
   return null;
 }
-// Some booking paths prefix a line item with its option group, e.g.
-// "Wall Surface: Outdoor/Stucco" or "Add-ons: Soundbar Installation". Match on the
-// part AFTER the prefix too, so the rate lookup isn't defeated by the category.
 function afterPrefix(name) {
   const s = String(name || '');
   const i = s.indexOf(':');
   const tail = i > -1 ? s.slice(i + 1).trim() : '';
   return tail;
 }
-// Frame/Gallery TVs (Samsung Frame, LG Gallery) mount on the bracket that ships
-// IN THE BOX. Per owner (HARD RULE): this pays the tech a flat $15 on EVERY job,
-// EVERY location, EVERY tech — regardless of how the line is worded ("Use the
-// bracket in the box", "I will be using the bracket that comes in the box",
-// "Samsung Frame / LG Gallery (in-box bracket)"). "In the box" or a Frame/Gallery
-// name is enough; we don't rely on an exact label match.
-// `lt` (the line's actual charge) gates this: a genuine in-box-bracket line
-// never charges more than ~$40 (typically $25, sometimes $0). A line that
-// merely CONTAINS "samsung frame" wording but charges far more (e.g. a
-// mislabeled $350 OneConnect-box install — real incident, Jane Kamneva job,
-// Jul 2026: the line got saved as plain "Samsung Frame TV" instead of
-// "Install Samsung Frame OneConnect box behind the TV", which silently paid
-// Juan $15 instead of his real $170) must NOT match here — falling through
-// lets the custom-job $85/hr inference below flag it for review instead of
-// confidently paying the wrong flat rate.
 function isFrameInBoxBracket(name, lt) {
   if (Number(lt) > 40) return false;
   const n = String(name || '').toLowerCase();
   if (/\b(samsung\s*frame|lg\s*gallery|frame\s*\/?\s*gallery)\b/.test(n)) return true;
-  // "…bracket…in the box…" (or "in box"), in either order.
   return /bracket/.test(n) && /\bin\b[\s\S]{0,6}\bbox\b/.test(n);
 }
 function matchItem(name, lt, unitLt = lt) {
-  // Try the full name and the part after a "Category:" prefix, each also with a
-  // baked-in "×N" quantity suffix stripped, so e.g. "Bracket: Full Motion ×3"
-  // still resolves to the 'full motion' rate.
   const bases = [name, afterPrefix(name)].filter(Boolean);
   const cands = [];
   for (const b of bases) {
@@ -273,96 +172,28 @@ function matchItem(name, lt, unitLt = lt) {
     const n = normalize(cand);
     if (ITEM_RATES[n]) return { key: n, ...ITEM_RATES[n] };
   }
-  // Dry erase / white board mounting: ONE hour of labor each → $65 per board (all
-  // techs), multiplied by the quantity in the line walk. These are priced per-board
-  // to the customer, so the generic $85/hr custom-hourly inference over-counts
-  // (5 boards @ $170 would read as 10 hrs). Pin it to 1 hr each.
   if (/dry\s*erase\s*board/i.test(name)) return { key: 'dry erase board', juan: 65, other: 65 };
-  // Ring camera / doorbell installation: flat $65 per unit (all techs), pinned
-  // for the same reason as the dry erase board above — this is always a
-  // free-hand New Booking line (never a widget catalog item, so it's never
-  // priced consistently), and the generic $85/hr custom-hourly inference
-  // guesses hours off whatever the office happened to charge ($129 -> "2h" ->
-  // $130 instead of the flat $65 owner rate; Tiffany Weld job, Aug 2026).
-  // Satellite TV setup ("TV Setup 65\" (Direct TV Satellite)"): a free-hand New
-  // Booking label, never a widget catalog item, so it's never priced
-  // consistently -- same reason as the dry erase board and Ring camera above.
-  // Flat $70 per job, all techs (owner rule, 2026-09-23; the generic hourly
-  // inference read a $135 charge as 2h and paid $130 instead -- Keith Evans job).
   if (/(direct\s*tv|dish\s*network|satellite)\b.*\bsetup\b|\bsetup\b.*\bsatellite\b/i.test(name)) {
     return { key: 'satellite tv setup', juan: 70, other: 70 };
   }
   if (/\bring\b.*\b(camera|doorbell)\b|\b(camera|doorbell)\b.*\bring\b/i.test(name)) {
     return { key: 'ring device installation', juan: 65, other: 65 };
   }
-  // HARD RULE (owner, 9/21): the OneConnect-box install (customer pays $350) is a
-  // SET price, never hourly: $170 to the tech on EVERY business/job/tech. It can
-  // arrive under any label — the ticket editors used to relabel it "Samsung Frame
-  // TV" — so match on "OneConnect" wording, or a Frame-named line charged >= $300
-  // (a real in-box bracket line never exceeds ~$40).
   if (/one\s*connect/i.test(name) || (/\bsamsung\s*frame\b/i.test(name) && Number(lt) >= 300)) {
     return { key: 'oneconnect box', juan: 170, other: 170 };
   }
-  // Hard-coded Frame-TV in-box bracket: flat $15, all techs/jobs/locations.
-  // Per-TV price: "Samsung Frame TV" x2 at $25 = $50 line is still the in-box bracket.
   if (isFrameInBoxBracket(name, unitLt)) return { key: 'frame in-box bracket', juan: 15, other: 15 };
-  // Wire/cord concealment worded outside the standard keys ("Hide Cords in Wall",
-  // "Cords in the wall", or a manually-typed line item like "Outside wire
-  // concealment" that never says "wall" at all — the office types these free-hand
-  // straight into the tech app's line-item editor, not just picked from the
-  // widget's own preset labels). In/behind the wall pays the behind-wall rate
-  // ($45/$35); an explicit "outside" pays the outside rate ($15). "Concealment"
-  // is as strong a signal as "wall" here (it IS the app's own canonical label for
-  // this exact service — see "Outside Wire Concealment" / "In-Wall Wire
-  // Concealment" in admin.html/tech.html) — trigger on either so a hand-typed
-  // line never silently falls through to an unmatched $0.
   if ((/\b(cord|wire)s?\b/i.test(name) && /\bwall\b|conceal/i.test(name)) || isBehindWallConcealment(name)) {
     return /\boutside\b/i.test(name)
       ? { key: 'outside wall wires', juan: 15, other: 15 }
       : { key: 'behind wall wires', juan: 45, other: 35 };
   }
-  // Bracket type mentioned anywhere in the name, worded outside the exact
-  // catalog keys above (e.g. a hand-typed "Full Motion Mount" instead of the
-  // catalog's "Full Motion Bracket"). Same substring test detectBracketQtys()
-  // in api/tech.js and api/admin.js already uses for inventory deduction. If
-  // the inventory side correctly reads a line as "sold a full motion bracket",
-  // payroll must reach the exact same conclusion, not miss the match and fall
-  // through to the generic custom-hourly guess (paid Gregory $65 for a bracket
-  // that should be $0, Aug 2026). Checked full-motion first, then tilting,
-  // then flat, matching detectBracketQtys' own priority order so identical
-  // text is classified identically by both systems. Customer-supplied brackets
-  // are excluded (those pay $0 either way, but for a different reason: no
-  // material cost to reimburse Juan for).
   if (!/customer.?supplied/i.test(name)) {
     if (/full.?motion/i.test(name)) return { key: 'full motion bracket', juan: 60, other: 0 };
     if (/\btilt/i.test(name)) return { key: 'tilting bracket', juan: 35, other: 0 };
     if (/\bflat\b|fixed/i.test(name)) return { key: 'flat bracket', juan: 25, other: 0 };
   }
-  // Any OTHER line that calls itself a bracket. A bracket is a material the
-  // owner buys, never tech labor, so it pays $0 to everyone -- including Juan,
-  // whose 25/35/60 reimbursements above exist only for the three standard
-  // types he stocks himself. Without this, a hand-typed bracket name the
-  // catalog doesn't know fell through to the custom-hourly fallback and was
-  // paid as if it were labor: "Custom bracket" ($250) paid $195 and "soundbar
-  // bracket" ($164) paid $130 on one real job (Jay Kapoor, Aug 2026), which
-  // the owner had to correct by hand with a payroll override.
-  //
-  // Deliberately last among the bracket rules so the three standard types keep
-  // their own rates, and after the frame-in-box check above ($15, a genuine
-  // paid install) which also carries the word "bracket". The consequence to
-  // know: a line naming a bracket can no longer be billed as labor through
-  // this path, so real bracket-related LABOR must be written as its own line
-  // that doesn't say "bracket" (e.g. "Fabricate custom mount, 3 hours").
   if (/\bbrackets?\b/i.test(name)) return { key: 'unrecognized bracket (material)', juan: 0, other: 0 };
-  // Wall surface worded outside the exact keys above. The catalog label is
-  // "Wall Surface: Brick or Stone", but normalize() strips filler words without
-  // stripping "or", so it never reached the 'brick stone' key and a real $25
-  // surface silently paid $0 (Gregory / Elliot job, Aug 2026). Matching on the
-  // material words themselves is wording-proof.
-  //
-  // Order matters: "Uneven Stone or Tile" also contains "stone", so the pricier
-  // uneven/tile surface MUST be tested before plain brick/stone or it would be
-  // underpaid at $25 instead of $40.
   if (/uneven|\btile\b/i.test(name)) return { key: 'tile uneven stone', juan: 40, other: 40 };
   if (/stucco/i.test(name)) return { key: 'stucco outdoor', juan: 35, other: 35 };
   if (/\bbrick\b|\bstone\b/i.test(name)) return { key: 'brick stone surface', juan: 25, other: 25 };
@@ -370,13 +201,9 @@ function matchItem(name, lt, unitLt = lt) {
   return null;
 }
 
-const round0 = (n) => Math.floor(Number(n) || 0);   // drop cents to whole dollars
-const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;   // keep cents (split pay)
+const round0 = (n) => Math.floor(Number(n) || 0);
+const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// How many of a line item to PAY for (e.g. 3 tilting brackets -> pay 3). Prefer
-// the stored quantity; if that's 1 but the price is a clean multiple of the unit
-// price (some booking paths fold the count into the total), infer it. Mirrors the
-// app's display logic so pay and the customer charge always agree.
 function payQty(li) {
   const q = Math.round(Number(li && li.quantity) || 0);
   if (q > 1) return q;
@@ -385,8 +212,6 @@ function payQty(li) {
   return 1;
 }
 
-// Quantity on a dismount line: an explicit Nx / xN prefix in the label wins,
-// else the line's quantity field, else 1.
 function dismountQty(name, li) {
   const m = String(name || '').match(/\bx\s*(\d+)\b|\b(\d+)\s*x\b/i);
   if (m) return Math.max(1, parseInt(m[1] || m[2], 10));
@@ -394,9 +219,6 @@ function dismountQty(name, li) {
   return q > 1 ? Math.round(q) : 1;
 }
 
-// ── Payment gating ───────────────────────────────────────────────────────────
-// Paid: payment_status 'paid', OR notes mention cash/venmo (treat as paid).
-// Fully unpaid w/ balance: DEFERRED (not this week). Partial: FLAG for review.
 export function paymentState(job) {
   const status = String(job.payment_status || '').toLowerCase();
   const price = Number(job.price) || 0;
@@ -405,16 +227,13 @@ export function paymentState(job) {
   const cashVenmo = /\b(paid\s*cash|cash\b|venmo)\b/i.test(notes);
 
   if (status === 'paid' || cashVenmo) return 'paid';
-  if (price <= 0) return 'paid';                 // $0 job (e.g. GD redeemed / quote) — gate elsewhere
+  if (price <= 0) return 'paid';
   if (paid > 0 && paid < price) return 'partial';
-  return 'deferred';                              // unpaid with a balance
+  return 'deferred';
 }
 
-// First job date (Sun of the week of 2026-10-04) where a "Payroll override: $X"
-// note means LABOR only, with the job's tip paid on top. Earlier weeks are paid.
 export const OVERRIDE_TIP_SEPARATE_FROM = '2026-10-04';
 
-// ── Tips (100% to tech) ──────────────────────────────────────────────────────
 function tipFor(job) {
   let tip = Number(job.tip) || 0;
   for (const li of job.line_items || []) {
@@ -423,54 +242,14 @@ function tipFor(job) {
   return tip;
 }
 
-// The line-item wordings that signal a two-person ("lift help") job. Covers the
-// internal "Second Technician"/"Lifting Help" markers AND the customer-facing
-// widget options ("…I cannot help lift it", "My TV is 85 inches or larger").
-// NOTE: "…I CAN help lift it" must NOT match — the negative lookalike is excluded
-// by requiring "cannot" in the lift branch.
-// "Extra Tech" is included because the office/techs type that wording by hand
-// on a ticket and it means exactly the same thing as "Second Technician" — it
-// was previously unmatched, so the line paid the tech $0 and was flagged as an
-// unrecognized item instead of adding the $60. (Austin runs one tech, so Zach
-// does the second-tech work himself and earns the whole $60 — the same amount
-// this pays a solo tech on any "Second Technician" job.)
-// "2 technicians" (bare digit, not "2nd") is the relabeled TidyHaus catalog
-// option, formerly "70-85\" - customer cannot help lift"; added when that
-// option's display text changed so the $60 bonus keeps firing for every
-// booking made with the new wording. The old "cannot...lift" pattern stays:
-// bookings made before the relabel still have the old text frozen in their
-// line items and must keep paying correctly.
 const SECOND_TECH_RE = /(?:second|2nd|extra)\s*tech(?:nician)?\b|\d\s*technicians?\b|cannot\s*(?:help\s*)?lift|lifting\s*help|8[56]\s*inch(?:es)?\s*or\s*larger/i;
 
-// Guaranteed Dismount REDEEMED payout drops $60 -> $50, effective the job's
-// scheduled date (owner-announced to the crew, communicated as "effective
-// Monday"). Gated on job.scheduled_at rather than applying the moment the code
-// deploys, so a job already on the books for before the effective date still
-// pays the rate the tech was quoted when it was scheduled -- the code must
-// never contradict what the crew was actually told. A missing scheduled_at
-// (synthetic/estimate jobs built without one -- see estimateJobProfit) is
-// treated as "now," i.e. the new rate, since there's no earlier date to honor.
 const GDS_REDEEMED_RATE_CHANGE = { at: new Date('2026-08-03T00:00:00Z'), before: 60, after: 50 };
 function gdsRedeemedRate(scheduledAt) {
   const t = scheduledAt ? new Date(scheduledAt) : null;
   return (t && !isNaN(t) && t < GDS_REDEEMED_RATE_CHANGE.at) ? GDS_REDEEMED_RATE_CHANGE.before : GDS_REDEEMED_RATE_CHANGE.after;
 }
 
-// Juan's bracket reimbursement ends 2026-08-16 (hard owner rule): he is paid
-// $0 for ALL brackets from that date on, matching every other tech. Gated on
-// job.scheduled_at using the same reasoning as the GDS change above -- a week
-// before the cutoff must still re-compute to what was actually paid, so the
-// historical 25/35/60 stay in ITEM_RATES rather than being deleted.
-//
-// Only the three purchased bracket types (and their 85"-100" wordings) are
-// listed. Deliberately NOT included: the Samsung Frame / LG Gallery "bracket
-// that comes in the box" keys, which pay $15 to EVERY tech -- that is install
-// labor, not a bracket Juan bought, and zeroing it would underpay him relative
-// to the other techs for identical work.
-// Exported: api/admin.js's bracketHardwareCost() uses the same cutoff to
-// decide whether a Juan job's bracket is a real business cost (see the
-// matching comment there) — Juan stopped buying his own brackets on this
-// same date, which is WHY his payout reimbursement was zeroed here.
 export const JUAN_BRACKET_ZERO_FROM = new Date('2026-08-16T00:00:00Z');
 const JUAN_BRACKET_KEYS = new Set([
   'flat bracket', 'flat',
@@ -481,14 +260,9 @@ const JUAN_BRACKET_KEYS = new Set([
 function juanBracketZeroed(pair, scheduledAt) {
   if (!pair || !JUAN_BRACKET_KEYS.has(pair.key)) return false;
   const t = scheduledAt ? new Date(scheduledAt) : null;
-  // No scheduled_at (synthetic/estimate jobs) is treated as "now" -> new rule.
   return !t || isNaN(t) || t >= JUAN_BRACKET_ZERO_FROM;
 }
 
-// ── Multi-tech detection (when a two-person "lift help" line item exists) ──
-// Returns { hasSecondTech: boolean, secondTechBonus: number }.
-// Bonus is $30 per tech if the customer paid for it (line_total >= 70), else $0.
-// (Customer pays $70; the ~$60 add-on splits $30/$30 between the two techs.)
 function detectMultiTech(job) {
   for (const li of job.line_items || []) {
     const name = String(li.name || '').toLowerCase();
@@ -501,7 +275,6 @@ function detectMultiTech(job) {
   return { hasSecondTech: false, secondTechBonus: 0 };
 }
 
-// ── Special-service detection ────────────────────────────────────────────────
 function detectSpecial(job) {
   const svc = String(job.service_name || '').toLowerCase();
   const allNames = (job.line_items || []).map(li => String(li.name || '').toLowerCase());
@@ -509,17 +282,11 @@ function detectSpecial(job) {
   if (has(/\btv\s*swap\b/)) return 'tv_swap';
   if (has(/\b(estimate|quote)\b/)) return 'estimate';
   if (has(/\bpre.?paid\b/)) return 'prepaid';
-  // Handyman is a PURE-handyman job only. A real TV-mounting job that merely has a
-  // "handyman labor" ADD-ON line (alongside TV sizes/brackets) must NOT be
-  // reclassified as handyman — doing so throws away the whole mounting breakdown
-  // and pays hours off the entire ticket. So only treat it as handyman when there
-  // is NO TV-size base line; otherwise the add-on is priced in the line walk below.
   const hasTvBase = (job.line_items || []).some(li => matchSize(li.name));
   if (!hasTvBase && (has(/\bhandyman\b/) || has(/\bhandyman labor\b/))) return 'handyman';
   return null;
 }
 
-// "Move: take down 4 TVs" / "Move: 25 miles" -> tech pay line, else null.
 export function movePayFor(name, lineTotal) {
   const n = String(name || '');
   if (!/^\s*move\s*:/i.test(n) || !(Number(lineTotal) > 0)) return null;
@@ -530,21 +297,10 @@ export function movePayFor(name, lineTotal) {
   return null;
 }
 
-// ── Core: compute one job's tech pay ─────────────────────────────────────────
-// Returns { pay, tip, total, breakdown:[{label,amount}], flags:[string], state }.
-//   pay   = LABOR pay only (tips are NOT in it, owner rule 2026-10-12)
-//   tip   = this tech's share of the customer's tips (100% solo, half on a split)
-//   total = pay + tip = what the tech is owed for the job
-// breakdown sums to `pay` (no tip lines). Tips are pass-through money, never
-// revenue and never labor cost.
-// `state` is 'paid' | 'deferred' | 'partial' | 'excluded'.
-// "Behind wall concealment" / "Behind the wall concealment" (no "wire"/"cord"
-// in the name). Not "Inwall Concealment" — that is a separate custom-hours rule.
 function isBehindWallConcealment(name) {
   return /\bbehind\s+(the\s+)?wall\b/i.test(name || '') && /conceal/i.test(name || '');
 }
 
-// After-hours bonus drops $75 -> $65 for bookings created at/after this instant.
 export const AFTER_HOURS_65_FROM = '2026-10-22T08:12:43Z';
 
 export function computeJobPay(job, techName) {
@@ -560,19 +316,15 @@ function computeJobPayInner(job, techName) {
   const juan = isJuan(techName);
   const rate = (pair) => {
     if (!juan) return pair.other;
-    // Brackets pay Juan $0 from 2026-08-16 on (owner rule); before that his
-    // historical reimbursement still applies so old weeks re-compute correctly.
     if (juanBracketZeroed(pair, job.scheduled_at)) return 0;
     return pair.juan;
   };
 
-  // Hard exclusions.
   if (isRetired(techName)) return { pay: 0, breakdown, flags: ['Retired tech — never paid'], state: 'excluded' };
   if (String(job.status || '').toLowerCase() !== 'completed') {
     return { pay: 0, breakdown, flags: [], state: 'excluded' };
   }
 
-  // Job-number overrides win outright.
   const jn = String(job.zenbooker_job_number || '').trim();
   if (jn && CUSTOM_PAY[jn] != null) {
     return { pay: CUSTOM_PAY[jn], breakdown: [{ label: `Custom pay (job #${jn})`, amount: CUSTOM_PAY[jn] }], flags, state: 'paid' };
@@ -581,38 +333,25 @@ function computeJobPayInner(job, techName) {
     return { pay: ASSURION_TOTAL[jn], breakdown: [{ label: `Assurion override (job #${jn})`, amount: ASSURION_TOTAL[jn] }], flags, state: 'paid' };
   }
 
-  // One-off owner override, stored on the JOB itself (never in code). A note line
-  // "Payroll override: $60" pays the tech exactly that flat amount regardless of
-  // line items or payment status — for the rare cross-company / comped / special
-  // job the owner wants paid a fixed number. Data-driven on purpose: it's a
-  // one-time edit to that one booking, not a rule baked into the engine, so it
-  // requires no code change to add or remove another. Never deferred.
   const notes = String(job.notes || '');
   {
     const ov = notes.match(/payroll\s*override\s*:?\s*\$?\s*(\d+(?:\.\d{1,2})?)/i);
     if (ov) {
       const amt = round2(parseFloat(ov[1]));
-      // The override is a flat LABOR amount; tips are paid on top, separately
-      // (owner 2026-10-12). Jobs before OVERRIDE_TIP_SEPARATE_FROM were already
-      // paid with the override as the ALL-IN figure (tip not added), so they
-      // keep that: tip 0, total unchanged.
       const tipSeparate = String(job.scheduled_at || '').slice(0, 10) >= OVERRIDE_TIP_SEPARATE_FROM;
       return { pay: amt, tip: tipSeparate ? tipFor(job) : 0, breakdown: [{ label: 'Payroll override (owner-set)', amount: amt }], flags, state: 'paid' };
     }
   }
 
-  // Assurion (Steve): pay comes from the job note "Tech pay: $X".
   if (/assurion/i.test(notes)) {
     const m = notes.match(/Tech pay:\s*\$?(\d+)/i);
     if (m) {
       const amt = parseInt(m[1], 10);
-      // Assurion is NEVER deferred, even if unpaid.
       return { pay: amt, breakdown: [{ label: 'Assurion (per job note)', amount: amt }], flags, state: 'paid' };
     }
     flags.push('Assurion job but no "Tech pay:" note found');
   }
 
-  // Payment gating for everything else.
   const state = paymentState(job);
   if (state === 'deferred') {
     return { pay: 0, breakdown, flags: ['Unpaid — deferred to a future week'], state: 'deferred' };
@@ -624,38 +363,11 @@ function computeJobPayInner(job, techName) {
   const tip = tipFor(job);
   const special = detectSpecial(job);
 
-  // ── Multi-tech detection, computed up-front so BOTH the special-service paths
-  // (handyman) and the standard TV-mounting walk can share the same 50/50-split
-  // tail below. Moved here (used to sit after the special-case returns) because
-  // a pure-handyman job with a real second tech was hitting the 'handyman'
-  // return below and skipping the split entirely — both techs got paid the
-  // FULL handyman rate instead of half each (Christopher Dickens job, Jul 2026).
-  //
-  // A job's base splits 50/50 ONLY when the customer actually booked a
-  // two-person job — a "lift help"/two-person-fee line, an 86"+ TV, etc. That's
-  // what detectMultiTech reads from the line items. Merely ASSIGNING a helper to a
-  // normal one-person job must NOT halve the base: the lead keeps the full base and
-  // the assigned helper earns $0 for that job (handled just below).
-  const multiTech = detectMultiTech(job);          // "Second Technician" fee line present?
-  // Owner rules for the second tech:
-  //   • TWO real system techs on the job  -> split the tech pay 50/50.
-  //   • ONE tech on the job               -> that tech keeps ALL the pay.
-  //   • A "Second Technician" line        -> adds a flat bonus to the job's tech pay
-  //     (so half each on a split, or the whole bonus to a solo tech).
-  // job.second_tech is only ever true when a REAL system tech is assigned as
-  // secondary (Juan/TK's own off-system helper is never entered as one) — so
-  // it always means an actual two-person job, no exception for who's primary.
+  const multiTech = detectMultiTech(job);
   const twoTechs = !!job.second_tech;
-  // Houston pays $70 for this bonus (customer price $85); every other metro
-  // stays at $60 (customer price $70). job.is_houston is resolved by the
-  // caller via _lib/houston-bonus.js — payroll.js stays DB-free, so it never
-  // decides "is this Houston" itself, only what to do once told.
   const SECOND_TECH_BONUS = job.is_houston ? 70 : 60;
   const feeBonus = multiTech.secondTechBonus > 0 ? SECOND_TECH_BONUS : 0;
 
-  // ── Detect after-hours fee: bonus for 8 PM-or-later jobs ──
-  // Owner rule 2026-10-22: $65 for bookings created on/after AFTER_HOURS_65_FROM;
-  // older bookings keep $75. No created_at (quotes/projections) = new = $65.
   let afterHoursBonus = 0;
   for (const li of job.line_items || []) {
     if (/after.?hours|8\s*pm/i.test(li.name || '')) {
@@ -664,40 +376,18 @@ function computeJobPayInner(job, techName) {
     }
   }
 
-  // ── Travel payout: the tech's share of the service-area surcharge the CUSTOMER
-  // was actually charged. Owner rule: a tech earns travel ONLY when a travel /
-  // service-area surcharge line is on the ticket (the customer paid for it) — NOT
-  // merely because the job's zip is configured with a payout. No surcharge line =
-  // no travel bonus. (A zip's configured payout only sets what the tier pays IF a
-  // surcharge was charged; it never pays on its own.) On a two-tech job the trip's
-  // travel is SPLIT between the techs (one trip, one surcharge — see below).
   let travelPayout = 0;
   for (const li of job.line_items || []) {
-    // "Service Area Surcharge" (widget) and "Travel" / "Service Area Fee"
-    // (office New Booking) are the same thing — the tech earns the matching tier
-    // ($65→$50, …) from whichever the ticket carries. Only a CHARGED line (>$0)
-    // counts; a $0 travel line means the customer wasn't billed, so no payout.
-    // Bare \btravel\b (rather than the old "travel fee") on purpose: the office
-    // dropped "Fee" from the label everywhere in 2026-08, but jobs booked before
-    // that still have "Travel Fee" stored on the ticket forever, so \btravel\b
-    // matches both, so payroll pays correctly on old AND new jobs without
-    // needing to know which era priced the job. A negative "Travel discount"
-    // line also contains the word but can never pass the >0 gate above it.
     if (Number(li.line_total) > 0 && /service area surcharge|\btravel\b|service.?area fee/i.test(li.name || '')) {
       travelPayout = travelPayoutForSurcharge(li.line_total);
       break;
     }
   }
-  // Local-customer tier: the customer is CREDITED (negative line) and the tier
-  // carries a negative tech payout, which comes off the tech's pay for that job.
-  // Only fires when the ticket really has the credit line AND the zip's payout
-  // is negative, so an ordinary job can never be docked.
   if (!travelPayout && Number(job.travel_payout) < 0
       && (job.line_items || []).some(li => Number(li.line_total) < 0 && /local travel credit/i.test(li.name || ''))) {
     travelPayout = Number(job.travel_payout);
   }
 
-  // ── Special services short-circuit the line-item walk where the rule says so.
   if (special === 'tv_swap') {
     breakdown.push({ label: 'TV Swap (flat)', amount: 60 });
     return { pay: 60, tip, breakdown, flags, state: state === 'partial' ? 'partial' : 'paid' };
@@ -712,28 +402,12 @@ function computeJobPayInner(job, techName) {
     breakdown.push({ label: 'Estimate', amount: amt });
     return { pay: round0(amt), tip, breakdown, flags, state: 'paid' };
   }
-  // ── Standard TV-mounting walk: base (by size) + each add-on line item.
-  // A pure-handyman job skips the line-item walk (there's no TV base to price)
-  // and instead prices its hours up front — but importantly no longer RETURNS
-  // here: it falls through to the shared second-tech split tail below, same as
-  // every other job, so a two-tech handyman job actually splits 50/50 instead
-  // of paying both techs the full handyman rate (Christopher Dickens job, Jul
-  // 2026 — Kregg + Steve were each about to get the full $130 instead of $120
-  // each on a $240 pool).
   let pay = 0;
   let sawSize = false;
   let gdsRedeemed = false;
   const businessSlug = String(job.business_slug || '').toLowerCase();
 
   if (special === 'handyman') {
-    // Tech paid $65/hr, 2-hr minimum. Hours come from the LABOR LINE'S OWN
-    // quantity (same payQty() every other line item uses), never from the
-    // job's total subtotal/price — that also includes the travel fee and tax,
-    // which have nothing to do with hours worked. Archie Maharhaj job, Jul
-    // 2026: a 2-hr ($170) labor line plus $65 travel + $19.39 tax summed to a
-    // $254.39 ticket; dividing THAT by $85/hr inflated it to 3 "hours" ($195)
-    // instead of the correct 2 ($130). detectSpecial() only classifies a job
-    // as 'handyman' when a line name matches /handyman/, so this is always found.
     const laborLine = (job.line_items || []).find(li => /handyman/i.test(li.name || ''));
     const hours = Math.max(2, laborLine ? payQty(laborLine) : Math.round((Number(job.subtotal) || Number(job.price) || 0) / 85));
     const amt = hours * 65;
@@ -743,46 +417,16 @@ function computeJobPayInner(job, techName) {
     const name = li.name || '';
     const lt = Number(li.line_total) || 0;
 
-    // Skip non-labor bookkeeping lines. Includes fees that sometimes arrive as a
-    // plain 'service' line (Zenbooker custom_service) instead of kind 'fee' — the
-    // service-area surcharge pays the tech nothing here (the travel payout comes
-    // separately from the zip tier) and the after-hours fee adds its $75/$65 bonus
-    // separately, so neither should be priced or flagged as an unmatched line.
-    // ANY line whose name ends in "…Fee" (Processing/Setup/Rush/Trip/…) is a
-    // charge, never tech labor — so the custom-job hourly fallthrough below can't
-    // mistake it for a custom service and pay $65/hr against it.
-    // Bare "Travel" (the office dropped "Fee" from the label in 2026-08, see the
-    // travelPayout comment above) was NOT in this skip list, so it fell through
-    // to the custom-hourly fallback below and got paid a SECOND time on top of
-    // the correct travelPayout — a real job (Max Segal, Dom's, Aug 2026) paid
-    // $80 travel via travelPayout AND another $65 "1h @ $65" for the same
-    // "Travel" line. \btravel\b here, matching the travelPayout regex above, so
-    // the two can never disagree about which lines are travel.
-    // Moving TVs (phone script, owner 2026-10-09). Take-down: $70 covers up to
-    // 3 TVs, +$20 per TV after 3. Mileage: $20 up to 10 miles, +$2 per mile over.
-    // Read from the label so the count/miles never drift from what was billed.
     {
       const mv = movePayFor(name, lt);
       if (mv) { breakdown.push(mv); pay += mv.amount; continue; }
     }
     if (li.kind === 'fee' || /^tax\b/i.test(name) || /\btip\b/i.test(name) || /\bfee\b/i.test(name)
         || /service area surcharge/i.test(name) || /after.?hours/i.test(name)
-        || /service\s*minimum/i.test(name) || /\btravel\b/i.test(name)) continue;   // a minimum-charge floor, not tech labor
+        || /service\s*minimum/i.test(name) || /\btravel\b/i.test(name)) continue;
 
-    // Skip the two-person "lift help" marker — it's not a labor line to price.
-    // The $60 ($30/tech) bonus is added separately when the split runs.
     if (SECOND_TECH_RE.test(name)) continue;
 
-    // Dismount pay (rate sheet §5):
-    //  • Guaranteed Dismount SOLD (a charged line, per-unit lt > 0)     -> $0 (counts as sold)
-    //  • Guaranteed Dismount REDEEMED ($0 standalone, per-unit lt <= 0) -> see
-    //    gdsRedeemedRate() -- $60 for jobs scheduled before Mon Aug 3 2026,
-    //    $50 on/after (owner rate change).
-    //  • Plain dismount CHARGED: per-unit customer charge > $60 -> $60, else $50
-    //  • Plain dismount NOT charged ($0): the customer DECLINED it (a widget
-    //    answer like "Dismount: No, I will handle it myself") -> $0. Never pay
-    //    for a dismount the customer didn't buy.
-    //  • Quantity (Nx prefix or qty field) multiplies the per-unit pay.
     if (/dismount/i.test(name)) {
       const isGuaranteed = /guaranteed/i.test(name);
       const qty = dismountQty(name, li);
@@ -797,44 +441,19 @@ function computeJobPayInner(job, techName) {
       continue;
     }
 
-    // Handyman labor as an ADD-ON line on a mounting job: $65 per hour, and one
-    // hour per unit of QUANTITY (owner rule, Jul 2026).
-    //
-    // Hours come from the line's quantity, NEVER from the label text. The label
-    // states the price-book unit ("1 hour of Handyman Labor") or a total that was
-    // true when the line was created ("Handyman Labor: Smart Home — 2 hours");
-    // neither is rewritten when the office edits the quantity. Reading it paid a
-    // 2-hour line as 1 hour (Mark Boohaker, Jul 28) and a 4-hour line as 2 hours.
-    // This now mirrors the PURE-handyman path above, which has always used
-    // payQty() — the two paths disagreeing is what let this through: an identical
-    // job paid correctly with no TV on the ticket and short with one.
-    // (No 2-hour minimum here: that floor applies to a standalone handyman visit,
-    // not to an add-on hour bolted onto a mounting job the tech is already at.)
     if (/handyman/i.test(name)) {
       const hours = payQty(li);
       const amt = Math.round(hours * 65);
       if (amt) breakdown.push({ label: `Handyman ${hours}h @ $65`, amount: amt });
       pay += amt;
-      // The customer is billed $85/hr, so quantity × 85 should equal the charge.
-      // When it doesn't, the line was hand-priced — pay the quantity (the owner
-      // rule) but flag it rather than silently guessing which number is right.
       if (lt > 0 && Math.abs(hours * 85 - lt) > 0.5) {
         flags.push(`Handyman line "${name}" — qty ${hours} implies $${hours * 85} but charged $${round0(lt)}; verify hours`);
       }
       continue;
     }
 
-    // TV size = base pay (× quantity if the same size line covers several TVs).
     const sz = matchSize(name);
     if (sz) {
-      // A real TV mount is ALWAYS charged (the size carries a price). A size line
-      // whose CHARGE is $0 (line_total <= 0) is a phantom — a stray/duplicate size
-      // the booking form or a Zenbooker import recorded but never billed (the
-      // "32\" Or Less $0" bug). The charge (line_total) is the source of truth: a
-      // phantom can still carry a stale unit_price (e.g. 99 with quantity 0), so
-      // key off line_total alone. Never pay a tech for a TV the customer wasn't
-      // charged for; skip it so it doesn't inflate the base (and don't mark
-      // sawSize, so a real size still drives the "no size base" check).
       if (lt <= 0) {
         flags.push(`Ignored $0 size line "${name}" — not a charged TV (phantom/duplicate)`);
         continue;
@@ -846,36 +465,20 @@ function computeJobPayInner(job, techName) {
       pay += amt;
       continue;
     }
-    // The widget's lifting-question answers ("My TV is under 70 inches", "…I can
-    // help lift it") are $0 no-ops — skip them silently. Only flag a "My TV is…"
-    // descriptor we couldn't price when the customer was actually CHARGED for it.
-    // A BRACKET line is never a size descriptor, even when its label starts with
-    // a size ('86"+ TV Tilting Bracket', the widget's XL brackets since 2026-10-09):
-    // it must reach matchItem()'s bracket rules below, not be flagged and skipped.
     if (/my tv is|under 70|70.?85|86\s*\+?/i.test(name) && !matchSize(name) && !/\bbrackets?\b/i.test(name)) {
       if (lt > 0) flags.push(`Size descriptor "${name}" — verify rate bracket for pay calculation`);
       continue;
     }
 
-    // "Behind wall concealment" booked as the ONLY service (no TV size line):
-    // a stand-alone wire-concealment visit pays the flat $60 behind-wall rate,
-    // never the $85/hr custom-hours guess ($139 -> "2h" -> $130; Denys
-    // Sladkovskyi job, Oct 2026, owner correction). With a mount on the ticket
-    // it falls through to matchItem() and pays the normal behind-wall add-on.
-    // "Inwall Concealment" (Segal) is deliberately NOT matched — see self-test.
-    // Only from 2026-10-04 on (no scheduled_at = now), so jobs already paid keep their recorded pay.
     if (isBehindWallConcealment(name) && lt > 0 && (!job.scheduled_at || String(job.scheduled_at) >= '2026-10-04') && !(job.line_items || []).some(x => matchSize(x.name))) {
       const n = payQty(li);
       breakdown.push({ label: `Behind-wall concealment (stand-alone)${n > 1 ? ` ×${n}` : ''}`, amount: 60 * n });
       pay += 60 * n;
-      sawSize = true; // a known stand-alone service, not a missing TV base
+      sawSize = true;
       continue;
     }
 
-    // Known add-on / wire / surface / bracket — paid per unit (3 brackets -> ×3).
     const item = matchItem(name, lt, lt / Math.max(1, payQty(li)));
-    // TV recycle pays 75% of what the customer paid for it (owner rule 2026-10-12;
-    // jobs from 2026-10-04 on, older weeks keep the old flat $75).
     if (item && /recycl/i.test(name) && lt > 0 && String(job.scheduled_at || '') >= '2026-10-04') {
       const amt = round2(lt * 0.75);
       breakdown.push({ label: 'TV recycle (75%)', amount: amt });
@@ -885,31 +488,17 @@ function computeJobPayInner(job, techName) {
     if (item) {
       const n = payQty(li);
       const amt = rate(item) * n;
-      // Strip any baked-in "×N" from the label so it isn't doubled with the ×n we add.
       if (amt) breakdown.push({ label: `${stripQtySuffix(name)}${n > 1 ? ` ×${n}` : ''}`, amount: amt });
       pay += amt;
       continue;
     }
 
-    // A TV the business SELLS to the customer ("Samsung 55in 4K smart TV") is a
-    // product the owner paid for, not labor: $0 tech pay (owner rule 2026-09-22).
-    // Without this it fell through to the custom-job branch below and paid the
-    // techs hours off the TV's retail price. Anything about mounting, a stand or
-    // setup is still work and is NOT caught here.
     if (/\b(samsung|lg|sony|tcl|hisense|vizio|roku|insignia|toshiba|philips|panasonic)\b.*\btv\b|\bsmart\s*tv\b|\b(4k|8k|oled|qled|uhd)\b.*\btv\b/i.test(name)
         && !/mount|install|stand|set\s*up|setup|hang|assembl|remov|recycl|haul/i.test(name)) {
       if (lt > 0) flags.push(`TV sold to the customer "${name}" ($${round0(lt)}) — product, $0 tech pay`);
       continue;
     }
 
-    // Anything else that reached here with a real charge is a CUSTOM JOB (e.g.
-    // "Mounting of Dry Erase Board"). All custom work is billed hourly at $85/hr
-    // to the customer, so the tech earns $65/hr. Infer the hours from the line
-    // price ($170 -> 2h -> $130). FLOOR: a custom job is at least one hour ($85),
-    // so anything under ~1 hour of billing is NOT a custom job — it's a small
-    // add-on we couldn't match. Flag those for review instead of paying a phantom
-    // hour (a $30 line must never pay $65). Flag, too, when the hours aren't a
-    // clean multiple so the inference can be double-checked.
     if (lt >= 80) {
       const rawHours = lt / 85;
       const hours = Math.max(1, Math.round(rawHours));
@@ -924,44 +513,15 @@ function computeJobPayInner(job, techName) {
     }
   }
 
-  // A TV-mounting job with no recognizable size base is suspicious.
   if (!sawSize && !special && (job.line_items || []).some(li => matchSize(li.name))) {
-    // (unreachable guard kept for clarity)
   }
-  // A redeemed Guaranteed Dismount is a dismount-only visit: no TV size expected.
   if (!sawSize && !special && !gdsRedeemed && businessSlug !== '' && (job.line_items || []).length) {
     flags.push('No TV size base detected — owner review');
   }
 
-  // ── Second-tech pay rules (per owner) ────────────────────────────────────────
-  //   • TWO real system techs on the job  -> split base + tips 50/50 (each half).
-  //   • ONE tech on the job               -> that tech keeps ALL the base + tips.
-  //   • A "Second Technician" line        -> adds a flat bonus to the job's tech
-  //     pay: $60 everywhere except Houston, where it's $70 (customer pays $85
-  //     there vs. $70 elsewhere — see SECOND_TECH_BONUS above).
-  //       - two techs: half each (the bonus splits with the base)
-  //       - one tech:  the whole bonus to that tech
-  //   • Juan/TK bring their OWN off-system helper (not a paid system tech) on
-  //     their solo bookings — but that's simply the "ONE tech on the job" case
-  //     above (job.second_tech is false, so twoTechs is already false; no
-  //     special-case needed). FIX (Krabo Malobo job, Jul 2026): this used to
-  //     ALSO force twoTechs=false whenever Juan/TK was primary, even when a
-  //     REAL system tech was recorded as job.second_tech (e.g. a cross-hire —
-  //     Steve from TidyHaus helping TK on a Dom's job). That double-paid the
-  //     job: TK got the full pool AND the real second tech separately computed
-  //     their own half-share. A recorded second_tech is always a genuine paid
-  //     tech (an off-system helper is never in job.second_tech at all), so it
-  //     must always split normally — Juan/TK included.
-  //   • Travel is ONE trip's surcharge — SPLIT between the two techs (owner rule).
-  //   • After-hours ($75 old bookings / $65 new) is a per-trip stipend — each tech on the trip earns it.
   if (twoTechs) {
-    // The WHOLE tech-pay pool splits evenly: all base labor + the second-tech
-    // add-on ($60, or $70 in Houston) + tips, divided by two. Split to the CENT — e.g. 70 + 80 + 35 + 60 =
-    // 245 → $122.50 each (not $122 or $123). Travel is one trip's surcharge, so it
-    // splits too (half each). After-hours stays full to each tech.
     let baseTotal = 0;
     for (const item of breakdown) baseTotal += item.amount;
-    // Tips split 50/50 too, but are returned separately (result.tip), not in pay.
     const pool = baseTotal + feeBonus;
     const share = round2(pool / 2);
     const tipShare = round2(tip / 2);
@@ -970,11 +530,8 @@ function computeJobPayInner(job, techName) {
     if (afterHoursBonus) newBreakdown.push({ label: 'After-Hours bonus (8 PM)', amount: afterHoursBonus });
     if (travelHalf) newBreakdown.push({ label: 'Travel payout (½ of trip)', amount: travelHalf });
     const finalPay = share + afterHoursBonus + travelHalf;
-    // Two-tech split is routine (owner 2026-10-19): no warning flag; the breakdown already says ½.
     return { pay: round2(finalPay), tip: tipShare, breakdown: newBreakdown, flags, state: state === 'partial' ? 'partial' : 'paid' };
   } else {
-    // Single tech (or Juan/TK with their own helper) — full base + tips, plus the
-    // whole bonus when a "Second Technician" line is present.
     if (feeBonus) breakdown.push({ label: `Second Technician bonus ($${feeBonus})`, amount: feeBonus });
     if (afterHoursBonus) breakdown.push({ label: 'After-Hours bonus (8 PM)', amount: afterHoursBonus });
     if (travelPayout) breakdown.push({ label: 'Travel payout', amount: travelPayout });
@@ -983,9 +540,6 @@ function computeJobPayInner(job, techName) {
   }
 }
 
-// ── Self-tests ───────────────────────────────────────────────────────────────
-// `node api/_lib/payroll.js` — validates the engine against the rate sheet's
-// concrete examples. Exits non-zero on any failure.
 function runSelfTests() {
   let fails = 0;
   const eq = (got, want, msg) => {
@@ -995,9 +549,7 @@ function runSelfTests() {
   };
   const job = (over) => ({ status: 'completed', payment_status: 'paid', price: 200, line_items: [], created_at: '2026-08-01T00:00:00Z', ...over });
 
-  // A bare inch size ('75"') maps to its bracket (70"–84" -> other 80), not the
-  // custom-hourly fallback. Jarret Blaze job: 75" + Samsung Frame in-box bracket.
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: '75"', line_total: 109 },
     { name: 'I will be using the bracket that comes in the box (Samsung Frame TV)', line_total: 25 },
     { name: 'Tax (8.25%)', line_total: 11.06, kind: 'fee' },
@@ -1006,64 +558,39 @@ function runSelfTests() {
   eq(computeJobPay(job({ line_items: [{ name: '55"', line_total: 100 }] }), 'Kregg').pay, 60, 'bare 55" = 33-59 base = 60');
   eq(computeJobPay(job({ line_items: [{ name: '90"', line_total: 200 }] }), 'Kregg').pay, 110, 'bare 90" = 85-97 base = 110');
 
-  // Base by size, non-Juan vs Juan.
   eq(computeJobPay(job({ line_items: [{ kind: 'option', name: '33"–59"', line_total: 109 }] }), 'Kregg').pay, 60, '50in non-Juan base = 60');
   eq(computeJobPay(job({ line_items: [{ kind: 'option', name: '60"–69"', line_total: 119 }] }), 'Kregg').pay, 70, '60-69 non-Juan = 70');
   eq(computeJobPay(job({ line_items: [{ kind: 'option', name: '60"–69"', line_total: 119 }] }), 'Juan').pay, 80, '60-69 Juan = 80');
   eq(computeJobPay(job({ line_items: [{ kind: 'option', name: '98"+', line_total: 229 }] }), 'Juan').pay, 130, '98+ Juan = 130');
 
-  // Juan's 70"-85" base premium: $90 (others $80). Locked from the Juliana Schmidt
-  // job — 70-85 TV + Outdoor/Stucco + Soundbar must total $90+$35+$35 for Juan.
-  // Real-world labels carry an option-group prefix ("Wall Surface:", "Add-ons:")
-  // A $0 size line is a phantom (stray/duplicate size that was never charged —
-  // the Jennifer Graves / Zenbooker-import bug). It must NOT be paid as a TV base:
-  // Frame bracket ($15) + real 33-59 ($60) = $75; the $0 "32 Or Less" pays nothing.
   eq(computeJobPay(job({ line_items: [
     { name: 'Bracket: I will be using the bracket that comes in the box (Samsung Frame TV)', line_total: 30 },
     { name: 'TV Size: 33"-59"', line_total: 109 },
     { name: 'TV Size: 32" Or Less', line_total: 0, unit_price: 0 },
   ] }), 'Juan').pay, 75, 'phantom $0 size line is ignored (Jennifer Graves): 15 + 60 = 75, not 125');
-  // A REAL 32" TV (charged $99) still pays its $50 base — only $0 sizes are skipped.
   eq(computeJobPay(job({ line_items: [{ name: 'TV Size: 32" Or Less', line_total: 99, unit_price: 99 }] }), 'Kregg').pay, 50, 'real (charged) 32" size still pays $50');
 
-  // and a service-area surcharge line — both must resolve cleanly, no review flags.
   const julianaItems = [
     { name: '70"-85"', line_total: 149 },
     { name: 'Wall Surface: Outdoor/Stucco', line_total: 45 },
     { name: 'Add-ons: Soundbar Installation', line_total: 60 },
     { name: 'Service area surcharge', line_total: 65 },
   ];
-  // Pay = base labor (160 Juan / 150 other) PLUS the tech's travel share: 80% of
-  // the $65 service-area surcharge on the ticket = $52. So 212 Juan / 202 other.
   eq(computeJobPay(job({ line_items: julianaItems }), 'Juan').pay, 212, 'Juan 70-85 + outdoor + soundbar (160) + $52 travel (80% of $65) = 212');
   eq(computeJobPay(job({ line_items: julianaItems }), 'Juan').flags.length, 0, 'Juliana job: no unmatched/review flags');
   eq(computeJobPay(job({ line_items: julianaItems }), 'Kregg').pay, 202, 'Other tech same job = 150 base + $52 travel = 202');
-  // TWO real system techs on the job -> base splits 50/50 (owner rule: 2 techs
-  // selected = split the tech pay). Travel is one trip's share, SPLIT in half —
-  // $52 -> $26 each. FIX (Krabo Malobo job, Jul 2026): Juan's "brings his own
-  // off-system helper" exception only applies when there's NO real second_tech
-  // recorded — a recorded one is always a genuine paid tech (e.g. a cross-hire),
-  // so it splits like anyone else's job. This used to assert Juan kept the full
-  // 212 here even with second_tech:true, which double-paid the job once the
-  // real second tech's own pay was also computed.
   eq(computeJobPay(job({ line_items: julianaItems, second_tech: true }), 'Juan').pay, 106, 'Juan WITH a real second tech splits like anyone else: (160+52)/2 = 106');
   eq(computeJobPay(job({ line_items: julianaItems, second_tech: true }), 'Kregg').pay, 101, 'Two techs: base 150 split = 75 + travel $52 SPLIT = 26 -> 101');
   eq(computeJobPay(job({ line_items: julianaItems, second_tech: true, is_secondary: true }), 'Kregg').pay, 101, 'Second of two techs: 75 base share + 26 travel half = 101');
-  // Customer PAID for the two-person option ("cannot help lift" $70): Juan keeps
-  // the WHOLE $60 add-on on top of his full base. 70-85 base 90 + 60 = 150.
   eq(computeJobPay(job({ line_items: [
     { name: '70"-85"', line_total: 149 },
     { name: 'My TV is 70-85 inches and I cannot help lift it', line_total: 70 },
   ] }), 'Juan').pay, 150, 'Juan paid two-person: 90 base + full 60 = 150');
 
-  // ── Second-technician ($70) line + owner's split rules ─────────────────────
-  // A SOLO tech with a "Second Technician" line keeps the whole $60 add-on.
   eq(computeJobPay(job({ line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'Second Technician', line_total: 70, kind: 'fee' },
   ] }), 'Kregg').pay, 130, 'Solo + Second Technician line: 70 base + full 60 = 130');
-  // TWO techs + a "Second Technician" line: the WHOLE pool (base + $60) splits
-  // evenly. base 70 + 60 = 130 -> $65 each.
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'Second Technician', line_total: 70, kind: 'fee' },
@@ -1072,9 +599,6 @@ function runSelfTests() {
     { name: '60"–69"', line_total: 119 },
     { name: 'Second Technician', line_total: 70, kind: 'fee' },
   ] }), 'Steve').pay, 65, 'Second of two techs: (70 + 60) ÷ 2 = 65');
-  // ── Renita Knight (real, owner-confirmed) ──────────────────────────────────
-  // 60-69 ($70) + 70-85 ($80) + Soundbar ×2 ($35×2=$70) + Second Technician ($70
-  // line -> $60 add-on) = $280 pool. TWO techs (Kregg + Steve) -> $140 EACH.
   const renita = { second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: '70"–85"', line_total: 149 },
@@ -1083,15 +607,12 @@ function runSelfTests() {
   ] };
   eq(computeJobPay(job({ ...renita }), 'Kregg').pay, 140, 'Renita: Kregg = (70+80+70+60=280) ÷ 2 = 140');
   eq(computeJobPay(job({ ...renita, is_secondary: true }), 'Steve').pay, 140, 'Renita: Steve = 280 ÷ 2 = 140');
-  // The cent-split path still holds for an odd pool (single soundbar = $245).
   eq(computeJobPay(job({ ...renita, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: '70"–85"', line_total: 149 },
     { name: 'Soundbar Installation', line_total: 60 },
     { name: 'Second Technician', line_total: 70, kind: 'fee' },
   ] }), 'Kregg').pay, 122.5, 'Odd pool ($245) still splits to the cent = 122.50');
-  // Two 70-85 legs (base 80 each = 160) + Second Technician ($60): pool 220,
-  // split between Kregg + Steve -> 110 each.
   const twoLeg = { second_tech: true, line_items: [
     { name: '70"–85"', line_total: 149 },
     { name: '70"–85"', line_total: 149 },
@@ -1100,8 +621,6 @@ function runSelfTests() {
   eq(computeJobPay(job({ ...twoLeg }), 'Kregg').pay, 110, 'Two techs: (160 + 60) ÷ 2 = 110');
   eq(computeJobPay(job({ ...twoLeg, is_secondary: true }), 'Steve').pay, 110, 'Second tech: (160 + 60) ÷ 2 = 110');
 
-  // ── Saner job (real, reported): 70-85 base + own bracket. Solo tech gets the
-  // full base; Denver zip → +$10 travel.
   const saner = { travel_payout: 10, line_items: [
     { name: '70"–85"', line_total: 149 },
     { name: 'I have my own mounting bracket', line_total: 0 },
@@ -1110,15 +629,10 @@ function runSelfTests() {
     { name: 'My TV is 70-85 inches and I can help lift it', line_total: 0 },
     { name: 'No, I will handle TV removal myself', line_total: 0 },
   ] };
-  // NO surcharge line on this ticket, so the zip's configured travel_payout does
-  // NOT pay (owner rule: travel only when the customer was charged a surcharge).
   eq(computeJobPay(job({ ...saner }), 'Steve').pay, 80, 'Saner solo: 80 base, no surcharge line -> no travel = 80');
-  // When a SECOND real tech is assigned, the base splits 50/50 (owner rule).
-  // (No surcharge line here, so travel is $0 either way.)
   eq(computeJobPay(job({ ...saner, second_tech: true }), 'Steve').pay, 40, 'Saner two techs: base 80 split = 40, no surcharge line -> no travel');
   eq(computeJobPay(job({ ...saner, second_tech: true, is_secondary: true }), 'Zach').pay, 40, 'Saner second tech: 40, no travel (no surcharge line)');
   eq(computeJobPay(job({ ...saner }), 'Steve').flags.length, 0, 'Saner solo: no review flags');
-  // Two techs split the base; a solo tech keeps it whole.
   eq(computeJobPay(job({ line_items: [
     { name: '70"–85"', line_total: 149 },
     { name: 'Customer supplied bracket', line_total: 0 },
@@ -1129,13 +643,6 @@ function runSelfTests() {
     { name: 'Customer supplied bracket', line_total: 0 },
   ] }), 'Juan').pay, 90, 'Customer supplied bracket pays $0 (Juan base 90)');
 
-  // Mixed job: home cleaning + a handyman ADD-ON line must NOT be reclassified as a
-  // pure handyman job (the Cecil Cofie bug — it paid $650 as "10h handyman" and
-  // wiped the whole mounting breakdown). Juan: 80+60+35+45+35+35 base + 75
-  // after-hours + 65 (1h handyman add-on) + 12 travel (80% of $15 surcharge).
-  // Was 442; the tilting bracket's $35 dropped to $0 for Juan on 2026-08-16, so
-  // it is now 407. The point of this test is the mixed-job classification, not
-  // the bracket rate.
   eq(computeJobPay(job({ price: 891, subtotal: 823, line_items: [
     { name: '60"-69"', line_total: 119 },
     { name: '33"-59"', line_total: 109 },
@@ -1149,12 +656,7 @@ function runSelfTests() {
     { name: 'Tax (8.25%)', line_total: 67.9, kind: 'fee' },
   ] }), 'Juan').pay, 407, 'mixed TV+handyman add-on (Juan) = 407 (bracket now $0 for Juan)');
 
-  // REGRESSION (Mark Boohaker, Jul 28 2026): on a MIXED job the handyman hours
-  // must come from the line's QUANTITY, not from the hours written in the label.
-  // The office bumps the qty to 2 but the label still reads "1 hour of Handyman
-  // Labor", and the old label-parsing paid one hour ($65) for two hours' work.
-  // Kregg: recycle 75 + 33-59 base 60 + 2h handyman 130 = 265.
-  eq(computeJobPay(job({ business_slug: 'handy-andy', price: 376.19, subtotal: 269, line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', price: 376.19, subtotal: 269, line_items: [
     { name: 'Tv recycle', quantity: 1, unit_price: 75, line_total: 75 },
     { name: 'TV Size: 33"-59"', quantity: 1, unit_price: 109, line_total: 109 },
     { name: 'Bracket: I have my own bracket', quantity: 1, unit_price: 0, line_total: 0 },
@@ -1162,34 +664,25 @@ function runSelfTests() {
     { name: 'Tax (8.25%)', quantity: 1, unit_price: 22.19, line_total: 22.19, kind: 'fee' },
   ] }), 'Kregg').pay, 265, 'mixed job: handyman hours from qty (2h=130), not the "1 hour" label');
 
-  // Same rule the other way round: a label claiming MORE hours than the quantity
-  // bills must not overpay either. qty 2 ($170) is two hours, never the four the
-  // label's "2 hours" would imply if it were multiplied by the quantity.
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: '33"-59"', quantity: 1, unit_price: 109, line_total: 109 },
     { name: 'Handyman Labor: Home Repairs — 2 hours', quantity: 2, unit_price: 85, line_total: 170 },
   ] }), 'Kregg').pay, 190, 'mixed job: "— 2 hours" label with qty 2 pays 2h (130) + base 60, not 4h');
 
-  // A hand-priced handyman line (qty 1 charged $170) still pays the quantity per
-  // the owner rule, but must FLAG rather than silently pay a number nobody checked.
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: '33"-59"', quantity: 1, unit_price: 109, line_total: 109 },
     { name: 'Handyman Labor', quantity: 1, unit_price: 170, line_total: 170 },
   ] }), 'Kregg').flags.some(f => /verify hours/.test(f)), true, 'handyman qty/charge mismatch is flagged');
 
-  // TV recycle / haul-away pays the tech $75 (owner rate, Jul 2026).
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: 'Tv recycle', quantity: 1, unit_price: 75, line_total: 75 },
   ] }), 'Kregg').pay, 75, 'Tv recycle = $75 to the tech');
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: 'Tv recycle', quantity: 2, unit_price: 75, line_total: 150 },
   ] }), 'Kregg').pay, 150, 'Tv recycle ×2 = $150');
 
-  // Dry erase / white board mounting: 1 hour each -> $65 per board (all techs),
-  // multiplied by the quantity — NOT inferred from the per-board price. One board.
   eq(computeJobPay(job({ line_items: [{ name: 'Mounting of Dry Erase Board 4 x 6', line_total: 170 }] }), 'Kregg').pay, 65, 'dry erase board: 1 board @ $65 = 65 (not price-inferred)');
   eq(computeJobPay(job({ line_items: [{ name: 'Mounting of Dry Erase Board 4 x 6', line_total: 170 }] }), 'Kregg').flags.length, 0, 'dry erase board: matched item, no flag');
-  // FIVE dry erase boards -> 5 hrs -> 5 × $65 = $325 (the reported job).
   eq(computeJobPay(job({ line_items: [
     { name: 'Mounting of Dry Erase Board 4 x 6', quantity: 5, unit_price: 170, line_total: 850 },
     { name: 'TV Size: 60–69 inch', quantity: 3, unit_price: 135, line_total: 405 },
@@ -1197,17 +690,11 @@ function runSelfTests() {
     { name: 'Dismount: Guaranteed Dismount Service', line_total: 35 },
     { name: 'Tax (8.25%)', line_total: 78.79, kind: 'fee' },
   ], business_slug: 'doms', travel_payout: 50 }), 'Steve').pay, 535, 'reported job: 5×$65 boards (325) + 3×60-69 (210); zip travel_payout does NOT pay without a surcharge line = 535');
-  // Dry erase board alongside a TV base: base + 1 board both pay.
   eq(computeJobPay(job({ line_items: [
     { name: '60"-69"', line_total: 119 },
     { name: 'Mounting of Dry Erase Board 4 x 6', line_total: 170 },
   ] }), 'Kregg').pay, 135, 'other 60-69 (70) + 1 dry erase board (65) = 135');
-  // A genuinely unrecognized custom line is still billed hourly ($85/hr -> $65/hr).
-  // Non-clean price flags the inferred hours but still pays.
   eq(computeJobPay(job({ line_items: [{ name: 'Custom mount job', line_total: 200 }] }), 'Kregg').flags.length, 1, 'non-clean custom price flags hours');
-  // "Service minimum" is a customer minimum-charge floor, NOT tech labor — it's
-  // skipped (paid $0, no review flag), even though $20 is under the custom-hour
-  // floor. Paul Mathis job: 60-69 base (70) + $50 tip = 120, no flags.
   eq(computeJobPay(job({ tip: 50, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'Service minimum', line_total: 20 },
@@ -1217,10 +704,6 @@ function runSelfTests() {
     { name: 'Service minimum', line_total: 20 },
   ] }), 'Kregg').flags.length, 0, 'Service minimum: no review flag');
 
-  // "Hide Cords in Wall" (and other cord/wire-in-wall phrasings) pays the
-  // behind-wall wire rate ($35 other / $45 Juan), never an unmatched flag. Ella
-  // job (Gregory, Doms): dismount 60 + 60-69 base 70 + 1h handyman 65 + hide
-  // cords 35 + $80 travel (80% of $100) = 310.
   eq(computeJobPay(job({ business_slug: 'doms', travel_payout: 75, line_items: [
     { name: 'Dismount', line_total: 80 },
     { name: '60"–69"', line_total: 119 },
@@ -1232,8 +715,6 @@ function runSelfTests() {
   eq(computeJobPay(job({ line_items: [{ name: 'Hide Cords Outside the Wall', line_total: 40 }] }), 'Kregg').pay, 15, 'Hide Cords Outside the Wall = $15');
   eq(computeJobPay(job({ line_items: [{ name: '60"–69"', line_total: 119 }, { name: 'Hide Cords in Wall', line_total: 75 }] }), 'Juan').pay, 125, 'Juan: 60-69 (80) + cords in wall (45) = 125');
 
-  // A fee that arrives as a plain 'service' line (not kind 'fee') must NOT be
-  // paid as custom labor — any "…Fee" name is skipped. Base 60 only, fee = $0.
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Processing Fee', line_total: 42 },
@@ -1242,41 +723,27 @@ function runSelfTests() {
     { name: '33"–59"', line_total: 109 },
     { name: 'Setup Fee', line_total: 50 },
   ] }), 'Kregg').pay, 60, 'Setup Fee not paid as custom labor');
-  // Small unmatched line (< ~1 hr at $85) must NOT pay a phantom custom hour.
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Mystery add-on', line_total: 30 },
   ] }), 'Kregg').pay, 60, 'sub-$80 unmatched line pays $0 (not a phantom $65 hour)');
   eq(computeJobPay(job({ line_items: [{ name: 'Mystery add-on', line_total: 30 }] }), 'Kregg').flags.length, 1, 'small unmatched line is flagged');
-  // Samsung Frame / LG Gallery in-box bracket resolves to $15 (×2 -> $30), not custom.
   eq(computeJobPay(job({ line_items: [
     { name: 'TV Size: 33"–59" ×2', line_total: 218, quantity: 2, unit_price: 109 },
     { name: 'Bracket: Samsung Frame / LG Gallery (in-box bracket) ×2', line_total: 30, quantity: 2, unit_price: 15 },
   ] }), 'Juan').pay, 150, 'Juan 2× 33-59 (120) + frame/gallery in-box ×2 ($15×2=30) = 150');
-  // Frame-TV in-box bracket is a flat $15 to every tech, worded any which way
-  // (owner hard rule). The real TK job from the screenshot: 2× 33-59 base (120) +
-  // "Use the bracket in the box (Samsung Frame…)" ($15) + behind wall (35) +
-  // outside wall (15) = 185.
   eq(computeJobPay(job({ line_items: [
     { name: 'TV Size: 33"–59" ×2', line_total: 218, quantity: 2, unit_price: 109 },
     { name: 'Use the bracket in the box (Samsung Frame / LG Gallery)', line_total: 0 },
     { name: 'Yes, hide the wires BEHIND the wall', line_total: 60 },
     { name: 'Yes, hide the wires OUTSIDE the wall', line_total: 25 },
   ] }), 'TK').pay, 185, 'TK Frame job: 120 base + 15 frame bracket + 35 + 15 = 185');
-  // The $15 fires no matter the wording, and for any tech.
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 },
     { name: 'I will be using the bracket that comes in the box (Samsung Frame TV)', line_total: 0 }] }), 'Kregg').pay, 75, 'frame in-box bracket ($15) any wording = 60 + 15');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 },
     { name: 'Bracket: Samsung Frame / LG Gallery (in-box bracket)', line_total: 0 }] }), 'Juan').pay, 75, 'frame bracket Juan too = 60 + 15');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 },
     { name: 'Use the bracket in the box', line_total: 0 }] }), 'Zach').pay, 75, 'bare "use the bracket in the box" = 60 + 15');
-  // REGRESSION (Jane Kamneva job, Jul 2026): the OneConnect box line got saved
-  // as plain "Samsung Frame TV" instead of its real catalog name — the $15
-  // in-box-bracket hard rule used to match on wording alone and silently paid
-  // Juan $15 for a $350 job that should've paid $170. The rule is now gated on
-  // the line's actual charge (>$40 means it's NOT a bracket), so a mislabeled
-  // expensive line falls through to the custom-job inference and gets FLAGGED
-  // instead of confidently mispaid.
   {
     const r = computeJobPay(job({ line_items: [
       { name: '60"-69"', line_total: 119 },
@@ -1287,15 +754,9 @@ function runSelfTests() {
     eq(computeJobPay(job({ line_items: [{ name: '60"-69"', line_total: 119 },
       { name: 'Install OneConnect Box', line_total: 350 }] }), 'Kregg').pay, 70 + 170, 'OneConnect box = $170 for every tech');
   }
-  // A genuinely small ($0/$25) Samsung Frame in-box bracket line still gets
-  // its flat $15 exactly as before — the price gate only excludes implausibly
-  // large charges, never the real, cheap accessory line.
   eq(computeJobPay(job({ line_items: [{ name: '60"-69"', line_total: 119 },
     { name: 'Samsung Frame TV', line_total: 25 }] }), 'Juan').pay, 95, 'a real $25 Samsung Frame in-box bracket line still pays its flat $15');
 
-  // The Joseph job for TK (Doms, zip 80401 tier-3 travel $50): 3× 60-69 base
-  // (210) + 1 dry-erase board (65) + full-motion brackets ×3 ($0, not Juan) +
-  // GDS sold ($0) + $50 travel = 325.
   eq(computeJobPay(job({ price: 1034, subtotal: 955, business_slug: 'doms', travel_payout: 50, line_items: [
     { name: 'Mounting of Dry Erase Board 4 x 6', line_total: 170 },
     { name: 'TV Size: 60–69 inch', quantity: 3, unit_price: 135, line_total: 405 },
@@ -1305,9 +766,6 @@ function runSelfTests() {
     { name: 'Dismount: Guaranteed Dismount Service', line_total: 35 },
     { name: 'Tax (8.25%)', line_total: 78.79, kind: 'fee' },
   ] }), 'TK').pay, 275, 'Joseph job TK = 210 base + 65 board; no surcharge line -> no travel = 275');
-  // Same job with the REAL stored names that bake "×3" into the label — the
-  // bracket/size lines must still match (not fall through to custom-hourly and
-  // overpay). Without the ×N-strip this paid $650 (Full Motion ×3 -> 4h custom).
   eq(computeJobPay(job({ price: 1034, subtotal: 955, business_slug: 'doms', travel_payout: 50, line_items: [
     { name: 'Mounting of Dry Erase Board 4 x 6', line_total: 170 },
     { name: 'TV Size: 60–69 inch ×3', quantity: 3, unit_price: 135, line_total: 405 },
@@ -1317,64 +775,41 @@ function runSelfTests() {
     { name: 'Dismount: Guaranteed Dismount Service', line_total: 35 },
     { name: 'Tax (8.25%)', line_total: 78.79, kind: 'fee' },
   ] }), 'TK').pay, 275, 'Joseph job with ×3-baked names still = 275, not 650 (no travel w/o surcharge line)');
-  // The bracket rate resolves through a baked-in "×3" suffix (Juan paid $60/bracket).
   eq(computeJobPay(job({ scheduled_at: '2026-08-10T18:00:00Z', line_items: [
     { name: '60"-69"', line_total: 119 },
     { name: 'Bracket: Full Motion ×3', quantity: 3, unit_price: 115, line_total: 345 },
   ] }), 'Juan').pay, 260, 'PRE-2026-08-16 Juan 60-69 (80) + full motion ×3 ($60×3=180) via baked ×3 = 260');
-  // Same job on/after the cutoff: the ×3 still resolves, it just pays $0 each.
   eq(computeJobPay(job({ line_items: [
     { name: '60"-69"', line_total: 119 },
     { name: 'Bracket: Full Motion ×3', quantity: 3, unit_price: 115, line_total: 345 },
   ] }), 'Juan').pay, 80, 'post-cutoff Juan gets base only, brackets ×3 pay $0');
 
-  // Per-unit pay: 3 tilting brackets pay Juan 3 × $35 on top of the base.
   eq(computeJobPay(job({ scheduled_at: '2026-08-10T18:00:00Z', line_items: [
     { name: '60"-69"', line_total: 119 },
     { name: 'Tilting (recommended)', line_total: 180, quantity: 3, unit_price: 60 },
   ] }), 'Juan').pay, 185, 'PRE-2026-08-16 Juan 60-69 + 3× tilting = 80 + 105 = 185');
-  // Count inferred when the quantity is folded into the price (qty unset, 2× unit).
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Soundbar Installation', line_total: 70, unit_price: 35 },
   ] }), 'Zach').pay, 130, 'other 33-59 + 2× soundbar (inferred) = 60 + 70 = 130');
 
-  // Brackets: Other $0, Juan paid.
   eq(computeJobPay(job({ line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Zach').pay, 50, 'tilting Other adds 0');
   eq(computeJobPay(job({ scheduled_at: '2026-08-10T18:00:00Z', line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Juan').pay, 85, 'PRE-2026-08-16 tilting Juan adds 35');
   eq(computeJobPay(job({ line_items: [{ name: '32" or Less', line_total: 99 }, { name: 'Tilting (recommended)', line_total: 0 }] }), 'Juan').pay, 50, 'post-cutoff tilting adds $0 for Juan, same as every other tech');
 
-  // Wires (Juan vs other).
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Hide wires BEHIND the wall', line_total: 60 }] }), 'Steve').pay, 95, 'behind-wall other = 60+35');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Hide wires BEHIND the wall', line_total: 60 }] }), 'Juan').pay, 105, 'behind-wall Juan = 60+45');
-  // Hand-typed line items that never say "wall" at all (David Tichenor's job,
-  // 2026-07-09: office typed "Outside wire concealment" straight into the tech
-  // app's line-item editor instead of picking a widget preset — it silently
-  // scored $0 and the tech was underpaid $15 until "concealment" was added as an
-  // alternate trigger alongside "wall").
   eq(computeJobPay(job({ line_items: [{ name: '70"-85"', line_total: 149 }, { name: 'Outside wire concealment', line_total: 25 }] }), 'Zach').pay, 95, 'hand-typed "outside wire concealment" (no "wall") = 80+15');
   eq(computeJobPay(job({ line_items: [{ name: '70"-85"', line_total: 149 }, { name: 'Outside wire concealment', line_total: 25 }] }), 'Juan').pay, 105, 'same, Juan = 90+15');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Wire concealment', line_total: 60 }] }), 'Zach').pay, 95, 'hand-typed "wire concealment" alone defaults to behind-wall = 60+35');
 
-  // Handyman $65/hr, 2h min. Hours come from the labor line's own quantity —
-  // NOT the job subtotal, which was the bug (see below).
   eq(computeJobPay(job({ service_name: 'Handyman Services', subtotal: 255, line_items: [{ name: 'Handyman Labor', quantity: 3, unit_price: 85, line_total: 255 }] }), 'Kregg').pay, 195, 'handyman 3h line qty -> 3h*65=195');
   eq(computeJobPay(job({ service_name: 'Handyman Services', subtotal: 50, line_items: [] }), 'Kregg').pay, 130, 'handyman min 2h = 130');
-  // Archie Maharhaj job, Jul 2026: a 2-hr ($170) labor line plus $65 travel fee
-  // and $19.39 tax summed to a $254.39 ticket. The old code divided that WHOLE
-  // total by $85/hr and got 3 "hours" (195) instead of the correct 2 (130) — it
-  // was pricing the travel fee and tax as if they were labor hours. 130 handyman
-  // + 52 travel share (80% of the $65 fee, same tiered share as every other job
-  // via the shared tail) = 182 — the fee is still paid, just not AS hours.
   eq(computeJobPay(job({ service_name: 'Handyman Services', subtotal: 254.39, line_items: [
     { name: 'Handyman Labor: Furniture Assembly — 2 hours', quantity: 2, unit_price: 85, line_total: 170 },
     { name: 'Travel Fee', kind: 'addon', line_total: 65 },
     { name: 'Tax (8.25%)', kind: 'fee', line_total: 19.39 },
   ] }), 'Steve').pay, 182, 'handyman 2h labor line + travel fee + tax -> 2h*65=130 + $52 travel share = 182, not inflated by folding the fee/tax into "hours"');
-  // Two-tech HANDYMAN job (Christopher Dickens, Jul 2026): used to pay BOTH
-  // techs the full handyman rate (the special-case return skipped the split
-  // entirely). Now splits like any other two-tech job: 2h*$65=$130 handyman
-  // pay + $60 second-tech bonus = $190 pool -> $95 each.
   const handymanTwoTech = { service_name: 'Handyman Services', subtotal: 75, second_tech: true, line_items: [
     { name: 'Handyman Labor', quantity: 2, unit_price: 85, line_total: 170 },
     { name: 'Second Technician', line_total: 70 },
@@ -1382,23 +817,15 @@ function runSelfTests() {
   eq(computeJobPay(job({ ...handymanTwoTech }), 'Kregg').pay, 95, 'two-tech handyman splits: (130+60)/2 = 95');
   eq(computeJobPay(job({ ...handymanTwoTech, is_secondary: true }), 'Steve').pay, 95, 'second of two-tech handyman also gets 95');
 
-  // Dismount (rate sheet §5): plain charge >$60 -> $60, <=$60 -> $50; Guaranteed
-  // Dismount SOLD ($ line) -> $0, REDEEMED ($0 standalone) -> $60; xN multiplies.
   eq(computeJobPay(job({ line_items: [{ name: 'Dismount', line_total: 119 }] }), 'Zach').pay, 60, 'dismount >$60 -> 60');
   eq(computeJobPay(job({ line_items: [{ name: 'Dismount', line_total: 45 }] }), 'Zach').pay, 50, 'dismount <=$60 -> 50');
   eq(computeJobPay(job({ line_items: [{ name: 'Guaranteed Dismount Service', line_total: 35 }] }), 'Zach').pay, 0, 'GD sold -> 0');
   eq(computeJobPay(job({ price: 0, line_items: [{ name: 'Guaranteed Dismount Service', line_total: 0 }] }), 'Zach').pay, 50, 'GD redeemed, no scheduled_at -> defaults to new $50 rate');
-  // Rate change is gated on the JOB's scheduled date (what the tech was quoted
-  // when it went on the calendar), not on when this code deployed.
   eq(computeJobPay(job({ price: 0, scheduled_at: '2026-07-15T18:00:00Z', line_items: [{ name: 'Guaranteed Dismount Service', line_total: 0 }] }), 'Zach').pay, 60, 'GD redeemed, scheduled BEFORE Aug 3 2026 -> old $60 rate');
   eq(computeJobPay(job({ price: 0, scheduled_at: '2026-08-10T18:00:00Z', line_items: [{ name: 'Guaranteed Dismount Service', line_total: 0 }] }), 'Zach').pay, 50, 'GD redeemed, scheduled ON/AFTER Aug 3 2026 -> new $50 rate');
   eq(computeJobPay(job({ line_items: [{ name: 'Dismount x3', line_total: 170 }] }), 'Zach').pay, 150, 'dismount x3 $170 -> 3x$50=150');
-  // Declined dismount: a $0 "Dismount: No, I will handle" widget answer pays $0
-  // (the customer didn't buy a dismount — must not score a phantom $50).
   eq(computeJobPay(job({ line_items: [{ name: 'Dismount: No, I will handle it myself', line_total: 0 }] }), 'Zach').pay, 0, 'declined dismount ($0) pays nothing');
-  // Gregory's real job: TV Dismount ($129) + 60-69" base + handyman add-on, with
-  // a separate declined-dismount $0 line that must NOT add $50. 60 + 70 + 65 = 195.
-  eq(computeJobPay(job({ price: 378, subtotal: 349, business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ price: 378, subtotal: 349, business_slug: 'tidyhaus', line_items: [
     { name: 'TV Dismount', line_total: 129 },
     { name: 'TV Size: 60–69 inch', line_total: 135 },
     { name: 'Bracket: I have my own mount', line_total: 0 },
@@ -1407,34 +834,24 @@ function runSelfTests() {
     { name: 'Tax (8.25%)', line_total: 28.79, kind: 'fee' },
   ] }), 'Gregory').pay, 195, 'real dismount + base + handyman, declined $0 dismount ignored = 195');
 
-  // TV swap flat.
   eq(computeJobPay(job({ service_name: 'TV Swap', line_items: [{ name: 'TV Swap', line_total: 120 }] }), 'Zach').pay, 60, 'tv swap flat 60');
 
-  // Tips 100%.
-  // Tips are returned separately (owner rule 2026-10-12): pay = labor only,
-  // tip = the tech's tip share, total = pay + tip (unchanged from before).
   eq(computeJobPay(job({ tip: 20, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').pay, 60, 'labor pay excludes tip = 60');
   eq(computeJobPay(job({ tip: 20, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').tip, 20, 'tip returned separately = 20');
   eq(computeJobPay(job({ tip: 20, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').total, 80, 'total = base 60 + tip 20');
   eq(computeJobPay(job({ line_items: [{ name: '33"–59"', line_total: 109 }, { name: 'Tip', line_total: 15 }] }), 'Zach').tip, 15, 'tip line item counts as tip, not labor');
   eq(computeJobPay(job({ tip: 20, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').breakdown.some(b => /tip/i.test(b.label)), false, 'breakdown has no tip lines');
-  // Payroll override is a flat LABOR amount; the job's tip is paid on top.
   eq(computeJobPay(job({ tip: 20, scheduled_at: '2026-10-05T18:00:00Z', notes: 'Payroll override: $152.50', line_items: [] }), 'Kregg').pay, 152.5, 'override = labor 152.50');
   eq(computeJobPay(job({ tip: 20, scheduled_at: '2026-10-05T18:00:00Z', notes: 'Payroll override: $152.50', line_items: [] }), 'Kregg').total, 172.5, 'override + tip 20 = 172.50 total');
   eq(computeJobPay(job({ tip: 30, scheduled_at: '2026-09-25T18:00:00Z', notes: 'Payroll override: $211.50', line_items: [] }), 'Steve').total, 211.5, 'pre-10/04 override stays all-in (already paid): 211.50');
   eq(computeJobPay(job({ payment_status: 'unpaid', price: 150, amount_paid: 0, tip: 20, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').total, 0, 'deferred job: no tip either');
 
-  // Assurion via note.
   eq(computeJobPay(job({ payment_status: 'unpaid', price: 0, notes: 'Assurion job\nTelevision — $60\n\nTech pay: $60', line_items: [] }), 'Steve').pay, 60, 'assurion note 60 (not deferred)');
 
-  // Deferred (unpaid w/ balance).
   eq(computeJobPay(job({ payment_status: 'unpaid', price: 150, amount_paid: 0, line_items: [{ name: '33"–59"', line_total: 109 }] }), 'Zach').state, 'deferred', 'unpaid -> deferred');
 
-  // Job-number override.
   eq(computeJobPay(job({ zenbooker_job_number: '020989', line_items: [] }), 'Kregg').pay, 60, 'CUSTOM_PAY 020989 = 60');
 
-  // Two techs (second_tech) + Second Technician line: base split 50/50 + tips
-  // split 50/50 + $30 half-bonus.
   eq(computeJobPay(job({ second_tech: true, tip: 20, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'Second Technician', line_total: 70 }
@@ -1444,43 +861,30 @@ function runSelfTests() {
     { name: 'Second Technician', line_total: 70 }
   ] }), 'Kregg').tip, 10, 'two techs: tip split 50/50 = 10');
 
-  // Two techs with "Lifting Help" variation (same logic).
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '70"–84"', line_total: 169 },
     { name: 'Lifting Help', line_total: 70 }
   ] }), 'Kregg').pay, 70, 'two techs lifting help (80/2 + 30 = 40 + 30)');
 
-  // "2 technicians" is the relabeled TidyHaus catalog option, formerly
-  // "70-85\" - customer cannot help lift". Must trigger the exact same $30
-  // half-bonus as the old wording, and NOT get read back as a real TV-size
-  // line (it embeds no size the fallback bare-inch matcher could misfire on,
-  // but the exclusion guard is what actually stops it).
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '70"–84"', line_total: 169 },
     { name: 'Second Technician (Large TVs): 2 technicians', line_total: 70 }
   ] }), 'Kregg').pay, 70, 'two techs, relabeled "2 technicians" line (80/2 + 30 = 40 + 30)');
   eq(matchSize('Second Technician (Large TVs): 2 technicians'), null, '"2 technicians" is never read as a TV-size base line');
 
-  // Two techs, Second Technician line under $70 → no $60 add-on, just a base split.
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Second Technician', line_total: 50 }
   ] }), 'Zach').pay, 30, 'two techs no bonus (60/2 = 30, no $30 bonus for <70)');
 
-  // Juan is NEVER split (works two-person jobs with his wife, who isn't a paid
-  // tech): full base + full tips + the WHOLE $60 two-person add-on (not the $30
-  // half). 98"+ base 130 + tip 40 + 60 = 230.
   eq(computeJobPay(job({ tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
     { name: 'Second Technician', line_total: 70 }
   ] }), 'Juan').total, 230, 'Juan two-person NOT split (130 + 40 + 60)');
-  // Same job with a second real tech still splits 50/50 + $30 half-bonus.
   eq(computeJobPay(job({ second_tech: true, tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
     { name: 'Second Technician', line_total: 70 }
   ] }), 'Kregg').total, 115, 'Other tech two-person splits (130/2 + 40/2 + 30)');
-  // TK, like Juan, brings his own helper — NEVER split, keeps the full $60. Uses
-  // the standard rate column (not Juan's): 70-85 base 80 + full 60 = 140.
   eq(computeJobPay(job({ line_items: [
     { name: '70"-85"', line_total: 149 },
     { name: 'Second Technician', line_total: 70 },
@@ -1489,26 +893,11 @@ function runSelfTests() {
     { name: '70"-85"', line_total: 149 },
     { name: 'Second Technician', line_total: 70 },
   ] }), 'Kregg').pay, 70, 'normal tech same job splits: 80/2 + 30 = 70');
-  // FIX (Krabo Malobo job, Jul 2026): TK/Juan's "brings own helper" exception
-  // must NOT apply once a REAL system tech is recorded as job.second_tech (an
-  // off-system helper is never entered as one) — that's a genuine two-person
-  // job, same as anyone else's. Previously TK kept the FULL pool here AND the
-  // real second tech's own computeJobPay call ALSO gave them a half-share —
-  // double-paying the job (e.g. $345 total became $517.50: $345 to TK + $172.50
-  // to the cross-hire second tech, on a $529 job).
   eq(computeJobPay(job({ second_tech: true, tip: 40, line_items: [
     { name: '98"+', line_total: 229 },
     { name: 'Second Technician', line_total: 70 }
   ] }), 'TK').total, 115, 'TK WITH a real second tech splits like anyone else: (130+40+60)/2 = 115');
 
-  // Service-area surcharge → tech travel payout: a flat 80% of whatever travel
-  // fee the customer was charged (house keeps 20%), derived from the surcharge
-  // line so the tech is paid even when the per-zip payout was never configured.
-  // Standard fees: $15 -> $12, $65 -> $52, $100 -> $80. Split in half on 2-tech.
-  // Direct unit checks of the share function, incl. the off-tier $50 -> $40 case
-  // that motivated the switch away from fixed tiers.
-  // Local-customer tier: credit line + negative zip payout docks the tech; without
-  // BOTH (credit line AND negative payout) nothing changes.
   const localJob=(extra)=>job({ business_slug: 'doms', line_items: [
     { name: 'TV Size: 32–49 inch', quantity: 1, unit_price: 100, line_total: 100 },
     { name: 'Local travel credit', line_total: -20, kind: 'fee' },
@@ -1528,21 +917,14 @@ function runSelfTests() {
     { name: '33"–59"', line_total: 109 },
     { name: 'Service area surcharge', line_total: 65 },
   ] }), 'Zach').pay, 112, 'surcharge $65 -> +$52 travel (60 base + 52)');
-  // Off-tier travel fee ($50): the tech now earns $40 (80%), not the old $10.
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Travel Fee', line_total: 50 },
   ] }), 'Zach').pay, 100, 'off-tier $50 travel fee (legacy "Travel Fee" label, jobs booked before 2026-08) -> +$40 travel (60 base + 40)');
-  // Same job, current bare "Travel" label (the 2026-08 rename dropped the word
-  // "Fee" everywhere it's generated) -- must pay identically to the legacy
-  // label above, or every job booked after the rename underpays its tech.
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Travel', line_total: 50 },
   ] }), 'Zach').pay, 100, 'off-tier $50, current "Travel" label -> +$40 travel (60 base + 40), same as the legacy label');
-  // A negative "Travel discount" line (some zones discount travel instead of
-  // charging it) must never be mistaken for a charged surcharge -- the >0 gate
-  // on line_total is what protects this, not the name pattern excluding it.
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'Travel discount', line_total: -10 },
@@ -1555,9 +937,7 @@ function runSelfTests() {
     { name: '33"–59"', line_total: 109 },
     { name: 'Service area surcharge', line_total: 100 },
   ] }), 'Zach').pay, 140, 'surcharge $100 -> +$80 travel (80% of $100)');
-  // TK's two-TV job: 60-69 + 33-59 + brick + outside wires + soundbar + $65
-  // surcharge. 70+60+25+15+35 = 205 labor + $52 travel (80% of $65) = 257 (single tech, full).
-  eq(computeJobPay(job({ price: 471, subtotal: 435, business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ price: 471, subtotal: 435, business_slug: 'tidyhaus', line_items: [
     { name: '60"–69"', line_total: 135 },
     { name: '33"–59"', line_total: 125 },
     { name: 'Brick / Stone', line_total: 35 },
@@ -1566,20 +946,17 @@ function runSelfTests() {
     { name: 'Service area surcharge', line_total: 65 },
   ] }), 'TK').pay, 257, 'TK two-TV + $65 surcharge = 205 labor + $52 travel = 257');
 
-  // After-hours 8 PM bonus (single tech).
   eq(computeJobPay(job({ line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'After-Hours Service Fee (8 PM)', kind: 'fee', line_total: 75 }
   ] }), 'Kregg').pay, 135, '8pm single tech (60 + 75 bonus)');
 
-  // After-hours 8 PM bonus (two techs). Base splits, $30 half-bonus, full $75 each.
   eq(computeJobPay(job({ second_tech: true, line_items: [
     { name: '60"–69"', line_total: 119 },
     { name: 'After-Hours Service Fee (8 PM)', kind: 'fee', line_total: 75 },
     { name: 'Second Technician', line_total: 70 }
   ] }), 'Zach').pay, 140, '8pm two techs (70/2 + 30 + 75 = 35 + 30 + 75)');
 
-  // After-hours bonus is $65 for bookings created after AFTER_HOURS_65_FROM (and quotes with no created_at).
   eq(computeJobPay(job({ created_at: '2026-10-23T00:00:00Z', line_items: [
     { name: '33"–59"', line_total: 109 },
     { name: 'After-Hours Service Fee (8 PM)', kind: 'fee', line_total: 75 }
@@ -1589,13 +966,6 @@ function runSelfTests() {
     { name: 'After-Hours Service Fee (8 PM)', kind: 'fee', line_total: 75 }
   ] }), 'Kregg').pay, 125, '8pm quote, no created_at (60 + 65 bonus)');
 
-  // ── Bracket/surface wording variants (Gregory week of Aug 2 2026) ──────────
-  // A bracket typed by hand as "Full Motion Mount" instead of the catalog's
-  // "Full Motion Bracket" fell through every exact key and hit the generic
-  // custom-hourly fallback, paying $65 for a bracket that owes the tech $0.
-  // Inventory ALREADY read the same text as a full-motion bracket and deducted
-  // stock, so the two systems disagreed about the same line. These lock the
-  // agreement in place.
   const wall = (nm, lt) => ({ line_items: [
     { kind: 'option', name: '33"-59"', line_total: 109 },
     { kind: 'option', name: nm, line_total: lt },
@@ -1609,11 +979,6 @@ function runSelfTests() {
   eq(computeJobPay(job(wall('Full Motion Mount', 115)), 'Gregory').flags.length, 0, '"Full Motion Mount" raises no review flag');
   eq(computeJobPay(job(wall('Bracket: Tilting Mount', 65)), 'Gregory').pay, 60, 'hand-typed "Tilting Mount" pays $0');
   eq(computeJobPay(job(wall('Customer supplied bracket', 0)), 'Gregory').pay, 60, 'customer-supplied bracket still $0 (never reaches the new fallback)');
-  // The widget's XL bracket labels start with a size ('86"+ TV Tilting Bracket'
-  // since 2026-10-09; Austin '85"+', older bookings '85"-100"'). "86+" matched the
-  // size-descriptor test above, so the bracket was flagged for review and skipped
-  // before the bracket rules ran. Every XL wording must pay as its bracket type
-  // with no review flag: $0 now, Juan's 25/35/60 before the 2026-08-16 cutoff.
   {
     const xl = (nm) => ({ line_items: [
       { kind: 'option', name: '86"-97"', line_total: 179 },
@@ -1631,37 +996,20 @@ function runSelfTests() {
       eq(computeJobPay(job({ ...xl(nm), ...pre }), 'Juan').pay, juanPre, `XL bracket "${nm}": Juan pre-cutoff reimbursement`);
     }
   }
-  // "Wall Surface: Brick or Stone" is the catalog's own label, but normalize()
-  // strips filler words WITHOUT stripping "or", so it never reached the
-  // 'brick stone' key and a real $25 surface silently paid nothing.
   eq(computeJobPay(job(wall('Wall Surface: Brick or Stone', 35)), 'Gregory').pay, 85, 'catalog "Brick or Stone" pays its $25 surface rate (was silently $0)');
   eq(computeJobPay(job(wall('Wall Surface: Brick or Stone', 35)), 'Gregory').flags.length, 0, '"Brick or Stone" raises no unmatched-line flag');
-  // Ordering guard: "Uneven Stone or Tile" contains "stone", so the pricier
-  // uneven/tile rate MUST win over plain brick/stone or it underpays $15.
   eq(computeJobPay(job(wall('Wall Surface: Uneven Stone or Tile', 50)), 'Gregory').pay, 100, '"Uneven Stone or Tile" pays $40, not the $25 brick/stone rate');
   eq(computeJobPay(job(wall('Wall Surface: Outdoor Stucco', 35)), 'Gregory').pay, 95, 'stucco surface pays $35');
   eq(computeJobPay(job(wall('Wall Surface: Drywall', 0)), 'Gregory').pay, 60, 'drywall surface pays $0');
 
-  // A bracket the catalog doesn't recognize is still a MATERIAL the owner buys,
-  // never labor. These two hand-typed lines were being paid as custom hours
-  // ($195 and $130) until the owner corrected the job by hand.
   eq(computeJobPay(job(wall('Custom bracket', 250)), 'Gregory').pay, 60, 'unrecognized "Custom bracket" pays $0, not $195 of custom hours');
   eq(computeJobPay(job(wall('soundbar bracket', 164)), 'Gregory').pay, 60, 'unrecognized "soundbar bracket" pays $0, not $130 of custom hours');
   eq(computeJobPay(job(wall('Custom bracket', 250)), 'Juan').pay, 60, 'unrecognized bracket pays $0 for Juan too (his 25/35/60 covers only the three types he stocks)');
-  // Lines that mention a bracket but ARE genuine paid work must survive it.
   eq(computeJobPay(job(wall('Apple TV installation, mounting bracket included', 25)), 'Gregory').pay, 75, 'Apple TV install still pays $15 despite the word "bracket"');
   eq(computeJobPay(job(wall('I will be using the bracket that comes in the box (Samsung Frame TV)', 25)), 'Gregory').pay, 75, 'Frame in-box bracket still pays its $15');
   eq(computeJobPay(job(wall('Mantel Mount', 195)), 'Gregory').pay, 170, 'Mantel Mount still pays its $110 of real labor');
-  // And a genuine custom job with no bracket wording is untouched.
   eq(computeJobPay(job(wall('TV Setup - Gaming System, VCR, and Blu Ray', 129)), 'Gregory').pay, 190, 'a real custom job still bills hourly');
 
-  // ── Dismount quantity depends on the CALLER selecting `quantity` ───────────
-  // Every other rate survives a missing quantity because payQty() infers the
-  // count from line_total/unit_price. dismountQty() cannot: it has no price
-  // fallback and returns 1. Two dismounts charged $120 therefore read as one
-  // $120 dismount ($60) instead of 2 x $50 ($100). The callers in api/admin.js
-  // (payroll) and api/tech.js (the tech's own view) must keep `quantity` in
-  // their line-items embed; these two cases are what breaks if either drops it.
   const dis = q => ({ line_items: [
     { kind: 'option', name: '33"-59"', line_total: 109 },
     { kind: 'service', name: 'Dismount', line_total: 120, unit_price: 60, ...(q ? { quantity: 2 } : {}) },
@@ -1669,12 +1017,6 @@ function runSelfTests() {
   eq(computeJobPay(job(dis(true)), 'Gregory').pay, 160, 'dismount qty 2 @ $120 pays 2 x $50 = $100 (+$60 base) when quantity is selected');
   eq(computeJobPay(job(dis(false)), 'Gregory').pay, 120, 'the same line WITHOUT quantity pays only $60 -- this is the regression to guard against');
 
-  // ── Max Segal job, Dom's, Aug 2026: bare "Travel" line was double-paid ──────
-  // "Inwall Concealment" pricing as $85/hr custom labor is CORRECT here and
-  // deliberately untouched — the secretary opened this ticket as concealment
-  // ONLY, no TV mount, so it is genuine custom hourly work, not an add-on
-  // riding alongside a mount. Do not add a flat-rate match for this wording;
-  // that was tried and reverted (owner correction, Aug 2026).
   const segal = { line_items: [
     { name: 'Inwall Concealment', line_total: 135, quantity: 1, unit_price: 135, kind: 'option' },
     { name: 'Travel', line_total: 100, quantity: 1, unit_price: 100, kind: 'addon' },
@@ -1682,22 +1024,17 @@ function runSelfTests() {
     { name: 'Tax (8.25%)', line_total: 16.91, quantity: 1, unit_price: 16.91, kind: 'fee' },
   ] };
   eq(computeJobPay(job(segal), 'Gregory').pay, 210, 'Inwall Concealment as custom hours ($130) + travel payout ($80) = $210');
-  // The travel-line skip in isolation: a job with ONLY a "Travel" line must
-  // not price that same line again as custom hours.
   eq(computeJobPay(job({ line_items: [
     { name: '33"-59"', line_total: 109 },
     { name: 'Travel', line_total: 65, quantity: 1, unit_price: 65, kind: 'addon' },
   ] }), 'Gregory').pay, 60 + 52, 'base (60) + travel payout only (80% of 65 = 52) -- Travel line itself must not ALSO price as custom hours');
 
-  // Denys Sladkovskyi, TidyHaus, Oct 2026: stand-alone behind-wall visit.
-  // Was 2 custom hours ($130) + $40 travel = $170. Owner: $60 flat + travel = $100.
-  eq(computeJobPay(job({ business_slug: 'handy-andy', line_items: [
+  eq(computeJobPay(job({ business_slug: 'tidyhaus', line_items: [
     { name: 'Behind wall concealment', line_total: 139, quantity: 1, unit_price: 139, kind: 'option' },
     { name: 'Travel', line_total: 50, quantity: 1, unit_price: 50, kind: 'addon' },
     { name: 'Tax (8.25%)', line_total: 15.59, quantity: 1, unit_price: 15.59, kind: 'fee' },
   ] }), 'Steve').pay, 100, 'stand-alone Behind wall concealment = $60 + travel payout ($40) = $100');
 
-  // ── Moving TVs (2026-10-09) ──
   eq(computeJobPay(job({ line_items: [
     { name: '65" TV', line_total: 99, quantity: 1 },
     { name: 'Move: take down 4 TVs', line_total: 140, quantity: 1 },
@@ -1712,12 +1049,6 @@ function runSelfTests() {
   return fails;
 }
 
-// Self-tests run ONLY when explicitly requested:  PAYROLL_SELFTEST=1 node api/_lib/payroll.js
-// They must NEVER auto-run on import. This module is imported by api/tech.js, which
-// Vercel bundles into a serverless function; in that runtime an "if (process.argv[1]
-// === import.meta.url) process.exit()" guard can evaluate TRUE at cold start and kill
-// the lambda before the request handler runs (every /api/tech call -> hard 500). The
-// env flag makes execution impossible in production while keeping the CLI ergonomic.
 if (process.env.PAYROLL_SELFTEST === '1') {
   process.exit(runSelfTests() ? 1 : 0);
 }

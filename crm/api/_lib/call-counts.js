@@ -1,13 +1,8 @@
-// Daily call counts per tracking line (owner 2026-09-27: "Jiyah's call count
-// should be automatic"). Every line moved onto Twilio on 2026-09-22, so from
-// that day on the count comes straight from our own inbound call log. Days
-// before that keep the auditor's hand counts (call_audit_days).
 import { localDateStartUTC, addDaysStr } from './time.js';
 
 export const AUTO_COUNT_FROM = '2026-09-22';
 const TZ = 'Asia/Manila';
 
-// Rows shaped like call_audit_days: { audit_date, grasshopper_number, calls_counted }.
 export async function callDayRows(db, from, to) {
   const out = [];
   if (from < AUTO_COUNT_FROM) {
@@ -22,12 +17,10 @@ export async function callDayRows(db, from, to) {
     const { data } = await db.from('calls')
       .select('id, occurred_at, grasshopper_number')
       .eq('kind', 'inbound')
-      // Only calls a person answered: no voicemails, no missed calls (owner 2026-09-27).
       .eq('answered', true)
       .gte('occurred_at', localDateStartUTC(TZ, start).toISOString())
       .lt('occurred_at', localDateStartUTC(TZ, addDaysStr(to, 1)).toISOString())
       .limit(20000);
-    // ...and not the ones the auditor skipped (voicemail / not a call).
     const ids = (data || []).map((c) => c.id);
     const skipped = new Set();
     for (let i = 0; i < ids.length; i += 150) {
@@ -45,7 +38,6 @@ export async function callDayRows(db, from, to) {
       const [audit_date, grasshopper_number] = k.split('|');
       out.push({ audit_date, grasshopper_number, calls_counted: n });
     }
-    // Every day from the cutoff counts as "counted" even with zero calls.
     for (let d = start; d <= to; d = addDaysStr(d, 1)) {
       if (!out.some((r) => r.audit_date === d)) out.push({ audit_date: d, grasshopper_number: null, calls_counted: 0 });
     }

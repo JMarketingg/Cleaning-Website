@@ -1,36 +1,15 @@
 import { capName } from './name-case.js';
-// api/_lib/reminders.js
-// 24-hour appointment reminder engine. Driven by a scheduled trigger (Vercel
-// Cron and/or a GitHub Actions hourly workflow) that hits
-//   GET /api/migrate?action=send_reminders&secret=CRON_SECRET
-//
-// Design goals:
-//   * Idempotent — a booking is reminded at most once. State is stored in the
-//     existing bookings.metadata JSONB (metadata.reminder_sent_at), so NO schema
-//     migration is required.
-//   * "Same-day" bookings are ignored — we only remind customers who booked at
-//     least 24h ahead (scheduled_at - created_at >= 24h). A job booked the same
-//     day (or otherwise inside 24h) never qualifies.
-//   * Fires ~24h out — we remind any eligible booking whose appointment is within
-//     the next 24 hours and hasn't been reminded yet. With an hourly trigger this
-//     lands right around the 24-hour mark; a missed hour is caught the next run.
-//   * Brand-aware — only businesses with a configured email brand (TidyHaus,
-//     Doms) are emailed, each with its own colors/sender. Gated by the global
-//     email switch + the per-business Resend key, exactly like every other send.
 import { serviceClient } from './supabase.js';
 import { emailNotificationsOn } from './notify.js';
 import { appointmentReminderEmail, emailConfig, sendEmail, brandFor, EMAIL_BRANDS } from './email.js';
 import { SLOTS, slotKeyForLocalTime, localHHMM } from './availability.js';
 
 const HOUR = 60 * 60 * 1000;
-const ADVANCE_MS = 24 * HOUR;   // must have booked at least this far ahead
-const WINDOW_MS  = 24 * HOUR;   // remind when appointment is within this many hours
+const ADVANCE_MS = 24 * HOUR;
+const WINDOW_MS  = 24 * HOUR;
 
-// Statuses that still represent an upcoming, un-started job worth reminding.
 const REMINDER_STATUSES = ['pending', 'confirmed', 'assigned'];
 
-// Run one reminder pass. Returns a summary; never throws on a single bad row.
-//   opts.dryRun  — find + log eligible bookings but send nothing, mark nothing.
 export async function sendAppointmentReminders(opts = {}) {
   const dryRun = !!opts.dryRun;
   const db = serviceClient();
@@ -38,18 +17,12 @@ export async function sendAppointmentReminders(opts = {}) {
   const nowISO = new Date(now).toISOString();
   const windowEndISO = new Date(now + WINDOW_MS).toISOString();
 
-  // Map business_id -> { slug, timezone } so we can pick brand/sender + format
-  // the date in the business's local time.
   const { data: bizRows, error: bizErr } = await db.from('businesses').select('id, slug, timezone');
   if (bizErr) throw new Error(`businesses query failed: ${bizErr.message}`);
   const bizById = new Map((bizRows || []).map(b => [b.id, b]));
-  // The JOB's metro tz (Houston/Austin/OKC = Central), never the business
-  // default (Denver): the email showed Central customers a time 1h early
-  // (audit 2026-10-25). Best effort: on error the business tz still applies.
   const { data: saRows } = await db.from('service_areas').select('id, timezone');
   const areaTz = new Map((saRows || []).filter(a => a.timezone).map(a => [a.id, a.timezone]));
 
-  // Candidate bookings: upcoming within the next 24h, not yet started/cancelled.
   const { data: rows, error } = await db
     .from('bookings')
     .select(`id, business_id, service_area_id, status, scheduled_at, created_at, metadata, address_line1, city, state, postal_code,
@@ -72,7 +45,6 @@ export async function sendAppointmentReminders(opts = {}) {
     const schedMs = b.scheduled_at ? Date.parse(b.scheduled_at) : NaN;
     const createdMs = b.created_at ? Date.parse(b.created_at) : NaN;
 
-    // ---- Eligibility gates (each records a skip reason for observability) ----
     let skip = null;
     if (!slug || !EMAIL_BRANDS[slug]) skip = `no email brand for business (${slug || b.business_id})`;
     else if (!email) skip = 'no customer email';
@@ -86,15 +58,12 @@ export async function sendAppointmentReminders(opts = {}) {
       continue;
     }
 
-    // ---- Build the branded reminder ----
     const brand = brandFor(slug);
     const tz = areaTz.get(b.service_area_id) || biz.timezone || 'Asia/Manila';
     let dateLong = '';
     try {
       dateLong = new Date(schedMs).toLocaleDateString('en-US', { timeZone: tz, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
     } catch { /* leave blank */ }
-    // The slot the customer booked (same label as the confirmation text),
-    // not start + 2h: a 5-8 PM job read as 5-7 PM.
     let timeWindow = '';
     let endMs = schedMs + 2 * HOUR;
     try {
@@ -127,7 +96,7 @@ export async function sendAppointmentReminders(opts = {}) {
     }, brand);
 
     if (dryRun) {
-      summary.sent++; // count as "would send"
+      summary.sent++;
       summary.details.push({ id: b.id, wouldSend: email, slug });
       continue;
     }
@@ -136,7 +105,6 @@ export async function sendAppointmentReminders(opts = {}) {
       const { from } = emailConfig(slug);
       const result = await sendEmail({ slug, to: email, subject, html, replyTo: from });
       if (result.sent) {
-        // Mark sent in metadata (merge, never clobber other keys).
         const newMeta = { ...meta, reminder_sent_at: nowISO };
         const { error: upErr } = await db.from('bookings').update({ metadata: newMeta }).eq('id', b.id);
         if (upErr) console.warn(`[reminders] sent but failed to mark booking ${b.id}:`, upErr.message);
@@ -144,8 +112,6 @@ export async function sendAppointmentReminders(opts = {}) {
         summary.details.push({ id: b.id, sent: email, slug, id_resend: result.id || null });
         console.log(`[reminders] reminder SENT to ${email} (${slug}) booking=${b.id}`);
       } else {
-        // Not sent (switch off / no key / Resend error) — do NOT mark, so it
-        // retries next run once the underlying issue is fixed.
         summary.skipped++;
         summary.details.push({ id: b.id, notSent: result.skipped || result.error });
         console.warn(`[reminders] reminder NOT sent to ${email} (${slug}) booking=${b.id}:`, result.skipped || result.error);

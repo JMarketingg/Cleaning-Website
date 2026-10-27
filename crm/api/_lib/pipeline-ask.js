@@ -1,7 +1,3 @@
-// Pipeline "Ask why" (owner 2026-09-27). Opus 5.5 reads everything we know
-// about one card and says, in plain words, what's holding it back and what to
-// do next. Completed cards get the review question instead. One answer is
-// cached per card and redone only when the card changes.
 import Anthropic from '@anthropic-ai/sdk';
 import { createHash } from 'node:crypto';
 import { loadPipelineRaw, loadHistory, buildPipeline } from './pipeline.js';
@@ -45,7 +41,6 @@ export async function askWhy(db, auth, body, allowed) {
   const { data: cached } = await db.from('pipeline_ask_why').select('fingerprint, answer, created_at').eq('card_key', key).maybeSingle();
   if (cached && cached.fingerprint === fp && !body.fresh) return { status: 200, json: { ...cached.answer, cached: true, at: cached.created_at } };
 
-  // Extra context the board doesn't carry: call summaries/transcripts and full texts.
   const ph = String(card.phone || '').replace(/\D/g, '').slice(-10);
   let calls = [], texts = [];
   if (ph.length === 10) {
@@ -74,9 +69,6 @@ export async function askWhy(db, auth, body, allowed) {
   });
   const answer = JSON.parse((msg.content || []).find((b) => b.type === 'text')?.text || '{}');
   if (!answer.holding_back) return { status: 502, json: { error: 'Could not get an answer. Try again.' } };
-  // Owner 2026-09-29: when the OWNER asks, the secretary who handled the card
-  // (by name -- Joey and Joe are different people) gets a quiet note that
-  // clears the moment they open the card (migrations 0159/0160).
   const forName = isOwner && card.secretary ? card.secretary : null;
   const forSlug = forName && card.business ? card.business.slug || null : null;
   await db.from('pipeline_ask_why').upsert({ card_key: key, fingerprint: fp, answer, asked_by: auth.name || auth.role || null, created_at: new Date().toISOString(),

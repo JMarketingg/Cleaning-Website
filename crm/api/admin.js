@@ -5,21 +5,6 @@ import { launchAssessmentUrl, isLaunchPreview, previewHasWidget, OWN_WIDGET_SLUG
 import { callDayRows } from './_lib/call-counts.js';
 import { bracketItemsCost } from './_lib/bracket-costs.js';
 import { numberVolumes } from './_lib/number-volume.js';
-// ============================================================================
-// Admin dashboard API (consolidated router to stay under Vercel's function cap).
-// Dispatch on ?action=... — every action except `login` requires a Bearer token.
-//
-//   POST login              { password }                  -> { token, role, scope, businesses }
-//   GET  summary            ?business=slug                -> today's jobs + revenue + techs
-//   GET  bookings           ?business=slug&range=&status= -> booking list
-//   POST booking_update     { business, id, action, ... } -> confirm|cancel|reschedule|assign|status
-//   GET  customers          ?business=slug&q=             -> customer list (search)
-//   GET  technicians        ?business=slug                -> technician list
-//   POST technician_update  { business, id, ... }         -> status|phone|email|pin|active
-//
-// Auth scope: owner (ADMIN_PASSWORD) sees all businesses; a secretary password
-// (HANDY_ANDY_PASSWORD / DOMS_PASSWORD) is locked to one business.
-// ============================================================================
 import { serviceClient, serviceClientPublic } from './_lib/supabase.js';
 import { signToken, verifyToken, getBearer, applyCors, safeEqual, refreshToken, ADMIN_SESSION_MAX } from './_lib/auth.js';
 import { verifyTwilioSignature, xml, xmlEsc, routeNow, ROUTE_LINE_COLUMNS } from './analytics.js';
@@ -65,7 +50,6 @@ import { BROKER_SECTIONS, brokerResolveSpec, brokerQuoteLineItems, normalizeCust
 import { digitsOf, prettyPhone, GRASSHOPPER_LINES } from './_lib/grasshopper.js';
 import { dateIn, exceptionsOn, applyExceptions } from './_lib/schedule-exceptions.js';
 import { SECRETARY_EXTRA_BUSINESSES, allowedSlugsFor, mayUseBusiness, loadCoverageOverrides, coveredSlugsFor, coverageOverrideFor, isAllCoverage, effectiveAuth, weeklyScheduleFor, todayGroupFor, groupSlugs, targetedToday } from './_lib/staff-access.js';
-// Off-day secretaries (weekly schedule, owner 2026-10-08) may only use these.
 const OFF_DAY_ACTIONS = new Set(['team_directory', 'va_board', 'secretary_availability', 'my_call_performance', 'notes_active', 'notes_read', 'notes_list', 'notes_add', 'notes_update', 'notes_delete', 'notes_photo', 'note_photo', 'notes_replies_seen', 'critical_alerts', 'critical_handle']);
 import { canonicalizeLineItems, recalcTaxLine, isTaxLine, casBumpLiRev, bumpLiRev, clampBracketQtysToTvCount, LI_CONFLICT_CODE } from './_lib/line-items.js';
 import { redAlertsAction, redAlertCallTarget } from './_lib/red-alerts.js';
@@ -82,37 +66,16 @@ import { detectWirePlateQty, applyPlatesForJob, plateRecount, plateAdjust, plate
 import { bracketTotal as bracketMoveTotal, debitForJob, reconcileJobEdit, creditDelivery as ledgerCreditDelivery, adjustDelivery as ledgerAdjustDelivery, recount as ledgerRecount, adjust as ledgerAdjust, isInventoryExempt } from './_lib/bracket-moves.js';
 import { bracketPrefill, parseBracketsUsed, checkBracketsUsed, bracketMismatchNote, applyConfirmedBrackets, chargedSoFar, lastSelfCounts, removedBracketNotes } from './_lib/bracket-confirm.js';
 
-// Search Console domain per business — the free "what did people search to
-// find us" data source (see api/_lib/gsc.js).
-const GSC_DOMAIN_BY_SLUG = { 'handy-andy': 'tidyhausph.com', 'doms': 'tidyhausph.com' };
-// Substrings that mark a query as "branded" (already knew the business name)
-// vs. genuine new discovery, for the branded/non-branded split.
+const GSC_DOMAIN_BY_SLUG = { 'tidyhaus': 'tidyhausph.com', 'doms': 'tidyhausph.com' };
 const GSC_BRAND_TERMS = {
-  'handy-andy': ['handy andy', 'ihandyandy', 'handyandy'],
-  'doms': ["dom's tv", 'doms tv', 'domstvmounting', "dom's tv mounting"],
+  'tidyhaus': ['tidyhaus', 'itidyhaus', 'tidyhaus'],
 };
 
-// Publishable Stripe key for the admin/tech card-on-file UIs, by business (safe
-// to expose). TidyHaus uses the main account; Doms uses its own.
 const STRIPE_PK_GLOBAL = process.env.STRIPE_PUBLISHABLE_KEY || 'pk_live_REPLACE_WITH_YOUR_STRIPE_PUBLISHABLE_KEY';
-// Demo mode runs with no real Stripe keys at all (demoStripeResponse fakes
-// every call) — without this branch, a Doms demo session would get
-// stripe_pk:null (DOMS_STRIPE_PUBLISHABLE_KEY is never set there) and New
-// Booking/Change Card would hard-refuse card entry, breaking "click every
-// button" for a prospective buyer touring Doms. Real deployments are
-// unaffected: demoMode() is false there.
-// Each business's own Stripe publishable key, so New Booking's card entry
-// tokenizes against the RIGHT account. Without a slug's own branch here it
-// silently falls through to STRIPE_PK_GLOBAL (TidyHaus's) — which would
-// tokenize a Mile High job's card into TidyHaus's Stripe account, so it
-// would appear to save fine but be uncharge-able from Mile High's own key.
 function bookingStripePk(slug) {
   if (demoMode()) return STRIPE_PK_GLOBAL;
   if (slug === 'doms') return process.env.DOMS_STRIPE_PUBLISHABLE_KEY || null;
   if (slug === 'mile-high') return process.env.MILE_HIGH_STRIPE_PUBLISHABLE_KEY || null;
-  // The four Austin lead-gen brands charge on the shared 'austin' Stripe
-  // account (see LEGACY_SLUG_ACCOUNT in api/_lib/stripe.js), so they tokenize
-  // with austin's publishable key too.
   if (slug === 'austin' || slug === 'atxmountpros' || slug === 'atxtvmount' || slug === 'austinmountingpros' || slug === 'austintvinstall') {
     return process.env.AUSTIN_STRIPE_PUBLISHABLE_KEY || null;
   }
@@ -120,9 +83,6 @@ function bookingStripePk(slug) {
   if (slug === 'houstonmounting' || slug === 'houstontvinstallation' || slug === 'tvhanginghouston' || slug === 'htvmounting') {
     return process.env.Publishable_key_houston_mounting || null;
   }
-  // A1 Home Cleaning (DFW) charges on its OWN account (see ACCOUNT_KEY_ENV in
-  // api/_lib/stripe.js), so New Booking must tokenize with its own key —
-  // never TidyHaus's global one.
   if (slug === 'a1tvmounting') return process.env.A1TVMOUNTING_STRIPE_PUBLISHABLE_KEY || null;
   return STRIPE_PK_GLOBAL;
 }
@@ -135,57 +95,18 @@ import { scammerList, isScammer, SCAMMER_BOOKING_ERROR } from './_lib/scammer.js
 import { couponAmountFor, couponCodesFor, couponCacheClear, multiTvDiscountConfigFor, multiTvDiscountConfigCacheClear } from './book.js';
 
 const ACTIVE_STATUSES = ['pending', 'confirmed', 'assigned', 'on_the_way', 'arrived', 'in_progress', 'completed'];
-// What the office is allowed to SET a booking to. ACTIVE_STATUSES above still
-// lists arrived/in_progress because imported Zenbooker rows sit on them and
-// must keep showing up in queries; this list is narrower on purpose so nothing
-// new can be created there. See TECH_STATUS in api/tech.js for the tech side.
 const SETTABLE_STATUSES = ['pending', 'confirmed', 'assigned', 'on_the_way', 'completed', 'cancelled', 'no_show'];
 
-// Technicians who can NEVER be the second tech on a two-person job. They cover
-// out-of-town territories (Zach → Austin, Juan → Houston) and only ever work as
-// the primary on their own jobs. The frontend hides them from the second-tech
-// dropdown; this server-side list is the backstop so an "Any <company>"
-// auto-pick can't slip them into the secondary slot. Matched case-insensitively
-// by first name. Keep in sync with nbPopulateSecondTechs() in admin.html.
-//
-// These SAME techs bring their OWN second person on two-person jobs (an
-// off-schedule spouse/helper). So when one of them is the PRIMARY, we never
-// assign — nor require — a roster second tech: they cover it themselves. The
-// customer is still charged the two-person fee (the lifting line item stays).
-// bringsOwnSecondTech() is the readable alias for that primary-side rule.
 const SECONDARY_INELIGIBLE_NAMES = ['juan', 'zach'];
 function isSecondaryIneligibleName(name) {
   return SECONDARY_INELIGIBLE_NAMES.includes((name || '').trim().toLowerCase());
 }
 const bringsOwnSecondTech = isSecondaryIneligibleName;
 
-// ── Cross-company booking ────────────────────────────────────────────────────
-// Each business may book the OTHER company's technicians when its own are full.
-// A booking always lives on its HOST business (the one the secretary is logged
-// into); only the assigned technician_id may belong to the partner. A job is
-// "cross-company" whenever the booking's business differs from the assigned
-// tech's home business — derived live, so no schema change is needed.
-// Per-slug lookup, not a symmetric pairing — see the matching comment in
-// api/_lib/availability.js. Mile High borrows TidyHaus's Denver techs
-// one-directionally; TidyHaus's own overflow still only ever falls to Doms.
 const PARTNER_SLUG = {
-  'handy-andy': 'doms', 'doms': 'handy-andy', 'mile-high': 'handy-andy', 'austin': 'handy-andy', 'precision': 'handy-andy',
-  // Austin lead-gen quad — one-directional like the other micro-brands: each
-  // books TidyHaus's (Austin) techs, never the reverse.
-  'atxmountpros': 'handy-andy', 'atxtvmount': 'handy-andy', 'austinmountingpros': 'handy-andy', 'austintvinstall': 'handy-andy',
-  // Denver + Houston lead-gen brands — same one-directional pattern, just
-  // missing from this copy of the table (api/_lib/availability.js's own
-  // PARTNER_SLUG already had all five; this one drifted out of sync). None of
-  // these five have any technicians of their own, so "Any Technician" on any
-  // of them was silently returning zero availability with no partner
-  // fallback (found 2026-09-03 — a TV Hanging Houston auto-pick came back
-  // with no open dates in a real zip its own service_area_zips covers fine).
-  'tvmountingdenver': 'handy-andy',
-  'houstonmounting': 'handy-andy', 'houstontvinstallation': 'handy-andy', 'tvhanginghouston': 'handy-andy', 'htvmounting': 'handy-andy',
-  'tvmountinglosangeles': 'handy-andy',
+  'tidyhaus': 'doms', 'doms': 'tidyhaus', 'mile-high': 'tidyhaus', 'austin': 'tidyhaus', 'precision': 'tidyhaus',
 };
 
-// The partner business row for a host slug, or null when there isn't one.
 async function partnerBusiness(db, hostSlug) {
   const pslug = PARTNER_SLUG[hostSlug];
   if (!pslug) return null;
@@ -194,33 +115,14 @@ async function partnerBusiness(db, hostSlug) {
   return data || null;
 }
 
-// Which technician rosters an "Any Technician" / auto-pick may scan, as an
-// ORDERED array of scopes [{ bizId, serviceAreaId }] — host first, partner
-// (pool 'partner'/'cross') after. Every scope is pinned to that business's
-// OWN service area for the booking's zip, so an auto-pick can never hand a
-// Denver job to the Austin/Houston tech: slot keys (s1–s5) carry no location,
-// which once let Zach's Austin schedule satisfy a Denver 2 PM check.
-// serviceAreaId is null whenever the zip is blank OR unknown to that
-// business — scopedRosterTechs() treats ANY null-area scope as contributing
-// zero candidates (never an unfiltered whole-company fallback), so this
-// function doesn't need to special-case "unmapped zip" itself: a host that
-// can't resolve an area yields no host candidates, a partner that can't
-// yields no partner candidates, symmetrically, whether that's because the zip
-// is blank, unmapped for everyone, or a real zip the partner just doesn't
-// serve. Consumers: pickAvailableTech, availableSlotKeys, freeSlotTechMap,
-// pickAvailableTechPair, and availableDates' local rosterIds.
-// hostAreaOverride: a precomputed service_area_id for hostBiz+postalCode, when
-// the caller already looked it up (availableSlots does, for its own tz lookup)
-// — skips repeating the exact same service_area_zips query.
 const _denverAreaCache = new Map();
-async function isDenverArea(db, areaId) {
+async function isManilaArea(db, areaId) {
   if (!_denverAreaCache.has(areaId)) _denverAreaCache.set(areaId, (async () => {
     const { data } = await db.from('service_areas').select('name').eq('id', areaId).maybeSingle();
     return /denver/i.test(data?.name || '');
   })().catch(() => { _denverAreaCache.delete(areaId); return false; }));
   return _denverAreaCache.get(areaId);
 }
-// TidyHaus DFW is staffed by A1's DFW crew (owner, 2026-10-06).
 const _dfwAreaCache = new Map();
 async function isDfwArea(db, areaId) {
   if (!_dfwAreaCache.has(areaId)) _dfwAreaCache.set(areaId, (async () => {
@@ -229,9 +131,8 @@ async function isDfwArea(db, areaId) {
   })().catch(() => { _dfwAreaCache.delete(areaId); return false; }));
   return _dfwAreaCache.get(areaId);
 }
-// Partner for this host in this metro: A1 for TidyHaus in DFW, else the usual.
 async function metroPartner(db, hostSlug, hostArea) {
-  if (hostSlug === 'handy-andy' && hostArea && await isDfwArea(db, hostArea)) {
+  if (hostSlug === 'tidyhaus' && hostArea && await isDfwArea(db, hostArea)) {
     const { data } = await db.from('businesses')
       .select('id, slug, name, timezone').eq('slug', 'a1tvmounting').eq('active', true).maybeSingle();
     return data || null;
@@ -243,18 +144,10 @@ async function rosterScopes(db, hostBiz, pool, postalCode, hostAreaOverride) {
   const hostArea = hostAreaOverride !== undefined
     ? hostAreaOverride
     : (zip ? await serviceAreaIdFromPostal(db, hostBiz.id, zip) : null);
-  // soleTechOf = the BOOKING's brand, so scopedRosterTechs can apply the
-  // SOLE_TECH lock to whichever roster (own or partner) it ends up reading.
   const host = { bizId: hostBiz.id, serviceAreaId: hostArea, soleTechOf: hostBiz.slug, zip };
-  // Owner rule, 2026-09-29, CRM-wide: in DENVER, "any tech" means the whole
-  // Denver crew across both companies (TK + Greg on Dom's, Kregg + Steve on
-  // TidyHaus), not just the booking's own company. So for a TidyHaus or
-  // Dom's job in the Denver metro, the default/"own" pool widens to cross.
-  // Other metros keep their own-company default.
-  if ((pool === '' || pool === 'own') && (hostBiz.slug === 'handy-andy' || hostBiz.slug === 'doms')
-      && hostArea && await isDenverArea(db, hostArea)) pool = 'cross';
-  // Same for TidyHaus in DFW: "any tech" includes A1's DFW crew.
-  if ((pool === '' || pool === 'own') && hostBiz.slug === 'handy-andy'
+  if ((pool === '' || pool === 'own') && (hostBiz.slug === 'tidyhaus' || hostBiz.slug === 'doms')
+      && hostArea && await isManilaArea(db, hostArea)) pool = 'cross';
+  if ((pool === '' || pool === 'own') && hostBiz.slug === 'tidyhaus'
       && hostArea && await isDfwArea(db, hostArea)) pool = 'cross';
   if (pool !== 'cross' && pool !== 'partner') return [host];
   const p = await metroPartner(db, hostBiz.slug, hostArea);
@@ -265,20 +158,6 @@ async function rosterScopes(db, hostBiz, pool, postalCode, hostAreaOverride) {
   return [host, partnerScope];
 }
 
-// Look up the service_area_id for a postal code in a given business.
-// Returns null if postal_code is not provided or not found.
-//
-// The table stores bare 5-digit zips, but the office form accepts whatever the
-// customer read out, and a ZIP+4 slipped through at least once ("80220-1032",
-// Jul 2026): the exact-match lookup missed, the booking resolved to NO metro,
-// and every downstream guard weakened at once (calendar dead, roster dropdown
-// unfiltered, auto-pick refused). Normalize to the leading 5 digits before the
-// lookup so a ZIP+4 or stray whitespace can never unmap a real metro again.
-//
-// STRICT shape on purpose: only a bare 5-digit zip or a real ZIP+4 tail
-// ("80220-1032", "80220 1032") normalizes. A 6-digit typo like "800122" must
-// NOT silently become the different-but-real zip 80012; it stays as typed,
-// misses the lookup, and fails closed for a human to fix, exactly as before.
 function zip5(postalCode) {
   const s = String(postalCode || '').trim();
   const m = s.match(/^(\d{5})(?:[-\s]\d{1,4})?$/);
@@ -295,26 +174,6 @@ async function serviceAreaIdFromPostal(db, businessId, postalCode) {
   return data?.service_area_id || null;
 }
 
-// Cross-metro assignment backstop (the Zach-on-a-Denver-job mistake, Jul 2026:
-// five bookings created with the Austin tech on Denver-area jobs before the
-// roster scoping fix landed, each caught and reassigned by hand). The scoped
-// "any" auto-pick can no longer produce one, so this guards the paths that
-// still legitimately CAN: an explicit dropdown pick, or any future code path
-// that slips a concrete tech id into a write. Metros are compared by AREA
-// NAME, not id, because a cross-company assignment is normal (TidyHaus's
-// Denver and Dom's Denver are different area rows that both read "Denver").
-// Returns null when nothing is provably wrong: an unmapped zip or an untagged
-// tech stays permissive, since the point is to catch a provable mismatch, not
-// to block bookings the data can't judge. Callers turn a hit into a 409 with
-// code 'cross_metro_confirm' + tech_id that the office can confirm through,
-// so a real cross-market drive (e.g. covering an unstaffed metro) is one
-// extra click per tech, never impossible.
-//
-// `confirmedIds` is the per-TECH confirm list (body.confirm_cross_metro_ids),
-// deliberately NOT a request-wide boolean: confirming Zach must never also
-// silently wave through a second, never-shown mismatched tech in the same
-// request. Same doctrine as force_unavailable_ids below. Each remaining
-// unconfirmed mismatch surfaces as its own 409 on the next attempt.
 async function crossMetroMismatch(db, bookingAreaId, techIds, confirmedIds) {
   const confirmed = new Set((confirmedIds || []).map(String));
   const ids = (techIds || []).filter(id => id && id !== 'any' && !confirmed.has(String(id)));
@@ -341,10 +200,6 @@ async function crossMetroMismatch(db, bookingAreaId, techIds, confirmedIds) {
   return null;
 }
 
-// The timezone of a service area (its metro), or `fallbackTz` if none. Handy
-// Andy spans Mountain (Denver) and Central (Houston/Austin), so a job's SLOT
-// time must be anchored/stored/displayed in its metro's tz — never the single
-// business tz — or an 8am Central slot drifts by an hour.
 async function areaTimezone(db, serviceAreaId, fallbackTz) {
   if (!serviceAreaId) return fallbackTz;
   try {
@@ -357,9 +212,6 @@ async function areaTimezone(db, serviceAreaId, fallbackTz) {
   }
 }
 
-// The fixed slot label for an instant, rendered in a given (metro) timezone and
-// snapped to the slot it falls in — so every location reads the same fixed slots
-// (8:00 AM, 11:00 AM, 2:00 PM, 5:00 PM, 8:00 PM) regardless of the viewer's tz.
 function slotTimeLabel(tz, iso) {
   if (!iso || !tz) return null;
   try {
@@ -374,14 +226,11 @@ function slotTimeLabel(tz, iso) {
   } catch { return null; }
 }
 
-// Build a Map(postal_code -> tech_payout) for a business, for payroll's travel
-// payout. One batched read; returns an empty Map if the tech_payout column isn't
-// applied yet (migration 0032) so payroll never breaks waiting on a migration.
 async function travelPayoutMap(db, businessId) {
   const map = new Map();
   let { data, error } = await db.from('service_area_zips')
     .select('postal_code, tech_payout').eq('business_id', businessId);
-  if (error) return map;   // column missing or read failed -> no payouts
+  if (error) return map;
   for (const r of data || []) {
     const p = Number(r.tech_payout) || 0;
     if (p !== 0) map.set(String(r.postal_code), p);
@@ -389,29 +238,12 @@ async function travelPayoutMap(db, businessId) {
   return map;
 }
 
-// ── SMS Helper ──────────────────────────────────────────────────────────────
-// Normalize US/CA numbers to E.164 (+1XXXXXXXXXX), which Twilio requires.
-// Display label for an internal note/photo authored from the dashboard.
-// The real person when the session knows it (Heather, Joey, the owner's own
-// name, 'AI Voice Bot'...); the generic role label only as a last resort, so
-// a note never reads just "Office" when we know who wrote it.
 function adminAuthorName(auth) {
   const n = auth && auth.name ? String(auth.name).trim() : '';
   return n || (auth && auth.role === 'owner' ? 'Owner' : 'Office');
 }
 
-// notifyTechAssigned now lives in api/_lib/tech-notify.js (imported at the top
-// of this file). It used to be private to admin.js, which is exactly why the
-// PUBLIC booking endpoint (api/book.js) never texted the tech it auto-assigned:
-// the function was physically unimportable from there. It is also now AWAITED
-// at every call site below and records each attempt in app.tech_sms_log — the
-// old fire-and-forget version could be frozen by Vercel before Twilio was ever
-// called, and left no trace when it failed.
 
-// The charge path can make several sequential Stripe calls at a 15s cap each
-// (card lookups, create, read, confirm, read-after-error); never let the platform
-// default kill the function mid-confirm with the 'charging' lock held. Same as
-// api/book.js.
 export const config = { maxDuration: 60 };
 
 export default async function handler(req, res) {
@@ -423,8 +255,6 @@ export default async function handler(req, res) {
 
   try {
     if (action === 'login') return await login(req, res, body);
-    // Google's OAuth redirect lands here (no CRM session on that hop); the
-    // one-time state minted by gads_auth_url is what authenticates it.
     if (action === 'gads_oauth_callback') {
       try { const em = await gadsHandleCallback(serviceClient(), String(req.query.code || ''), String(req.query.state || '')); res.setHeader('Location', '/admin.html#gads=connected:' + encodeURIComponent(em)); }
       catch (e) { res.setHeader('Location', '/admin.html#gads=' + encodeURIComponent(e.message || 'failed')); }
@@ -434,8 +264,6 @@ export default async function handler(req, res) {
     if (action === 'estimate_approve') return await estimateApprove(req, res, body);
     if (action === 'estimate_approve_info') return await estimateApproveInfo(req, res, body);
     if (action === 'estimate_slots') return await estimateSlots(req, res);
-    // Public "what we do" page (services.html) — no login, not customer-specific,
-    // so it skips the auth gate the same way estimate_approve_info does.
     if (action === 'services_public') return await servicesPublic(req, res, body);
     if (action === 'gds_upsell_info') return await gdsUpsellInfo(req, res, body);
     if (action === 'gds_upsell_add') return await gdsUpsellAdd(req, res, body);
@@ -444,61 +272,29 @@ export default async function handler(req, res) {
     if (action === 'review_email_preview') return await reviewEmailPreview(req, res);
     if (action === 'send_test_review_email') return await sendTestReviewEmail(req, res, body);
     if (action === 'session_status') return await sessionStatus(req, res);
-    // Posted by the Gmail forwarder script, which has no dashboard session —
-    // authenticates with GRASSHOPPER_INGEST_SECRET instead of a login token.
     if (action === 'call_ingest') return await callIngest(req, res, body);
-    // Twilio POSTs here the instant the staff leg of a click-to-call bridge
-    // is answered (the link is minted in callStart below) — no dashboard
-    // session either; it's authenticated by Twilio's own request signature
-    // plus a short-TTL signed token instead, both checked inside callConnect.
     if (action === 'call_connect') return await callConnect(req, res);
-    // The same bridge reporting back how each leg ended (Pipeline callback
-    // tries, owner rule 2026-09-24): the staff leg's StatusCallback and the
-    // customer leg's <Dial action>. Public for the same reason as
-    // call_connect, and gated the same two ways inside each handler.
     if (action === 'call_attempt_status') return await callAttemptStatus(req, res);
     if (action === 'call_attempt_done') return await callAttemptDone(req, res);
 
-    // Everything below requires a valid admin token. call_recording is the one
-    // exception to "Bearer header only": it's loaded by a plain <audio src>,
-    // which can't attach a custom header, so it also accepts the exact same
-    // signed token via ?token= — same verifyToken() check, just carried the
-    // way a browser media request actually can.
-    // note_photo needs the same query-string exception as call_recording --
-    // it's loaded by a plain <img src>, which can't attach a header either.
     let auth = verifyToken((action === 'call_recording' || action === 'note_photo' || action === 'sms_media') ? (getBearer(req) || req.query.token) : getBearer(req));
-    // Jiyah's audit portal (public/audit.html, token kind 'auditor' from
-    // api/audit.js) reads the CRM's call data through THESE handlers rather
-    // than a second copy of them (owner rule 2026-09-22: she sees everything
-    // about calls, across every business). Read-only, and only the actions
-    // on this list -- anything else with her token is a 401 like any
-    // stranger. She becomes role 'auditor' with scope 'all' below, so the
-    // business scoping in allowedSlugsFor() treats her like the owner (no
-    // filter) while the owner-only money/staff actions still refuse her.
     if (auth && auth.kind === 'auditor') {
-      // Private calendar (owner 2026-10-07): Jiyah reads AND writes it.
       const isWrite = AUDITOR_WRITE_ACTIONS.has(action) || (action === 'private_cal' && req.method === 'POST');
       const allowed = isWrite || AUDITOR_ADMIN_ACTIONS.has(action);
       const methodOk = isWrite ? req.method === 'POST' : req.method === 'GET';
       if (!allowed || !methodOk) return res.status(401).json({ error: 'Unauthorized' });
-      auth = { kind: 'admin', role: 'auditor', scope: 'all', name: auth.name || 'Jiyah', auditor: true, ...(auth.owner === true ? { owner_view: true } : {}) };   // owner_view: owner's view-as-Jiyah token (calendar treats it as Owner)
+      auth = { kind: 'admin', role: 'auditor', scope: 'all', name: auth.name || 'Jiyah', auditor: true, ...(auth.owner === true ? { owner_view: true } : {}) };
     }
     if (!auth || auth.kind !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
 
     const db = serviceClient();
-    await loadCoverageOverrides(db);   // per-secretary coverage (0189) + weekly schedule, 60s cache
-    // Weekly schedule: today's group becomes the scope; off today = Team/Notes only.
+    await loadCoverageOverrides(db);
     auth = effectiveAuth(auth);
     if (auth.offToday && !OFF_DAY_ACTIONS.has(action) && !(['pipeline', 'call_start', 'review_call_log'].includes(action) && auth.role === 'secretary')) return res.status(403).json({ error: 'Off today', off_today: true });
 
     switch (action) {
       case 'send_spam_notice':  return await sendSpamNotice(req, res);
       case 'send_gds_rate_update': return await sendGdsRateUpdate(req, res, db);
-      // Owner-triggered digest (re)send for a specific day — exists because the
-      // cron path (api/migrate.js) is gated on CRON_SECRET, which is a
-      // sensitive Vercel env var nobody can read back, so the owner had no way
-      // to resend a digest after the Jul 30 2026 import-pollution incident.
-      // offset: 0=today, -1=yesterday. dry=1 counts without sending.
       case 'daily_digest_resend': {
         if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
         const offset = (req.query.offset != null && req.query.offset !== '') ? parseInt(req.query.offset, 10) : 0;
@@ -506,9 +302,6 @@ export default async function handler(req, res) {
         const out = await sendDailyBookingDigest({ force: true, dryRun, offset });
         return res.status(200).json({ ok: true, ...out });
       }
-      // "Scan now" on the Brackets tab: starts the Gmail email scan on GitHub
-      // right away instead of waiting for the next 15-min tick. Read-only on
-      // our side — the dispatch document is the watchdog's alone to write.
       case 'bracket_sync_run_now': {
         if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
         const r = await dispatchBracketScan();
@@ -578,7 +371,6 @@ export default async function handler(req, res) {
       case 'staff_notice_ack':  return await staffNoticeAck(req, res, db, auth, body);
       case 'call_task_log':     return await callTaskLog(req, res, db, auth, body);
       case 'signature_waive':   return await signatureWaive(req, res, db, auth, body);
-      // Critical call alarm (owner 2026-10-17): owner + all office staff see open ones.
       case 'critical_alerts': {
         const { data } = await db.from('critical_alerts').select('id, call_id, caller_phone, customer_name, reason, excerpt, created_at, business_id, technician_id').is('handled_at', null).order('created_at', { ascending: false }).limit(20);
         const tIds = [...new Set((data || []).map((r) => r.technician_id).filter(Boolean))];
@@ -593,8 +385,6 @@ export default async function handler(req, res) {
       }
       case 'gads_report': {
         if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
-        // Serve the saved report when it is under an hour old, or when Google's daily
-        // API quota is used up (live pull used to hang the panel), 2026-10-15.
         const saved = async (p) => { const { data } = await db.from('integration_tokens').select('value').eq('provider', p).maybeSingle(); try { return data ? JSON.parse(data.value) : null; } catch (_) { return null; } };
         const cRep = await saved('google_ads_report'), cSt = await saved('google_ads_status');
         if (cRep && cSt && cRep.v === 3 && Date.now() - new Date(cRep.at).getTime() < 3600e3) return res.status(200).json({ status: cSt, report: cRep, cached: true });
@@ -605,7 +395,6 @@ export default async function handler(req, res) {
         if (cRep) return res.status(200).json({ status: cSt || { connected: true }, report: cRep, cached: true });
         return res.status(200).json({ error: 'Google Ads is busy. Try again later.' });
       }
-      // Ads panel Calls = CRM calls to our ads tracking lines (owner 2026-10-17: Google's count looks false).
       case 'gads_crm_calls': {
         if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
         const nums = (Array.isArray(body.numbers) ? body.numbers : []).map((n) => String(n).replace(/[^0-9]/g, '').slice(-10)).filter((n) => n.length === 10);
@@ -677,7 +466,7 @@ export default async function handler(req, res) {
         if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
         return await photoBonus(req, res, db, auth, body);
       }
-      case 'photo_logo_scan':      return res.status(410).json({ error: 'Removed' });   // owner 2026-09-28
+      case 'photo_logo_scan':      return res.status(410).json({ error: 'Removed' });
       case 'analytics_overview':   return await analyticsOverview(req, res, db, auth);
       case 'insights_overview':    return await insightsOverview(req, res, db, auth);
       case 'estimate_check': return await estimateCheckAction(req, res, db, auth);
@@ -725,7 +514,7 @@ export default async function handler(req, res) {
       case 'call_claim':        return await callClaim(req, res, db, auth, body);
       case 'call_start':        return await callStart(req, res, db, auth, body);
       case 'callbacks':         return await callbackRequests(req, res, db, auth, body);
-      case 'red_alerts':        return await redAlertsAction(req, res, db, auth, body);   // 0191, _lib/red-alerts.js
+      case 'red_alerts':        return await redAlertsAction(req, res, db, auth, body);
       case 'booking_contact':   return await bookingContact(req, res, db, auth, body);
       case 'call_block':        return await callBlock(req, res, db, auth, body);
       case 'call_unblock':      return await callUnblock(req, res, db, auth, body);
@@ -746,8 +535,6 @@ export default async function handler(req, res) {
       case 'ring_setup':        return await ringSetup(req, res, db, auth);
       case 'ring_card':         return await ringCard(req, res, db, auth);
       case 'contact_history': {
-        // Every call and text with one phone number (owner 2026-09-30: the job
-        // ticket showed none of it). Newest first, last 120 days.
         const ph = String(req.query.phone || '').replace(/\D/g, '').slice(-10);
         if (ph.length !== 10) return res.status(200).json({ items: [] });
         const since = new Date(Date.now() - 120 * 86400000).toISOString();
@@ -791,7 +578,6 @@ export default async function handler(req, res) {
       case 'my_day': return await myDay(req, res, db, auth, body);
       case 'ask_andrew': return await askHandler(req, res, db, auth, body);
       case 'transcribe_recent': return await transcribeRecent(req, res, db, auth);
-      // Auditor: GET board only, view only -- pipelineHandler enforces (owner 2026-10-07).
       case 'pipeline': return await pipelineHandler(req, res, db, auth, body);
       case 'estimate_bulk_close': return await estimateBulkClose(req, res, db, auth, body);
       case 'estimate_decline':  return await estimateDecline(req, res, db, auth, body);
@@ -847,7 +633,7 @@ export default async function handler(req, res) {
       case 'rank_settings': return await rankSettings(req, res, db, auth, body);
       case 'rank_keywords': return await rankKeywords(req, res, db, auth, body);
       case 'rank_ads': return await rankAds(req, res, db, auth, body);
-      case 'private_cal': return await calendarAction(req, res, db, auth, body);   // owner + Jiyah only (gate inside)
+      case 'private_cal': return await calendarAction(req, res, db, auth, body);
       case 'prospects': return await prospectsAction(req, res, db, auth, body, { secretaryNames: secretaryNameList() });
       case 'payroll': return await payroll(req, res, db, auth);
       case 'payroll_combined': return await payrollCombined(req, res, db, auth);
@@ -887,8 +673,6 @@ export default async function handler(req, res) {
       case 'website_edit_add':  return await websiteEditAdd(req, res, db, auth, body);
       case 'note_photo':   return await notePhoto(req, res, db, auth);
       case 'sms_media': {
-        // A photo a customer texted us (owner 2026-09-30). Loaded by <img src>,
-        // so the token rides in ?token=. Pulled from Twilio by message sid.
         const { data: m } = await db.from('messages').select('twilio_sid').eq('id', String(req.query.id || '')).maybeSingle();
         const sid = process.env.TWILIO_ACCOUNT_SID, tok = process.env.TWILIO_AUTH_TOKEN;
         if (!m || !m.twilio_sid || !sid || !tok) return res.status(404).end();
@@ -910,9 +694,6 @@ export default async function handler(req, res) {
       case 'tech_notes_update':  return await techNotesUpdate(req, res, db, auth, body);
       case 'places_autocomplete': return await placesAutocomplete(req, res, auth);
       case 'place_details':       return await placeDetails(req, res, auth);
-      // Two-way SMS (migration 0109). Deliberately NO owner gate on any of
-      // these — a secretary answering customer texts is the entire point. Each
-      // one scopes itself through allowedSlugsFor()/mayUseBusiness() instead.
       case 'messages_list':   return await messagesList(req, res, db, auth);
       case 'messages_thread': return await messagesThread(req, res, db, auth);
       case 'messages_send':   return await messagesSend(req, res, db, auth, body);
@@ -929,55 +710,29 @@ export default async function handler(req, res) {
   }
 }
 
-// ── Auth ────────────────────────────────────────────────────────────────────
-// Friendly first name shown in the dashboard greeting. Configurable per role via
-// env vars; sensible defaults match the people running each business today.
-// Per-person secretary logins (owner, 2026-09-26: Alex and Joe replace Joey).
-// STAFF_LOGINS env = JSON [{ "name": "Alex", "scope": "doms", "password": "..." }].
-// Same access as the shared business password for that scope, but the
-// person's OWN name rides on the token, so calls, bookings, performance and
-// audits are theirs.
 function staffLogins() {
   try {
     const list = JSON.parse(process.env.STAFF_LOGINS || '[]');
-    return (Array.isArray(list) ? list : []).filter((x) => x && x.name && x.password && ['handy-andy', 'doms'].includes(x.scope));
+    return (Array.isArray(list) ? list : []).filter((x) => x && x.name && x.password && ['tidyhaus', 'doms'].includes(x.scope));
   } catch { return []; }
 }
-// Everyone who can be pushed prospects / earn prospect commission.
 function secretaryNameList() {
-  return [...new Set([displayNameFor('handy-andy'), displayNameFor('doms'), ...staffLogins().map(x => String(x.name))])];
+  return [...new Set([displayNameFor('tidyhaus'), displayNameFor('doms'), ...staffLogins().map(x => String(x.name))])];
 }
 function displayNameFor(scope) {
-  if (scope === 'handy-andy') return process.env.HANDY_ANDY_SECRETARY_NAME || 'Office';
+  if (scope === 'tidyhaus') return process.env.TIDYHAUS_SECRETARY_NAME || 'Office';
   if (scope === 'doms')       return process.env.DOMS_SECRETARY_NAME || 'Joey';
   return process.env.ADMIN_NAME || 'Owner';
 }
-// The secretary who actually runs each business day-to-day (Heather/Handy
-// Andy, Joey/Dom's) — office alerts (e.g. a failed estimate-approval booking)
-// go to WHICHEVER company the job belongs to, never a single shared owner
-// number, since the two businesses are staffed by different people.
-// Confirmed mobiles (owner, 2026-08-25/26). Also on staff_users.phone (what
-// puts a NAME on a call card instead of ten digits) and on each person's
-// tracking rows (what actually rings them). Written here too so a missing
-// *_SECRETARY_PHONE env var can't silently stop an alert — an unset var used
-// to mean "text nobody", the quietest possible failure for a waiting customer.
 const JOEY_MOBILE = '0000000000';
-const HEATHER_MOBILE = '0000000000'; // updated 2026-09-18, Heather changed numbers
+const HEATHER_MOBILE = '0000000000';
 
 function secretaryPhoneFor(scope) {
-  // Driven off the SAME map that grants access (api/_lib/staff-access.js), so
-  // "who answers this brand's phone" and "who can see this brand's calls" can
-  // never drift apart the way they did before this shared: the Austin four
-  // once texted Heather after Joey had already taken those lines, and the
-  // Houston four matched nothing at all and texted NOBODY.
   if (scope === 'doms' || (SECRETARY_EXTRA_BUSINESSES.doms || []).includes(scope)) {
-    // The env var still wins when set, so a number can change without a deploy
-    // — but it is no longer the only thing standing between a voicemail and
-    // an alert.
     return process.env.DOMS_SECRETARY_PHONE || JOEY_MOBILE;
   }
-  if (scope === 'handy-andy' || (SECRETARY_EXTRA_BUSINESSES['handy-andy'] || []).includes(scope)) {
-    return process.env.HANDY_ANDY_SECRETARY_PHONE || HEATHER_MOBILE || '';
+  if (scope === 'tidyhaus' || (SECRETARY_EXTRA_BUSINESSES['tidyhaus'] || []).includes(scope)) {
+    return process.env.TIDYHAUS_SECRETARY_PHONE || HEATHER_MOBILE || '';
   }
   return '';
 }
@@ -986,14 +741,10 @@ async function login(req, res, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const password = (body.password || '').toString();
 
-  // DEV BYPASS: if no admin passwords are configured at all (or ADMIN_DEV_BYPASS
-  // is set), the dashboard opens as owner with NO password. Set ADMIN_PASSWORD
-  // later and the gate turns back on automatically.
-  const noPasswords = !process.env.ADMIN_PASSWORD && !process.env.HANDY_ANDY_PASSWORD && !process.env.DOMS_PASSWORD;
+  const noPasswords = !process.env.ADMIN_PASSWORD && !process.env.TIDYHAUS_PASSWORD && !process.env.DOMS_PASSWORD;
   const forceBypass = ['1', 'true', 'yes', 'on'].includes(String(process.env.ADMIN_DEV_BYPASS || '').toLowerCase());
   const bypass = noPasswords || forceBypass;
 
-  // Resolve which role/scope this password unlocks.
   let role = null, scope = null, personName = null;
   if (bypass) {
     role = 'owner'; scope = 'all';
@@ -1001,8 +752,8 @@ async function login(req, res, body) {
     return res.status(400).json({ error: 'Password required' });
   } else if (process.env.ADMIN_PASSWORD && safeEqual(password, process.env.ADMIN_PASSWORD)) {
     role = 'owner'; scope = 'all';
-  } else if (process.env.HANDY_ANDY_PASSWORD && safeEqual(password, process.env.HANDY_ANDY_PASSWORD)) {
-    role = 'secretary'; scope = 'handy-andy';
+  } else if (process.env.TIDYHAUS_PASSWORD && safeEqual(password, process.env.TIDYHAUS_PASSWORD)) {
+    role = 'secretary'; scope = 'tidyhaus';
   } else if (process.env.DOMS_PASSWORD && safeEqual(password, process.env.DOMS_PASSWORD)) {
     role = 'secretary'; scope = 'doms';
   } else {
@@ -1013,47 +764,24 @@ async function login(req, res, body) {
 
   const db = serviceClient();
   await loadCoverageOverrides(db);
-  // The switcher is driven entirely by this list, so a secretary with extra
-  // brands gets them here (they land in its "Lead Gen" dropdown automatically).
-  // Same live rule as session_status (allowedSlugsFor): includes access-only
-  // grants like Joey -> TidyHaus, which the raw extras map does not.
   const loginEff = effectiveAuth({ role, scope, name: personName || displayNameFor(scope) });
   const loginExtra = scope === 'all' ? [] : (allowedSlugsFor(loginEff.offToday ? { scope } : loginEff) || []).filter(sl => sl !== scope);
-  // analytics_config (migration 0106) rides along here so the client-side
-  // Analytics screens (website-traffic backend, Cities tab) never need their
-  // own hardcoded per-business map — one place fills it in, this is the one
-  // place it reaches the browser.
   let q = db.from('businesses').select('id, slug, name, timezone, brand_navy, brand_orange, analytics_config').eq('active', true).order('name');
   if (scope !== 'all') q = q.in('slug', [scope, ...loginExtra]);
   const { data: businesses, error } = await q;
   if (error) throw error;
-  // Each business's OWN Stripe publishable key (Doms has a separate Stripe
-  // account from TidyHaus) — a publishable key is safe to expose to the
-  // client. Without this, New Booking's card entry had no way to know which
-  // account to tokenize against and always used the wrong one for Doms,
-  // silently failing to save the card (booking still succeeded either way).
   for (const b of (businesses || [])) b.stripe_pk = bookingStripePk(b.slug);
 
   let name = personName || displayNameFor(scope);
-  // Demo: source the owner's greeting name from the DB (seeded) so it's driven by
-  // data, not an env var. Production keeps the env-configured name.
   if (scope === 'all' && demoMode()) {
     try { const { data: o } = await db.from('staff_users').select('name').eq('role', 'owner').limit(1).maybeSingle(); if (o && o.name) name = o.name; } catch { /* fall back to env */ }
   }
-  // `scope` stays the ONE primary business (every company-specific tool keys
-  // off it); `allowed` is the extra brands this person also answers for.
-  const token = signToken({ kind: 'admin', role, scope, name, ...(loginExtra.length ? { allowed: loginExtra } : {}), sess: 1 }, ADMIN_SESSION_MAX);   // stays signed in 7 days, even idle (Joey 2026-09-30)
-  // Tell the dashboard which outbound channels are wired up so it can show or
-  // hide the Send SMS / Send Email buttons instead of surfacing a dead click.
+  const token = signToken({ kind: 'admin', role, scope, name, ...(loginExtra.length ? { allowed: loginExtra } : {}), sess: 1 }, ADMIN_SESSION_MAX);
   const config = {
     email: demoMode() || !!process.env.RESEND_API_KEY,
     sms: smsConfigured(),
     demo: demoMode(),
-    maps_key: process.env.GOOGLE_MAPS_API_KEY || null,   // powers address autocomplete
-    // Address autocomplete stays OFF until the Maps key is confirmed to have the
-    // Maps JavaScript API + Places API enabled. Set MAPS_AUTOCOMPLETE=1 in Vercel
-    // once those are on; otherwise Google's client renders a broken dropdown over
-    // the address field. With it off, the field is a plain, reliable text input.
+    maps_key: process.env.GOOGLE_MAPS_API_KEY || null,
     maps_autocomplete: process.env.MAPS_AUTOCOMPLETE === '1' && !!process.env.GOOGLE_MAPS_API_KEY,
   };
   const loginList = loginEff.offToday ? null : (loginEff.scope !== scope ? allowedSlugsFor(loginEff) : null);
@@ -1061,32 +789,12 @@ async function login(req, res, body) {
   return res.status(200).json({ token, role, scope: loginEff.scope || scope, name, config, businesses: loginBiz, ...(loginEff.offToday ? { off_today: true } : {}) });
 }
 
-// Owner-only "View As" — mints a REAL secretary session token, identical in
-// shape to what login() gives Heather/Joey when they enter their own business
-// password, so the owner can see the dashboard exactly as one of them does
-// (their nav items, their own business scope) without ever knowing or typing
-// that password. Every existing role/scope check downstream (nav visibility,
-// business-scoped queries, "My Availability" gating) treats this token no
-// differently from a real secretary login — there's no separate
-// impersonation code path to keep in sync or get wrong.
 async function viewAs(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
-  // Deliberately Heather/Joey only, not every business slug: this impersonates
-  // a SECRETARY LOGIN (viewAs's whole purpose is showing the owner exactly what
-  // a real secretary password unlocks — see login() above), and Mile High has
-  // no secretary of its own to view as. The owner sees Mile High via the normal
-  // business switcher instead (unfiltered by slug for scope:'all' — see the
-  // businesses query in login()/sessionStatus()).
   const slug = (req.body?.business || '').toString();
-  // Jiyah (the call auditor) is the third person in the View As list. Her
-  // app is a separate page (public/audit.html, api/audit.js) with its own
-  // token kind, so instead of a secretary session this hands back the exact
-  // token her password login would (api/audit.js login()), and the client
-  // opens her portal with it. Owner-only, same as the secretary branch.
   if (slug === 'auditor') {
     const name = (process.env.AUDITOR_NAME || 'Jiyah').toString();
-    // owner: true unlocks owner-only audit actions (delete, QA settings) in api/audit.js.
     return res.status(200).json({ audit_token: signToken({ kind: 'auditor', name, owner: true }), name, url: '/audit.html' });
   }
   let staffName = null, viewSlug = slug;
@@ -1095,11 +803,8 @@ async function viewAs(req, res, db, auth) {
     if (!person) return res.status(400).json({ error: 'Unknown staff login' });
     staffName = person.name; viewSlug = person.scope;
   }
-  if (!['handy-andy', 'doms'].includes(viewSlug)) return res.status(400).json({ error: 'business must be handy-andy, doms or auditor' });
+  if (!['tidyhaus', 'doms'].includes(viewSlug)) return res.status(400).json({ error: 'business must be tidyhaus, doms or auditor' });
 
-  // Mirror the real login exactly, extra brands included — the whole point of
-  // View As is showing the owner what that secretary actually sees, and Joey's
-  // login now carries the Austin/Houston lead-gen brands.
   const viewAsExtra = (allowedSlugsFor({ scope: viewSlug }) || []).filter(sl => sl !== viewSlug);
   const { data: businesses, error } = await db.from('businesses')
     .select('id, slug, name, timezone, brand_navy, brand_orange').eq('active', true)
@@ -1119,43 +824,28 @@ async function viewAs(req, res, db, auth) {
   return res.status(200).json({ token, role: 'secretary', scope: viewSlug, name, config, businesses: businesses || [] });
 }
 
-// Validate the current session token and return user data. Called by tryAutoLogin()
-// to restore a session without requiring a new password entry. If the token is
-// invalid or expired, returns 401 and the frontend shows the login screen.
 async function sessionStatus(req, res) {
   const raw = getBearer(req);
   const auth = verifyToken(raw);
   if (!auth || auth.kind !== 'admin') return res.status(401).json({ error: 'Unauthorized' });
-  // Slide the session (refreshToken in _lib/auth.js): the dashboard adopts the
-  // returned token; a capped or non-session token is echoed unchanged.
   const fresh = refreshToken(auth, { ttlSeconds: ADMIN_SESSION_MAX, maxSeconds: ADMIN_SESSION_MAX });
   const claims = fresh ? verifyToken(fresh) : auth;
 
   const db = serviceClient();
   await loadCoverageOverrides(db);
   const eff = effectiveAuth(auth);
-  // See the matching comment in login() — analytics_config travels with the
-  // business list so long-lived sessions get it too, not just a fresh login.
   let q = db.from('businesses').select('id, slug, name, timezone, brand_navy, brand_orange, analytics_config').eq('active', true).order('name');
   const sessionAllowed = eff.offToday ? allowedSlugsFor({ scope: auth.scope }) : allowedSlugsFor(eff);
   if (sessionAllowed) q = q.in('slug', sessionAllowed);
   const { data: businesses, error } = await q;
   if (error) throw error;
-  // Same per-business Stripe publishable key login() sends — session_status is
-  // how EXISTING sessions (no fresh login) refresh their cached business list,
-  // so omitting it here would leave long-lived sessions tokenizing New Booking
-  // cards with the wrong account's key (the original Doms card-save bug).
   for (const b of (businesses || [])) b.stripe_pk = bookingStripePk(b.slug);
 
   const config = {
     email: demoMode() || !!process.env.RESEND_API_KEY,
     sms: smsConfigured(),
     demo: demoMode(),
-    maps_key: process.env.GOOGLE_MAPS_API_KEY || null,   // powers address autocomplete
-    // Address autocomplete stays OFF until the Maps key is confirmed to have the
-    // Maps JavaScript API + Places API enabled. Set MAPS_AUTOCOMPLETE=1 in Vercel
-    // once those are on; otherwise Google's client renders a broken dropdown over
-    // the address field. With it off, the field is a plain, reliable text input.
+    maps_key: process.env.GOOGLE_MAPS_API_KEY || null,
     maps_autocomplete: process.env.MAPS_AUTOCOMPLETE === '1' && !!process.env.GOOGLE_MAPS_API_KEY,
   };
   return res.status(200).json({
@@ -1164,22 +854,9 @@ async function sessionStatus(req, res) {
   });
 }
 
-// Resolve the requested business and enforce the token's scope.
-// Module-scope, short-TTL memo: resolveBusiness runs 4-5x on a single New
-// Booking open (services, TV options, calendar, partner roster, …), all for
-// the same slug, and only survives across requests on a warm serverless
-// container — never a substitute for a real cache layer. The scope check
-// still runs on every call BEFORE the memo lookup, so a memo hit can never
-// leak a business the caller isn't authorized for. Errors/not-found are
-// never cached, and the 60s TTL keeps a renamed business or changed
-// timezone from staying stale for more than a minute.
-const _bizCache = new Map(); // slug -> { biz, at }
-const _bizPending = new Map(); // slug -> shared read; authorization still checked per caller
+const _bizCache = new Map();
+const _bizPending = new Map();
 const BIZ_CACHE_TTL_MS = 60_000;
-// Owner, 2026-10-02: Joey (secretary, Dom's) can READ every business's jobs
-// (schedule, job list, a job's ticket/notes/photos). Read-only actions opt in
-// with { view: true }; every write and every other screen keeps the normal
-// mayUseBusiness() gate, so this widens nothing else.
 function isAllJobsViewer(auth) { return !!auth && auth.role === 'secretary' && auth.scope === 'doms' && auth.name === 'Joey'; }
 function mayViewJobs(auth, slug) { return mayUseBusiness(auth, slug) || (!!slug && isAllJobsViewer(auth)); }
 async function jobViewBusinesses(req, res, db, auth) {
@@ -1207,11 +884,6 @@ async function resolveBusiness(db, auth, slug, opts) {
 
 function bail(res, err) { return res.status(err.status || 500).json({ error: err.message }); }
 
-// Best-effort record of whether the confirmation email actually sent, so the
-// booking detail card can show real status instead of nothing at all. Never
-// allowed to affect the booking itself — swallow a missing-column error the
-// same way every other optimistic-column write in this codebase does
-// (migration 0075 not applied yet). Mirrors the identical helper in book.js.
 async function persistConfirmationEmailStatus(db, bookingId, status) {
   try {
     await db.from('bookings')
@@ -1220,10 +892,6 @@ async function persistConfirmationEmailStatus(db, bookingId, status) {
   } catch (e) { /* migration 0075 not applied yet — status just won't show */ }
 }
 
-// Pull a missing-column name out of either error wording Supabase can surface:
-//   PostgREST schema cache: Could not find the 'customer_zip' column of 'estimates' …
-//   Raw Postgres (42703):   column estimates.customer_zip does not exist
-// Used to gracefully degrade selects/inserts when a migration hasn't been applied.
 function missingColumn(msg) {
   let m = /Could not find the '([^']+)' column/.exec(msg || '');
   if (m) return m[1];
@@ -1231,7 +899,6 @@ function missingColumn(msg) {
   return m ? m[1] : null;
 }
 
-// ── Dashboard summary (one call bootstraps the home view) ────────────────────
 async function summary(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const tz = biz.timezone || 'Asia/Manila';
@@ -1239,21 +906,15 @@ async function summary(req, res, db, auth) {
   const todayStart = localDayStartUTC(tz, 0);
   const tomorrow = localDayStartUTC(tz, 1);
 
-  // The 4 stat boxes track the WEEK shown on the schedule. `week` is any date in
-  // that week (the client sends the week's Sunday); default = the current week.
   const wparam = (req.query.week || '').toString();
   const base = /^\d{4}-\d{2}-\d{2}$/.test(wparam) ? new Date(wparam + 'T12:00:00Z') : new Date();
   const weekStart = startOfWeekUTC(tz, base);
   const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 60 * 60 * 1000);
   const monthStart = startOfMonthUTC(tz, weekStart);
   const monthEnd = startOfMonthUTC(tz, new Date(monthStart.getTime() + 40 * 24 * 60 * 60 * 1000));
-  // A week can straddle two months (e.g. Jun 28–Jul 4), so pull the union range.
   const rangeStart = weekStart < monthStart ? weekStart : monthStart;
   const rangeEnd = weekEnd > monthEnd ? weekEnd : monthEnd;
 
-  // One parallel wave for the always-needed reads: today's jobs (for the "jobs
-  // scheduled today" line + counts), the week/month revenue range, and the tech
-  // roster — three sequential round-trips collapsed into one.
   const [
     { data: today, error: e1 },
     { data: rangeJobs, error: e2 },
@@ -1274,10 +935,8 @@ async function summary(req, res, db, auth) {
   ]);
   if (e1) throw e1; if (e2) throw e2; if (e3) throw e3;
 
-  // Revenue across the viewed week's union range, bucketed into week + month.
   const sum = (rows) => Math.round(rows.reduce((n, r) => n + Number(r.price || 0), 0) * 100) / 100;
   const inWindow = (rows, a, b) => rows.filter(r => { const t = new Date(r.scheduled_at); return t >= a && t < b; });
-  // Average ticket — mean price of COMPLETED jobs this month (revenue ÷ jobs).
   const monthCompleted = inWindow(rangeJobs, monthStart, monthEnd).filter(r => r.status === 'completed');
   const avgTicket = monthCompleted.length ? Math.round(sum(monthCompleted) / monthCompleted.length) : 0;
   const revenue = {
@@ -1286,16 +945,8 @@ async function summary(req, res, db, auth) {
     avg_ticket: avgTicket,
   };
 
-  // Owner-only: REALIZED profit (revenue − tech payout − bracket cost) for the
-  // viewed week and for TODAY (the real current Denver day, independent of the
-  // viewed week). Only money actually earned counts — a job contributes once it
-  // is COMPLETED and PAID, never while it's still upcoming/unpaid. Sensitive
-  // margin data: gated on owner; never even computed for secretaries/techs.
   let profit = null;
   if (auth.role === 'owner') {
-    // One parallel wave for every owner-only read: this business's week/month
-    // jobs, yesterday's jobs, the business list, and this business's travel-payout
-    // map (fetched ONCE and shared across all the economics below).
     const yStart = localDayStartUTC(tz, -1);
     const [{ data: pjobs }, { data: yRows }, { data: allBiz }, travelBiz] = await Promise.all([
       fetchEconomicsRows(sel => db.from('bookings').select(sel)
@@ -1312,8 +963,6 @@ async function summary(req, res, db, auth) {
     ]);
 
     const earned = (rows) => (rows || []).filter(countsTowardProfit);
-    // Per-business travel-payout map cache (this business already fetched), so the
-    // cross-business loops never refetch the same map.
     const travelCache = new Map([[biz.id, travelBiz]]);
     const travelMapFor = async (bb) => {
       if (travelCache.has(bb.id)) return travelCache.get(bb.id);
@@ -1322,18 +971,6 @@ async function summary(req, res, db, auth) {
       return m;
     };
 
-    // Per-business week rows (weekStart–weekEnd), fetched ONCE per business and
-    // shared by realized profit (weekBySlug/pWeek) AND predicted income
-    // (predictedBySlug) below — these used to be two separate fetches of the
-    // exact same rows (one per metric), each followed by its own
-    // computeJobEconomics pass. `active` (every non-cancelled/no-show status,
-    // which includes 'completed') is a superset of the realized/"earned" rows
-    // (completed AND paid), and computeJobEconomics projects EVERY row as if
-    // completed+paid regardless of its real status — so one pass over `active`
-    // yields correct per-job profit for both the realized subset and the full
-    // predicted set. The currently-viewed business's rows are sliced out of
-    // `pjobs` (already fetched above, whose range already covers this week)
-    // instead of a redundant fetch.
     const areaNames = await serviceAreaNames(db);
     const weekEconBySlugP = Promise.all((allBiz || []).map(async (bb) => {
       let rows;
@@ -1354,11 +991,6 @@ async function summary(req, res, db, auth) {
       return { slug: bb.slug, paidProfit, predictedProfit, byMarket };
     }));
 
-    // Per-business AVG TICKET over the LAST 7 DAYS (parallel across businesses).
-    // Average ticket = total of real completed tickets ÷ number of them. Blank /
-    // free / $0 tickets are excluded from BOTH the total and the count (they're
-    // not real tickets), and days with no jobs simply don't contribute — so a
-    // light day never drags the number down. Rolling window = today + prior 6 days.
     const d7Start = localDayStartUTC(tz, -6);
     const d7End = localDayStartUTC(tz, 1);
     const avgBySlugP = Promise.all((allBiz || []).map(async (bb) => {
@@ -1367,25 +999,20 @@ async function summary(req, res, db, auth) {
         .gte('scheduled_at', d7Start.toISOString())
         .lt('scheduled_at', d7End.toISOString())
         .eq('status', 'completed');
-      const real = (rows || []).filter(x => Number(x.price) > 0);   // drop $0 / free / blank tickets
+      const real = (rows || []).filter(x => Number(x.price) > 0);
       const count = real.length;
       const total = Math.round(real.reduce((n, x) => n + Number(x.price || 0), 0) * 100) / 100;
       const avg = count ? Math.round(total / count) : null;
       return [bb.slug, { avg, count, total }];
     }));
 
-    // Net daily profit for a day offset (0 = today, -1 = yesterday), summed across
-    // ALL active businesses (each in its OWN local day), parallel across businesses.
-    // Returns BOTH the combined total (net daily profit, both companies) AND the
-    // per-business breakdown (today_by_slug / yesterday_by_slug) — one pass of
-    // queries serves both, so the per-business split costs nothing extra.
     const netDailyFor = async (offset) => {
       const parts = await Promise.all((allBiz || []).map(async (bb) => {
         let rows;
         if (offset === 0 && bb.id === biz.id) {
-          rows = today;   // reuse this business's already-fetched today rows
+          rows = today;
         } else if (offset === -1 && bb.id === biz.id) {
-          rows = yRows;   // reuse this business's already-fetched yesterday rows
+          rows = yRows;
         } else {
           const btz = bb.timezone || 'Asia/Manila';
           const d0 = localDayStartUTC(btz, offset), d1 = localDayStartUTC(btz, offset + 1);
@@ -1404,19 +1031,7 @@ async function summary(req, res, db, auth) {
       return { total, bySlug };
     };
 
-    // Predicted income ("active jobs, as if every one gets paid") is now just
-    // the other half of weekEconBySlugP above — see its comment.
 
-    // Realized profit for the week BEFORE the viewed one — same "completed AND
-    // paid" definition as pWeek, just shifted back 7 days — so the greeting can
-    // show a week-over-week % change. Summed across ALL businesses like pWeek.
-    // For the CURRENT week (the only case the greeting actually shows), this
-    // week is necessarily partial — it's only Wednesday, say — so comparing it
-    // against ALL of last week is comparing a partial week to a full one (a
-    // normal Wednesday reads as "down 87%" for no real reason). Last week's
-    // window is capped to the SAME elapsed time into the week, so the
-    // comparison is apples-to-apples. A fully-elapsed past week being viewed
-    // (via the schedule's week navigator) still compares full week to full week.
     const now = new Date();
     const isCurrentWeek = now >= weekStart && now < weekEnd;
     const lastWeekStart = new Date(weekStart.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -1432,11 +1047,6 @@ async function summary(req, res, db, auth) {
       return paid.reduce((n, j) => n + (Number(e[j.id]?.profit) || 0), 0);
     })).then(parts => parts.reduce((a, b) => a + b, 0));
 
-    // All of the above are independent — resolve them concurrently.
-    // "today"/"yesterday" and net_daily/net_daily_yesterday are the SAME metric
-    // (realized profit for that day) — netDailyFor already computes it correctly
-    // across both businesses (and reuses the already-fetched today/yRows rows for
-    // this one), so today/yesterday are just its totals, not a separate query.
     const [weekEconBySlug, avgBySlug, netToday, netYesterday, pWeekLast] = await Promise.all([
       weekEconBySlugP,
       avgBySlugP,
@@ -1444,18 +1054,11 @@ async function summary(req, res, db, auth) {
       netDailyFor(-1),
       lastWeekProfitP,
     ]);
-    // Split the combined per-business pass back into the two [slug, value] pair
-    // arrays the rest of this function (and profit's shape below) already expects.
     const weekBySlug = weekEconBySlug.map(x => [x.slug, x.paidProfit]);
     const predictedBySlug = weekEconBySlug.map(x => [x.slug, x.predictedProfit]);
     const pWeek = weekEconBySlug.find(x => x.slug === biz.slug)?.paidProfit || 0;
 
     const weekLastRounded = Math.round(pWeekLast);
-    // The dashboard's "This week" Profit figure is BOTH businesses combined
-    // (week_by_slug summed) — `pWeek` above is scoped to just the CURRENTLY
-    // VIEWED business, which is a different, smaller number. The trend must
-    // compare the same combined total the Profit box actually displays, or the
-    // greeting and the Profit box show two different "this week" figures.
     const weekTotalCombined = Math.round(weekBySlug.reduce((n, [, v]) => n + v, 0));
     profit = {
       week: Math.round(pWeek),
@@ -1471,43 +1074,24 @@ async function summary(req, res, db, auth) {
       today_by_slug: netToday.bySlug,
       yesterday_by_slug: netYesterday.bySlug,
       week_predicted_by_slug: Object.fromEntries(predictedBySlug),
-      // Week-over-week realized-profit trend for the greeting sentence, both
-      // sides combined across businesses. null when last week had no realized
-      // profit at all — a % change off zero is meaningless.
       week_last: weekLastRounded,
       week_change_pct: weekLastRounded > 0 ? Math.round(((weekTotalCombined - weekLastRounded) / weekLastRounded) * 1000) / 10 : null,
     };
 
-    // Income history for the dashboard's "Income" box (owner-only, hand-entered
-    // via the payroll page's Actual Profit tracker). Only weeks with all three
-    // fields filled in have a real total_made. Fetches up to 2 years of weekly
-    // entries; the box itself only PLOTS the last dozen or so raw weeks, but
-    // its Monthly/3-month tabs sum these into coarser buckets client-side, so
-    // they need real history behind them as it accumulates, not just enough
-    // for the weekly view alone.
     {
       const { data: apRows } = await db.from('actual_profit_weekly')
-        .select('pay_date, doms_stripe_payout, handy_andy_stripe_payout, tech_pay, lead_gen_payouts')
+        .select('pay_date, doms_stripe_payout, tidyhaus_stripe_payout, tech_pay, lead_gen_payouts')
         .not('doms_stripe_payout', 'is', null)
-        .not('handy_andy_stripe_payout', 'is', null)
+        .not('tidyhaus_stripe_payout', 'is', null)
         .not('tech_pay', 'is', null)
         .order('pay_date', { ascending: false })
         .limit(104);
       profit.income_history = (apRows || []).map(r => ({
         pay_date: r.pay_date,
-        total_made: Math.round((Number(r.doms_stripe_payout) + Number(r.handy_andy_stripe_payout) + leadGenSum(leadGenMap(r.lead_gen_payouts)) - Number(r.tech_pay)) * 100) / 100,
+        total_made: Math.round((Number(r.doms_stripe_payout) + Number(r.tidyhaus_stripe_payout) + leadGenSum(leadGenMap(r.lead_gen_payouts)) - Number(r.tech_pay)) * 100) / 100,
       })).reverse();
     }
 
-    // Per-business JOB REVENUE for the Sunday–Saturday work week — the SAME week
-    // window as Profit this week / Predicted income (weekStart/weekEnd above), per
-    // owner's rule (previously this ran its own Sat→Fri window; now unified across
-    // all three cards). Revenue counts ONLY jobs that have actually been
-    // COMPLETED — upcoming/pending/assigned jobs are not revenue yet. Sums each
-    // COMPLETED job's price per business over that 7-day window and reports both
-    // companies side by side. Not tied to any Stripe account.
-    // Default to a defined zero so a transient failure below shows $0 rather than
-    // silently falling back (client-side) to a stale figure.
     revenue.week_by_slug = null;
     revenue.week_total = 0;
     try {
@@ -1528,29 +1112,13 @@ async function summary(req, res, db, auth) {
       revenue.week_range_label = `${fmtMD(weekStart)} – ${fmtMD(lastDay)}`;
     } catch (e) { console.warn('[admin] weekly revenue-by-business failed:', e.message); }
 
-    // Each secretary's booking rate for the last 7 days, shown beside revenue.
-    // Same definition as the Call Performance page: live (script-taken) calls
-    // that were actually worked (moved past the greeting or ended somewhere);
-    // booked = a booking was made. Every business is combined because a
-    // secretary can take calls for more than one brand. The owner's own
-    // clean-up entries are not a secretary and are left out.
     revenue.week_secretaries = [];
     try {
-      // Pull the last 4 weeks so anyone who has taken calls recently is listed
-      // even on a Sunday with no calls yet ("No calls yet" beats a vanished box).
-      // The numbers are the LAST 7 DAYS (today plus the 6 days before it, in
-      // the business's own time zone), the same window as the 7-day
-      // Conversion card, not the Sun-Sat revenue week.
       revenue.week_secretaries = await secretaryWeekConversion(db, tz);
     } catch (e) { console.warn('[admin] weekly secretary conversion failed:', e.message); }
   }
 
-  // Photos "To Post" + address alerts are independent — fetch them concurrently.
   const [photosToPost, address_alerts, estimate_alerts] = await Promise.all([
-    // Photos flagged "To Post" (the social-media queue) for this business. Safe
-    // even before the 0043 migration — the status column exists (0026); 'to_post'
-    // simply yields 0 until photos are categorized. Never let a photo-count hiccup
-    // break the whole dashboard summary.
     (async () => {
       try {
         const { count, error } = await db.from('booking_photos')
@@ -1559,10 +1127,6 @@ async function summary(req, res, db, auth) {
         return error ? 0 : (count || 0);
       } catch { return 0; }
     })(),
-    // ── Critical alerts: upcoming, not-yet-completed jobs with NO usable street
-    // address (missing, or an email/phone typed into the address box). The tech
-    // can't find the house, so the office must call the customer. Auto-clears once
-    // the job is completed (excluded below) or the address is fixed.
     (async () => {
       const ALERT_STATUSES = ['pending', 'confirmed', 'assigned', 'on_the_way', 'arrived', 'in_progress'];
       const out = [];
@@ -1573,7 +1137,6 @@ async function summary(req, res, db, auth) {
           .gte('scheduled_at', localDayStartUTC(tz, 0).toISOString())
           .in('status', ALERT_STATUSES)
           .order('scheduled_at', { ascending: true }).limit(300);
-        // Resolve each DISTINCT service-area timezone once (was a query per row).
         const tzCache = new Map();
         const tzFor = async (id) => { const k = String(id || ''); if (tzCache.has(k)) return tzCache.get(k); const v = await areaTimezone(db, id, tz); tzCache.set(k, v); return v; };
         for (const b of (aRows || [])) {
@@ -1587,25 +1150,14 @@ async function summary(req, res, db, auth) {
       } catch (e) { console.warn('[admin] address alerts failed:', e.message); }
       return out;
     })(),
-    // ── Approved estimates still waiting to be booked. An estimate the customer
-    // has APPROVED (status 'scheduled') but that hasn't been turned into a job yet
-    // is a hot, ready-to-book lead — flag it so the office books it ASAP. Auto-
-    // clears the moment it's converted (converting archives it) or otherwise leaves
-    // the approved state. Ones missing an address on file are called out specially.
     (async () => {
       const out = [];
       try {
-        // Show the "book ASAP" alert ONLY for estimates explicitly flagged for it
-        // (book_alert = true) and not yet archived — controllable per estimate via
-        // a data flag rather than firing on every approved one, and with no name
-        // hardcoded. Degrades to no alerts until the book_alert column exists.
         const { data: eRows, error } = await db.from('estimates')
           .select('id, customer_name, customer_phone, customer_zip, created_at')
           .eq('business_id', biz.id).eq('book_alert', true).not('status', 'in', `(${EST_CLOSED.join(',')})`)
           .order('created_at', { ascending: false }).limit(50);
         if (error) { if (/book_alert/.test(error.message || '')) return []; throw error; }
-        // One alert per person: dedupe on name + phone so a duplicate estimate
-        // (e.g. "Anne Fowler" and "anne fowler") doesn't show the banner twice.
         const seen = new Set();
         for (const e of (eRows || [])) {
           const key = `${String(e.customer_name || '').trim().toLowerCase()}|${String(e.customer_phone || '').replace(/\D/g, '')}`;
@@ -1632,12 +1184,6 @@ async function summary(req, res, db, auth) {
     profit,
     technicians: techs || [],
     counts: {
-      // Cancelled jobs are NOT "on the schedule": the calendar's day columns
-      // hide them (passFilters), so counting them here made the greeting say
-      // "There is 1 job on the schedule today" over a day the calendar
-      // correctly showed as empty (Dom's, Aug 11 2026: the only booking that
-      // day was cancelled the night before, and the secretary reported the
-      // mismatch as a glitch). Same exclusion `unassigned` below always had.
       todayTotal: (today || []).filter(b => b.status !== 'cancelled').length,
       unassigned: (today || []).filter(b => !b.technician_id && b.status !== 'cancelled').length,
       photos_to_post: photosToPost,
@@ -1645,20 +1191,6 @@ async function summary(req, res, db, auth) {
   });
 }
 
-// ── Calendar (week/day grid) ─────────────────────────────────────────────────
-// Bookings within an explicit [from, to) window, plus the technicians and
-// service areas the sidebar needs to render filters and avatars — one call
-// bootstraps the whole calendar view.
-// Cheap "has this booking range changed" fingerprint — count + the most
-// recent updated_at — shared by calendar() (which already has full rows in
-// hand) and calendarProbe() (which fetches only these two columns for exactly
-// this purpose). bookings.updated_at is DB-trigger-maintained (BEFORE UPDATE,
-// every column, every write) so this is trustworthy for detecting a status
-// change, reschedule, assignment, price edit, etc. — anything that touches
-// the row. Known gap: a technician's color/active flag can change with no
-// bookings row touched, so this alone won't catch that — acceptable for a
-// polling optimization since it self-heals on the next real fetch (tab
-// switch, reload, or any actual booking change in the meantime).
 function calFingerprint(rows) {
   let maxUpdatedAt = '';
   for (const r of rows) { if (r.updated_at && r.updated_at > maxUpdatedAt) maxUpdatedAt = r.updated_at; }
@@ -1681,17 +1213,6 @@ async function calendar(req, res, db, auth) {
   const { data: areas } = await db.from('service_areas')
     .select('id, name, state, timezone').eq('business_id', biz.id).eq('active', true).order('name');
 
-  // Ghost bookings: a cross-hired tech keeps ONE technician row, referenced
-  // directly by technician_id/secondary_technician_id on bookings that belong
-  // to an OTHER business (e.g. Kregg — a TidyHaus tech — picking up a Dom's
-  // or Mile High job). So the match is by id, not name: this business's own
-  // tech ids, looked up against every OTHER active business's bookings — not
-  // just the single PARTNER_SLUG pairing, since TidyHaus's techs get
-  // borrowed by Doms, Mile High, Austin, AND Precision all at once, and every
-  // one of those needs to show up faded on TidyHaus's own schedule so the
-  // office can see where its techs are actually busy. Surface it as a
-  // separate read-only list, never merged into `bookings`, so it can never be
-  // double-counted in payroll or job counts.
   let ghostBookings = [];
   try {
     const ownTechIds = (techs || []).map(t => t.id);
@@ -1700,20 +1221,13 @@ async function calendar(req, res, db, auth) {
     const otherBizById = {};
     for (const ob of (otherBiz || [])) otherBizById[ob.id] = ob;
     const otherBizIds = Object.keys(otherBizById);
-    // Owner, 2026-09-29: a ghost the viewer is ALSO allowed to open (e.g. Joey
-    // viewing Dom's sees Greg busy on a TidyHaus job) carries the real
-    // booking id + slug so the card can open that job. Never sent otherwise.
     const openRef = (b) => {
       const slug = otherBizById[b.business_id]?.slug;
       if (!(slug && mayViewJobs(auth, slug))) return {};
-      // Owner, 2026-10-03: Joey sees every business's jobs as full jobs, not
-      // faded ghosts. Customer price + status only -- never pay/profit.
       return (isAllJobsViewer(auth) || (auth && auth.role === 'owner'))
         ? { booking_id: b.id, open_slug: slug, full: true, status: b.status, price: b.price, tip: b.tip, payment_status: b.payment_status }
         : { booking_id: b.id, open_slug: slug };
     };
-    // Ghosts already added for a booking, so the lead-gen sweep below can't
-    // repeat one that source 1 surfaced through a shared tech.
     const ghostedBookingIds = new Set();
     if (ownTechIds.length && otherBizIds.length) {
       const { data: pbk, error: pbkErr } = await db.from('bookings')
@@ -1739,19 +1253,8 @@ async function calendar(req, res, db, auth) {
       }
     }
 
-    // Source 2 (owner rule, 2026-08-25): EVERY lead-gen booking shows as a
-    // ghost on BOTH staffed dashboards, no matter whose tech works it. Heather
-    // and Joey each answer phones for brands the other one books for, so a
-    // Mile High job booked by Heather has to be visible to Joey (and vice
-    // versa) or the two of them are working blind to half the calendar.
-    // Only on the handy-andy/doms views — a lead-gen brand's own view is that
-    // brand's real schedule and needs no ghosts of itself. Still read-only and
-    // still a separate list, so it can never leak into payroll or job counts.
-    if (['handy-andy', 'doms'].includes(biz.slug)) {
-      // Owner, 2026-09-24: for the OWNER only, the other staffed brand too (Dom's
-      // jobs faded on TidyHaus and vice versa). Secretaries keep lead-gen only.
-      // Joey (all-jobs viewer) also gets every other business, TidyHaus included.
-      const leadGenIds = auth && (auth.role === 'owner' || isAllJobsViewer(auth)) ? otherBizIds : otherBizIds.filter(id => !['handy-andy', 'doms'].includes(otherBizById[id].slug));
+    if (['tidyhaus', 'doms'].includes(biz.slug)) {
+      const leadGenIds = auth && (auth.role === 'owner' || isAllJobsViewer(auth)) ? otherBizIds : otherBizIds.filter(id => !['tidyhaus', 'doms'].includes(otherBizById[id].slug));
       if (leadGenIds.length) {
         const { data: lgbk, error: lgErr } = await db.from('bookings')
           .select('id, business_id, technician_id, scheduled_at, duration_minutes, status, price, tip, payment_status, customer:customers ( name ), service_area:service_areas ( timezone )')
@@ -1761,9 +1264,6 @@ async function calendar(req, res, db, auth) {
           .limit(2000);
         if (lgErr) throw lgErr;
         const fresh = (lgbk || []).filter(b => !ghostedBookingIds.has(b.id));
-        // The assigned tech usually isn't on THIS dashboard's roster (Zach and
-        // Juan are TidyHaus techs viewed from Dom's, say), so carry the name
-        // along rather than leaving the card to shrug "Tech busy".
         const techIds = [...new Set(fresh.map(b => b.technician_id).filter(Boolean))];
         const techNameById = {};
         if (techIds.length) {
@@ -1778,17 +1278,13 @@ async function calendar(req, res, db, auth) {
             duration_minutes: b.duration_minutes || 60,
             partner_company: otherBizById[b.business_id]?.name || 'Lead gen',
             customer_name: b.customer?.name || null,
-            tz: b.service_area?.timezone || null,   // job's own local time, not this dashboard's
+            tz: b.service_area?.timezone || null,
             ...openRef(b),
           });
         }
       }
     }
   } catch (e) { console.warn('[admin] calendar ghost bookings failed:', e.message); ghostBookings = []; }
-  // Owner only (2026-10-04): full ghosts (other businesses' jobs) carry the SAME
-  // econ as own jobs -- tech pay + profit -- computed with each job's OWN business
-  // context. One batched read + one computeJobEconomics pass per business. Never
-  // for Joey/Heather. Fail-soft: any error leaves the ghosts price-only.
   if (auth && auth.role === 'owner') {
     try {
       const fullIds = [...new Set(ghostBookings.filter(g => g.full && g.booking_id).map(g => g.booking_id))];
@@ -1808,15 +1304,9 @@ async function calendar(req, res, db, auth) {
       }
     } catch (e) { console.warn('[admin] calendar ghost economics failed:', e.message); }
   }
-  // Metro tz per area, so each job's slot renders in its own timezone (Central
-  // for Houston/Austin) instead of the single business (Mountain) clock.
   const areaTzById = {};
   for (const a of (areas || [])) areaTzById[a.id] = a.timezone;
 
-  // Job economics for the List view. Everyone (owner + secretary) gets the
-  // service category, cost to customer, and paid status. Tech payout and profit
-  // are PRIVATE to the owner — the payroll projection only runs when
-  // auth.role==='owner', so those numbers are never even sent to a secretary.
   let econById = {};
   try { econById = await computeJobEconomics(db, biz, bk || [], auth.role === 'owner'); }
   catch (e) { console.warn('[admin] calendar economics failed:', e.message); econById = {}; }
@@ -1827,11 +1317,6 @@ async function calendar(req, res, db, auth) {
     s.slot_time = slotTimeLabel(areaTzById[b.service_area_id] || biz.timezone || 'Asia/Manila', b.scheduled_at);
     return s;
   });
-  // Attach tech-notification status. The detail panel shows a "Tech notified"
-  // row for every job, and without tech_sms it falls back to "No record" — so
-  // every job opened from the SCHEDULE (which is how the office opens nearly
-  // all of them) claimed the tech was never texted even when the text was
-  // delivered. Only the bookings-list endpoint attached this before.
   await withTechSms(db, bookings);
 
   return res.status(200).json({
@@ -1843,10 +1328,6 @@ async function calendar(req, res, db, auth) {
     fingerprint: calFingerprint(bk || []),
   });
 }
-// Lightweight sibling of calendar(): no embeds, no per-job economics — just
-// enough to detect whether anything in this range changed since the last full
-// fetch, so the 60s schedule poll can skip re-fetching+re-computing the whole
-// week when nothing did. See calFingerprint() for what this can and can't detect.
 async function calendarProbe(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business, { view: true }); } catch (e) { return bail(res, e); }
   const from = (req.query.from || '').toString();
@@ -1863,8 +1344,6 @@ async function calendarProbe(req, res, db, auth) {
   return res.status(200).json(calFingerprint(rows || []));
 }
 
-// Owner-only: collapse a service into exactly one of the three buckets the
-// office cares about — "Home Cleaning", "Handyman", or "Assurion".
 function classifyService(b) {
   if (/assurion/i.test(String(b.notes || '')) || /assurion/i.test(String(b.service?.name || ''))) return 'Assurion';
   const svc = String(b.service?.name || '').toLowerCase();
@@ -1873,28 +1352,6 @@ function classifyService(b) {
   return 'Home Cleaning';
 }
 
-// Per-booking economics for the List view. Always returns { service_cat,
-// customer_cost }. When includePay is true (owner only) it also returns the
-// projected { tech_payout, profit, assigned } — tech_payout is the total paid to
-// every tech on the job (primary + any second tech) and profit = cost − payout.
-// Projection forces completed+paid so an upcoming job still shows what it's
-// expected to earn. When includePay is false (secretary) the payroll engine is
-// never run, so those private numbers don't leave the server.
-// What the business pays to BUY each bracket (hardware cost), deducted from
-// profit. Customer-supplied / in-the-box brackets cost the business nothing.
-//
-// Juan is a special case, gated on the SAME cutoff as his payroll rate
-// (JUAN_BRACKET_ZERO_FROM, imported from payroll.js): before 2026-08-16 he
-// bought his own brackets and was reimbursed through an elevated payout rate,
-// so counting the hardware cost here too would have double-deducted it. From
-// that date on the owner buys the brackets and ships them to Juan directly —
-// a real out-of-pocket cost — while his payout reimbursement was zeroed at
-// the same time, so it now needs to be counted here exactly like every other
-// tech's bracket, or it's an invisible cost that silently overstates profit
-// on every one of his jobs. (Found 2026-09-02: profit had been overstated on
-// every Juan job with a paid bracket since the 8/16 change.)
-// Costs live in api/_lib/bracket-costs.js (owner rule 2026-10-08: one price
-// list for every business/city: flat 26.43, tilting 26.81, full motion 57.01).
 function bracketHardwareCost(lineItems, hasJuan, scheduledAt) {
   if (hasJuan) {
     const t = scheduledAt ? new Date(scheduledAt) : null;
@@ -1904,23 +1361,7 @@ function bracketHardwareCost(lineItems, hasJuan, scheduledAt) {
   return bracketItemsCost(lineItems);
 }
 
-// Realized profit over an arbitrary window, both companies combined, with the
-// per-business split the Profit box shows underneath.
-//
-// Lives in its OWN action rather than being folded into the greeting payload on
-// purpose: "this year" can span several thousand jobs and every one of them
-// needs a computeJobEconomics pass, so precomputing it would put seconds onto
-// EVERY dashboard load to serve a tab most opens never touch. The dashboard
-// fetches it the first time the tab is clicked and caches the answer.
-//
-// Same definition of profit as the week figure it sits next to: completed AND
-// paid only, so the numbers are comparable rather than three different ideas of
-// "profit" in one card.
-// Profit card split by business + city (owner 2026-10-17). Multi-city
-// businesses (TidyHaus, Dom's) split by the job's service area; every other
-// business is one row. Keys 'slug|Area' or 'slug'; rounded per row so the
-// rows add up to the card total.
-const MULTI_CITY_BIZ = new Set(['handy-andy', 'doms']);
+const MULTI_CITY_BIZ = new Set(['tidyhaus', 'doms']);
 async function serviceAreaNames(db) {
   const { data } = await db.from('service_areas').select('id, name');
   return new Map((data || []).map(a => [a.id, a.name]));
@@ -1932,7 +1373,6 @@ function profitByMarket(bb, jobs, e, areaNames) {
     const k = area ? `${bb.slug}|${area}` : bb.slug;
     raw[k] = (raw[k] || 0) + (Number(e[j.id]?.profit) || 0);
   }
-  // Largest-remainder rounding: row totals equal the business's rounded total.
   const keys = Object.keys(raw);
   const target = Math.round(keys.reduce((n, k) => n + raw[k], 0));
   const out = Object.fromEntries(keys.map(k => [k, Math.floor(raw[k])]));
@@ -1954,15 +1394,11 @@ async function profitRange(req, res, db, auth) {
   const { data: allBiz } = await db.from('businesses').select('id, slug, name, timezone').eq('active', true);
   const tz = biz.timezone || 'Asia/Manila';
 
-  // Anchored on the VIEWED business's local day so "this year" means the year
-  // the office is actually living in, not UTC's.
-  const end = localDayStartUTC(tz, 1);            // include everything up to end of today
+  const end = localDayStartUTC(tz, 1);
   let start;
   if (range === '30d') {
-    start = localDayStartUTC(tz, -29);            // 30 calendar days including today
+    start = localDayStartUTC(tz, -29);
   } else {
-    // Jan 1 of the year the office is currently living in, converted to the
-    // right UTC instant by the shared helper rather than by hand.
     const localYear = new Date().toLocaleString('en-US', { timeZone: tz, year: 'numeric' });
     start = localDateStartUTC(tz, `${localYear}-01-01`);
   }
@@ -1993,15 +1429,6 @@ async function profitRange(req, res, db, auth) {
   return res.status(200).json({ range, total, by_slug, by_market, from: start.toISOString(), to: end.toISOString() });
 }
 
-// Daily net-profit trend for the "Net Daily Profit" chart (7d / 30d). ONE
-// query per business over the whole window, economics computed once, then
-// bucketed per job into its LOCAL day, the same per-business day boundary the
-// single-day today/yesterday figure above the chart already uses (netDailyFor
-// in the greeting handler), so the chart's rightmost point always agrees with
-// that headline number instead of drifting from a different day definition.
-// Bucketing walks explicit localDayStartUTC() boundaries rather than dividing
-// by 86400000ms, since a day spans 23 or 25 hours across a DST transition and
-// naive division would misfile a job on those days.
 async function netDailyRange(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const range = (req.query.range || '').toString();
@@ -2018,14 +1445,12 @@ async function netDailyRange(req, res, db, auth) {
     return m;
   };
 
-  // index 0 = oldest day in the window, index days-1 = YESTERDAY (today excluded). Combined across
-  // every active business.
   const totals = new Array(days).fill(0);
 
   await Promise.all((allBiz || []).map(async (bb) => {
     const tz = bb.timezone || 'Asia/Manila';
     const oldestStart = localDayStartUTC(tz, -days);
-    const end = localDayStartUTC(tz, 0);   // exclude today (incomplete day, owner 2026-10-09)
+    const end = localDayStartUTC(tz, 0);
     const { data: rows } = await fetchEconomicsRows(sel => db.from('bookings').select(sel)
       .eq('business_id', bb.id)
       .gte('scheduled_at', oldestStart.toISOString())
@@ -2033,19 +1458,16 @@ async function netDailyRange(req, res, db, auth) {
     const paid = (rows || []).filter(countsTowardProfit);
     if (!paid.length) return;
     const e = await computeJobEconomics(db, bb, paid, true, await travelMapFor(bb));
-    // Precompute this business's day boundaries once, then a cheap per-job scan.
     const bounds = Array.from({ length: days }, (_, d) => localDayStartUTC(tz, -days + d).getTime());
     for (const b of paid) {
       const t = new Date(b.scheduled_at).getTime();
       let idx = -1;
       for (let d = days - 1; d >= 0; d--) { if (t >= bounds[d]) { idx = d; break; } }
-      if (idx < 0) continue;   // scheduled before the window (shouldn't happen given the query bound, but never miscount)
+      if (idx < 0) continue;
       totals[idx] += Number(e[b.id]?.profit) || 0;
     }
   }));
 
-  // Labels use the VIEWED business's own tz, display only; the bucketing
-  // above already happened per-business.
   const tz = biz.timezone || 'Asia/Manila';
   const series = totals.map((v, i) => ({
     date: localDayStartUTC(tz, -days + i).toISOString().slice(0, 10),
@@ -2054,50 +1476,14 @@ async function netDailyRange(req, res, db, auth) {
   return res.status(200).json({ range, days: series });
 }
 
-// Which completed jobs count toward REALIZED profit.
-//
-// Profit now uses the payroll engine's own settled/deferred rule instead of a
-// bare payment_status check, so profit and payroll can never disagree about
-// whether a job has happened yet. paymentState() treats a $0 ticket as settled
-// and an unpaid job that still owes a balance as deferred, which is exactly the
-// distinction profit wants:
-//
-//   $0 redeemed GDS   the customer owes nothing and never will, but the tech IS
-//                     paid ($50-60) this week, so the job is real and its cost
-//                     belongs in today's profit. The old check excluded it
-//                     forever, because a $0 job can never become "paid": 7
-//                     redemptions and $380 of tech pay had gone out since July
-//                     12 without appearing in any profit figure (owner spotted
-//                     it as "Aug 11 says $105 but should be $55").
-//   unpaid, owes $215 payroll defers the tech's pay until the customer pays, so
-//                     profit keeps deferring it too. Unchanged behaviour.
 function countsTowardProfit(b) {
   return b.status === 'completed' && paymentState(b) !== 'deferred';
 }
 
 async function computeJobEconomics(db, biz, rows, includePay, travelMap = null) {
-  // Callers that compute economics for many row sets of the SAME business pass a
-  // pre-fetched travel-payout map so we don't re-query it every time.
   const travelPayoutByZip = includePay ? (travelMap || await travelPayoutMap(db, biz.id)) : null;
   const out = {};
   for (const b of rows) {
-    // Revenue for profit is what the business actually KEPT: the ticket price
-    // less anything refunded to the customer. A refund never decrements
-    // amount_paid anywhere in this codebase (bookingPayment writes only
-    // payment_status + amount_refunded), and nothing here used to read that
-    // column at all — so every refunded job counted its full pre-refund price
-    // as revenue and overstated profit by exactly the refund. Found 2026-09-05
-    // on Hannah Kelarek's 9/2 job: $80 service-area surcharge refunded, still
-    // booked as revenue. 8 completed jobs were affected, $873.84 total.
-    //
-    // customer_cost stays GROSS so the job card keeps matching the ticket and
-    // the receipt; the refund is surfaced separately as econ.refunded.
-    //
-    // Not clamped at zero: refunding more than the service price is a real loss
-    // and should read as one. (Tips are excluded from profit on both sides, so a
-    // refund that included a tip nets slightly conservative here — rare enough,
-    // and erring toward understating profit, that it isn't worth guessing which
-    // part of a flat refund amount was tip.)
     const gross = Number(b.price) || 0;
     const refunded = Number(b.amount_refunded) || 0;
     const cost = Math.round((gross - refunded) * 100) / 100;
@@ -2120,39 +1506,19 @@ async function computeJobEconomics(db, biz, rows, includePay, travelMap = null) 
         scheduled_at: b.scheduled_at,
         created_at: b.created_at,
         travel_payout: travelPayoutByZip.get(String(b.postal_code || '')) || 0,
-        // Two assigned techs split the job 50/50 even without a "lift help" line.
         second_tech: techNames.length > 1,
         is_houston: await isHoustonBooking(db, biz.id, biz.slug, b.service_area_id),
       };
       let payout = 0;
-      // techNames[0] is the lead, [1] the secondary. Tell the engine which one is
-      // the helper (is_secondary) so a two-tech job isn't DOUBLE-paid: the base
-      // splits 50/50 on a real two-person job, or the assigned helper earns $0 on a
-      // one-person job — matching what the tech app / payroll actually pay. Without
-      // this, both techs were computed as full-pay leads, so profit read far too low.
       for (let i = 0; i < techNames.length; i++) {
-        // .total = labor + tip-LINE items (projJob carries no b.tip). Tip lines are
-        // inside the ticket price, so they must stay in payout to net to $0 profit.
         payout += Number(computeJobPay({ ...projJob, is_secondary: i > 0 }, techNames[i]).total) || 0;
       }
-      // Bracket hardware the business bought (Juan's own-bracket exemption
-      // ended 2026-08-16 — see bracketHardwareCost).
       const bracketCost = bracketHardwareCost(b.line_items, techNames.some(isJuan), b.scheduled_at);
-      // Tips are 100% the tech's and pass straight through (customer -> tech), so
-      // they RAISE the tech's payout but never touch business profit — profit is
-      // computed from the service price and base pay only, with the tip excluded
-      // on both sides.
       const tip = Number(b.tip) || 0;
       econ.tech_payout = Math.round(payout + tip);
       econ.bracket_cost = Math.round(bracketCost);
       econ.profit = Math.round(cost - payout - bracketCost);
       econ.assigned = techNames.length > 0;
-      // Cash job: the tech kept the customer's money, so what actually gets PAID
-      // on payroll is their earnings minus the cash they're holding (usually
-      // negative — the business's share comes back out of their pay). Profit
-      // above is deliberately unchanged: the job's economics are the same, only
-      // the direction the money moves is different. Surfaced so the schedule
-      // card can't imply the tech is owed money they've already taken.
       if (b.payment_method === 'cash') {
         const collected = Math.round(Number(b.amount_paid) || Number(b.price) || 0);
         econ.cash_collected = collected;
@@ -2164,25 +1530,12 @@ async function computeJobEconomics(db, biz, rows, includePay, travelMap = null) 
   return out;
 }
 
-// All techs' weekly availability + upcoming exceptions for one business, so the
-// calendar's "Availability" view can show who's free per day/slot.
 async function availabilityOverview(req, res, db, auth) {
-  // Cross-business by design: any signed-in office user can VIEW another
-  // business's availability (who's free per slot) to coordinate coverage — the
-  // same non-sensitive occupancy data already exposed when assigning a
-  // cross-company second tech. No pay or customer data is returned here.
-  // (Mirrors reviewCalls, which spans both businesses regardless of scope.) The
-  // secretary's own business is the default; the toggle just switches the view.
   const slug = (req.query.business || '').toString();
   if (!slug) return res.status(400).json({ error: 'business is required' });
   const { data: allBiz } = await db.from('businesses')
     .select('id, slug, name, timezone').eq('active', true).order('name');
   const bizList = (allBiz || []).map(b => ({ slug: b.slug, name: b.name }));
-  // business=all: ONE board with every active tech across every company —
-  // the owner asked for this after the per-company pills turned out to be 11
-  // empty boards (only TidyHaus and Doms actually employ techs). Each tech
-  // carries business_slug so the client can decide per-tech editability (the
-  // set/exception endpoints still verify tech∈business server-side).
   const wantAll = slug === 'all';
   const biz = wantAll ? null : (allBiz || []).find(b => b.slug === slug);
   if (!wantAll && !biz) return res.status(404).json({ error: 'Business not found' });
@@ -2196,9 +1549,6 @@ async function availabilityOverview(req, res, db, auth) {
     business_slug: bizById.get(t.business_id)?.slug || null,
   }));
   const ids = techs.map(t => t.id);
-  // Per-tech tz fallback for occupancy: a booking with no service-area tz
-  // falls back to ITS TECH's own business tz (in single-business mode that is
-  // the same `tz` as before).
   const techTz = new Map((techRows || []).map(t => [t.id, bizById.get(t.business_id)?.timezone || 'Asia/Manila']));
 
   const tz = (biz && biz.timezone) || 'Asia/Manila';
@@ -2214,24 +1564,7 @@ async function availabilityOverview(req, res, db, auth) {
     exceptions = (ex || []).map(r => ({
       technician_id: r.technician_id, date: r.exception_date, slot_key: r.slot_key, is_available: r.is_available,
     }));
-    // Existing (non-cancelled) bookings occupy slots: a tech with a job in a slot
-    // is NOT available for it, so the overview must subtract them (same rule the
-    // New Booking calendar already uses). Mapped to { technician_id, date, slot_key }.
-    // No business filter: a tech busy on a CROSS-COMPANY job (booked by the
-    // partner company) must still show as occupied here, so the office never
-    // double-books them. (technician_id is globally unique.) A tech counts as
-    // busy whether they're the PRIMARY or the SECOND tech on the job — without the
-    // secondary_technician_id leg, a tech booked only as a helper would wrongly
-    // show free here (the bug that let the same helper be stacked onto two jobs).
     const idList = ids.join(',');
-    // Bounded to yesterday-onward (one day of slack covers every US metro's
-    // offset from the business tz). This query used to have NO lower bound
-    // while sorting oldest-first with limit(2000) -- once the July 2026
-    // Zenbooker import pushed these techs past 2000 historical rows, the
-    // whole window sat in 2022-2025 and NO current booking ever occupied a
-    // chip (Kregg showed free at 11a while standing in Debbie Mulqueen's
-    // living room). The grid only renders today-forward (exceptions are
-    // already fetched today-forward), so the past contributes nothing.
     const occSince = localDayStartUTC(tz, -1).toISOString();
     const runBk = (withSecond) => {
       let q = db.from('bookings')
@@ -2249,14 +1582,6 @@ async function availabilityOverview(req, res, db, auth) {
       if (isExtraSlotsErr(bkErr)) extraSlotsCol = false;
       ({ data: bk } = await runBk(bookingLiftCols));
     }
-    // Each booking's slot is derived in ITS OWN metro's timezone, not the
-    // business's. TidyHaus spans Mountain and Central: a 5 PM Houston job
-    // read in Denver time is 4 PM, which falls in the gap between the fixed
-    // slots and mapped to NO slot at all -- so Juan's (and any Central) jobs
-    // never occupied a chip, and an 8 PM Central job landed on the 5p chip.
-    // All areas are fetched (no business filter) because the occupancy query
-    // itself is cross-company on purpose. Falls back to the business tz for
-    // bookings with no service area, same as areaTimezone() does.
     const areaTzMap = new Map();
     try {
       const { data: saRows } = await db.from('service_areas').select('id, timezone');
@@ -2269,7 +1594,6 @@ async function availabilityOverview(req, res, db, auth) {
       const slot_key = slotKeyForLocalTime(localHHMM(btz, b.scheduled_at));
       if (!slot_key) continue;
       const date = localDateStr(btz, b.scheduled_at);
-      // Each slot the job holds (main + any extra) is a busy row for its tech(s).
       const keys = [slot_key, ...esOf(b)];
       for (const k of keys) {
         if (idSet.has(b.technician_id)) occRows.push({ technician_id: b.technician_id, date, slot_key: k });
@@ -2282,15 +1606,12 @@ async function availabilityOverview(req, res, db, auth) {
   return res.status(200).json({ slots: SLOTS, days: DAYS, technicians: techs, availability, exceptions, bookings, businesses: bizList, business: wantAll ? { slug: 'all', name: 'All technicians' } : { slug: biz.slug, name: biz.name } });
 }
 
-// ── Bookings list ────────────────────────────────────────────────────────────
 async function bookings(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business, { view: true }); } catch (e) { return bail(res, e); }
   const tz = biz.timezone || 'Asia/Manila';
   const range = (req.query.range || 'upcoming').toString();
   const status = (req.query.status || '').toString();
 
-  // Single-booking lookup (e.g. opening a job from a bad-review alert). Still
-  // scoped to the resolved business, so a secretary can't read another's job.
   const oneId = (req.query.id || '').toString();
   if (oneId) {
     const { data, error } = await fetchBookingRows((sel) =>
@@ -2308,7 +1629,7 @@ async function bookings(req, res, db, auth) {
       q = q.gte('scheduled_at', startOfWeekUTC(tz).toISOString());
     } else if (range === 'upcoming') {
       q = q.gte('scheduled_at', localDayStartUTC(tz, 0).toISOString());
-    } // 'all' = no date filter
+    }
     if (status) q = q.eq('status', status);
     return q.order('scheduled_at', { ascending: true }).limit(500);
   };
@@ -2318,11 +1639,6 @@ async function bookings(req, res, db, auth) {
   return res.status(200).json({ bookings: await withTechSms(db, (data || []).map(shapeBooking)) });
 }
 
-// Attach each booking's technician-notification status (app.tech_sms_log) so the
-// schedule/detail UI can show whether the assigned tech was actually TOLD about
-// the job. One batched query for the whole page — never per booking. Entirely
-// best-effort: if the table isn't there yet (migration not applied) the
-// bookings still render, just without the badge.
 async function withTechSms(db, rows) {
   const ids = rows.map(r => r.id).filter(Boolean);
   if (!ids.length) return rows;
@@ -2346,12 +1662,6 @@ async function withTechSms(db, rows) {
   return rows;
 }
 
-// ── Extra time slots on a booking (big jobs) ─────────────────────────────────
-// GET  -> { main_slot, extra_slots, addable:[{slot_key,label}], date }
-// POST { slots:[...] } -> validate each is free for the job's tech(s) that day
-//        (not the main slot, not booked by another job) and set extra_slots.
-// The occupancy readers (office availability, the widget, auto-assign, the grid)
-// all treat extra_slots as busy, so this reserves the slot without a phantom row.
 async function bookingSlots(req, res, db, auth, body) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business || (body && body.business)); } catch (e) { return bail(res, e); }
   const id = (req.query.id || (body && body.id) || '').toString();
@@ -2370,7 +1680,6 @@ async function bookingSlots(req, res, db, auth, body) {
   const mainSlot = slotKeyForLocalTime(localHHMM(tz, b.scheduled_at));
   const current = esOf(b);
 
-  // Slots already taken by OTHER bookings for either tech on this date (this job excluded).
   const techIds = [b.technician_id, b.secondary_technician_id].filter(Boolean);
   const takenByOthers = new Set();
   for (const tid of techIds) {
@@ -2393,16 +1702,12 @@ async function bookingSlots(req, res, db, auth, body) {
   const requested = Array.isArray(body && body.slots) ? body.slots.map(String) : [];
   const forcedIds = new Set((body && body.force_unavailable_ids || []).map(String));
   const dow = dayOfWeekFor(dateStr);
-  // Every tech on this job must have ALREADY marked an extra slot available —
-  // reserving it just because the main slot is theirs would silently extend
-  // the job into hours they never agreed to work. Per-tech override only
-  // (never bypasses the "already booked by someone else" conflict above).
   const techSlotKeys = {};
   for (const tid of techIds) techSlotKeys[tid] = await singleTechSlotKeys(db, tid, dateStr, dow);
   const clean = [];
   for (const sk of requested) {
     if (!SLOT_KEYS.has(sk)) return res.status(400).json({ error: `Invalid time slot: ${sk}` });
-    if (sk === mainSlot) continue;                       // the main slot is implied, never an extra
+    if (sk === mainSlot) continue;
     if (takenByOthers.has(sk)) {
       const lab = (SLOTS.find(s => s.key === sk) || {}).label || sk;
       return res.status(409).json({ error: `${lab} is already booked for this technician — can't add it.` });
@@ -2422,7 +1727,6 @@ async function bookingSlots(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id, extra_slots: clean });
 }
 
-// ── Services (for the New Booking form) ──────────────────────────────────────
 async function services(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const { data, error } = await db.from('services')
@@ -2432,7 +1736,6 @@ async function services(req, res, db, auth) {
   return res.status(200).json({ services: data || [] });
 }
 
-// ── Option groups + options for one service (drives the New Booking steps) ────
 async function serviceOptions(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const serviceId = (req.query.service_id || '').toString();
@@ -2458,12 +1761,7 @@ async function serviceOptions(req, res, db, auth) {
   return res.status(200).json({ groups: result });
 }
 
-// ── Public widget pricing (Other -> Widget Pricing) ──────────────────────────
-// Every price the customer-facing booking widget (public/widget.js) charges,
-// self-serve editable here instead of requiring a code change + deploy. See
-// api/book.js's widgetPricesPublic() for how the widget actually consumes
-// these at load time — this is just the admin read/write side.
-const WIDGET_PRICE_CEILING = 100000;   // pesos — a fat-fingered price never silently saves
+const WIDGET_PRICE_CEILING = 100000;
 async function widgetPricesList(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const { data, error } = await db.from('widget_prices')
@@ -2483,11 +1781,6 @@ async function widgetPricesSave(req, res, db, auth, body) {
     if (!u.id || !Number.isFinite(price) || price < 0) return res.status(400).json({ error: 'Each update needs a valid id and a non-negative price' });
     if (price > WIDGET_PRICE_CEILING) return res.status(400).json({ error: `₱${price} is above the ₱${WIDGET_PRICE_CEILING} sanity ceiling for a single widget price — double-check this isn't a typo.` });
   }
-  // One update at a time (small list, correctness over round-trip count) so a
-  // bad id in the middle of a batch can't half-save silently. business_id in
-  // the WHERE clause is a belt-and-suspenders scope check — the id itself is
-  // already a random uuid, but this ensures a row can never be updated across
-  // businesses even given a stale/forged id.
   for (const u of updates) {
     const { error } = await db.from('widget_prices')
       .update({ price: Number(u.price), updated_at: new Date().toISOString() })
@@ -2497,21 +1790,8 @@ async function widgetPricesSave(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, updated: updates.length });
 }
 
-// ── Travel fees (Other -> Travel Fees) ───────────────────────────────────────
-// Per-zip travel pricing, grouped into the tiers the office actually thinks in
-// ("Houston 1/2/3/4"). A tier is just every zip in an area sharing the same
-// (surcharge, tech_payout) pair — there is no tier table, which is why editing
-// a tier writes to all of its zips at once.
-//
-// Only two columns here are live: `surcharge` is what the CUSTOMER is charged
-// (api/book.js and api/service-area.js read it) and `tech_payout` is what the
-// TECH is paid for the drive (payroll's travelPayoutMap reads it). The older
-// travel_fee/travel_payout columns are vestigial — nothing reads them — so this
-// tool deliberately ignores them rather than writing numbers that do nothing.
-const TRAVEL_FEE_CEILING = 500;    // dollars — a fat-fingered fee never silently saves
+const TRAVEL_FEE_CEILING = 500;
 async function travelFeesList(req, res, db, auth) {
-  // Owner (2026-10-11): business=all lists every business's areas so Houston,
-  // Austin, DFW etc. show regardless of which business is selected.
   if (req.query.business === 'all' && auth.role === 'owner') {
     const { data: bizs, error: bErr } = await db.from('businesses').select('id, slug, name');
     if (bErr) throw bErr;
@@ -2544,8 +1824,6 @@ async function travelFeesList(req, res, db, auth) {
 }
 async function travelFeesSave(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  // Travel pricing moves both customer revenue and tech pay, so it stays with
-  // the owner rather than whoever is covering the phones.
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can change travel fees' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
 
@@ -2553,24 +1831,17 @@ async function travelFeesSave(req, res, db, auth, body) {
   if (!ids.length) return res.status(400).json({ error: 'zip_ids required' });
   const surcharge = Number(body.surcharge);
   const payout = Number(body.tech_payout);
-  // Negative is allowed on purpose: a negative customer fee is a local-customer
-  // discount, a negative tech payout is what that tier takes off the tech's pay.
   if (!Number.isFinite(surcharge)) return res.status(400).json({ error: 'Customer fee must be a number' });
   if (!Number.isFinite(payout)) return res.status(400).json({ error: 'Tech payout must be a number' });
   if (Math.abs(surcharge) > TRAVEL_FEE_CEILING || Math.abs(payout) > TRAVEL_FEE_CEILING) {
     return res.status(400).json({ error: `$${Math.max(Math.abs(surcharge), Math.abs(payout))} is above the $${TRAVEL_FEE_CEILING} sanity ceiling for a travel fee — double-check this isn't a typo.` });
   }
-  // Paying the tech more for the drive than the customer is charged for it is
-  // nearly always a slip, and it silently loses money on every job in the tier.
-  // Allowed only when explicitly confirmed, so a deliberate loss-leader is still
-  // possible.
   if (payout > surcharge && body.confirm_negative !== true) {
     return res.status(409).json({
       code: 'travel_fee_negative',
       error: `That leaves the business $${(payout - surcharge).toFixed(2)} short on every job in this tier (customer ${surcharge<0?'-':''}$${Math.abs(surcharge)}, tech ${payout<0?'-':''}$${Math.abs(payout)}). Save it anyway?`,
     });
   }
-  // business_id in the WHERE clause scopes the write even given a stale id.
   const { data, error } = await db.from('service_area_zips')
     .update({ surcharge, tech_payout: payout })
     .in('id', ids).eq('business_id', biz.id).select('id');
@@ -2578,13 +1849,6 @@ async function travelFeesSave(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, updated: (data || []).length });
 }
 
-// ── Travel distance preview (Other -> Travel Fees -> Check drive distances) ──
-// Real driving distance/time from the tech's home zip to every zip in a
-// service area, via Google's Distance Matrix API (same GOOGLE_MAPS_API_KEY
-// that already powers address autocomplete and the job-detail map). READ-ONLY:
-// it changes no pricing, it exists so the owner can see today's fee next to
-// the actual drive and re-tier with real numbers instead of guessing. Cost is
-// about half a cent per zip checked, so a full Houston run is under a dollar.
 async function travelDistancePreview(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -2604,9 +1868,6 @@ async function travelDistancePreview(req, res, db, auth, body) {
   if (zErr) throw zErr;
   if (!zips || !zips.length) return res.status(404).json({ error: 'No zips in that service area.' });
 
-  // Distance Matrix caps destinations at 25 per request; batch and stitch.
-  // Zips are sent as "zip, USA" strings -- for a within-metro run the state is
-  // unambiguous, and the same shortcut is how the office already thinks.
   const out = [];
   for (let i = 0; i < zips.length; i += 25) {
     const batch = zips.slice(i, i + 25);
@@ -2635,21 +1896,14 @@ async function travelDistancePreview(req, res, db, auth, body) {
   return res.status(200).json({ origin_zip: originZip, zips: out });
 }
 
-// ── Multi-TV discount (Other -> Multi-TV Discount) ──────────────────────────
-// One global row (see supabase/migrations/0088), read through the same
-// cached getter api/book.js uses for the live discount so this always shows
-// what a booking would actually get. multiTvDiscountConfigFor() already
-// falls back to the pre-2026-08 hardcoded defaults if the table or row is
-// somehow missing, so this never 500s even on a fresh/unmigrated database.
-const MULTI_TV_FEE_CEILING = 100;   // dollars per TV, a fat-fingered number never silently saves
-const MULTI_TV_PRICE_TIER_CEILING = 200; // dollars per TV on the price side
+const MULTI_TV_FEE_CEILING = 100;
+const MULTI_TV_PRICE_TIER_CEILING = 200;
 async function multiTvDiscountGet(req, res, db, auth) {
   const cfg = await multiTvDiscountConfigFor(db);
   return res.status(200).json({ config: cfg });
 }
 async function multiTvDiscountSave(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  // This changes what every multi-TV job is charged going forward, owner only.
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can change the multi-TV discount' });
 
   const threshold = parseInt(body.tv_threshold, 10);
@@ -2706,69 +1960,11 @@ async function multiTvDiscountSave(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Launch checklist (Other -> Launch) ───────────────────────────────────────
-// One page answering "what did I forget" across every business in the CRM,
-// built after Precision TV shipped with no Stripe/Resend keys and Mile High's
-// live site turned out to have no booking widget on it at all (its nav "Book"
-// link 404s) — both went unnoticed for weeks because nothing surfaced them.
-// Reads the `businesses` table directly, so the next business added here shows
-// up automatically with no code change; the manual items (GBP, GSC, etc.) are
-// exactly the things no API can check, so they're a checklist, not a report.
-//
-// Real-checkable stuff is checked live on every load, not cached:
-//   - stripeWired / stripeReady: is the slug in ACCOUNT_KEY_ENV at all, and if
-//     so, is the secret key env var actually set. stripeConfigured() throws for
-//     an unmapped slug (by design, see stripe.js) — that throw IS the "not
-//     wired in code yet" signal.
-//   - emailWired / emailReady: same shape for Resend. A slug missing from
-//     EMAIL_BRANDS is dangerous, not just incomplete: emailConfig() silently
-//     falls back to TidyHaus's own account for any unrecognized slug, so a
-//     new business's confirmation emails would go out looking like Handy
-//     Andy's until someone notices. Flagged as a hard warning, not just unchecked.
-//   - site.ok: a live fetch of the business's own `url`, checking HTTP status.
-//     Reliable regardless of how the site is built, since it's just the status
-//     code, so this one counts toward the score/blocked logic below.
-//
-// site.hasWidget is INFORMATIONAL ONLY, never a blocker — it does a best-effort
-// text search for widget.js in the fetched HTML, which only works when the
-// widget tag is present in the server-rendered markup (Austin's Next.js
-// build, Precision's LandingSite embed). tidyhausph.com and tidyhausph.com
-// insert the widget with client-side JavaScript after the page loads, so a
-// plain server-side fetch — which never runs JS — can't see it at all, even
-// though both have booked real jobs daily for months. Real incident: this
-// used to feed the same red "NOT FOUND" line as everything else and told the
-// owner his two oldest, most active businesses had no booking widget. The
-// authoritative signal is the "widget_embedded" manual item below, which the
-// owner ticks once he's actually looked at the page himself; the live check
-// only ever shows a soft "confirmed via scan" bonus when it finds something,
-// never an accusation when it doesn't.
-// Deliberately NO "website is live" item here — the automated site.ok check
-// (below) already covers that reliably (it's just an HTTP status, unaffected
-// by the client-JS-rendering problem above), so a redundant manual copy would
-// default to false for every already-working business and bury the real gap
-// under a stale checkbox nobody remembered to tick.
-// `auto` marks the three items that ALSO have a live automated check behind
-// them (stripe / email / site). They are still ordinary, clickable checklist
-// items: the owner can tick or untick them like anything else, and his answer
-// wins for scoring. The automated result is shown underneath as a cross-check,
-// and loudly when the two disagree, so a stale tick can't quietly hide "this
-// business takes no card" the way Precision's missing Stripe keys did.
-//
-// An item the owner has NEVER touched has no stored value at all, and falls
-// back to the automated answer rather than to false — otherwise adding these
-// three rows would have instantly knocked 3 points off every business that has
-// been working fine for months, which is exactly the regression the
-// widget_embedded scan caused when it was first added.
 const LAUNCH_CHECKLIST_ITEMS = [
   { key: 'stripe_keys',  label: 'Stripe live keys set',   auto: 'stripe' },
   { key: 'email_keys',   label: 'Resend live keys set',   auto: 'email' },
   { key: 'website_live', label: 'Website is live',        auto: 'site' },
   { key: 'widget_embedded',    label: 'Booking widget confirmed on the page' },
-  // The five below verify the funnel actually fires end to end, not just that
-  // the booking itself saves — added after finding Mile High's and Precision's
-  // post-booking thank-you links both pointed at a real 404 (a customer who
-  // just paid landed on "page not found"), and Dom's had no thank-you URL
-  // wired in code AT ALL, silently sending its customers to TidyHaus's page.
   { key: 'thank_you_popup',    label: 'Thank-you page shows after booking' },
   { key: 'confirmation_email', label: 'Confirmation email sends' },
   { key: 'on_the_way_text',    label: 'On-the-way text sends' },
@@ -2779,40 +1975,9 @@ const LAUNCH_CHECKLIST_ITEMS = [
   { key: 'gbp_verified',   label: 'GBP verified (postcard/video)' },
   { key: 'gsc_verified',   label: 'Search Console verified + sitemap submitted' },
   { key: 'techs_staffed',  label: 'At least one tech can actually be booked' },
-  { key: 'google_ads',     label: 'Google Ads running' },   // owner 2026-10-15
+  { key: 'google_ads',     label: 'Google Ads running' },
 ];
 
-// ── Markets: a location page inside an EXISTING business, not a new company.
-// LA is the first one (a page cluster on tidyhausph.com, unstaffed, no Stripe
-// or Resend of its own — it deliberately shares TidyHaus's) and DFW/Phoenix/
-// San Antonio work the same way (see [[estimate-brokering-project]]), so this
-// lives in its own `app.markets` table rather than being forced into
-// `businesses`. Every OTHER part of the app reads `businesses` and assumes
-// each row is a fully independent company (its own Stripe account, EMAIL_
-// BRANDS entry, cross-hire mapping, review emails, ...) — inserting a market
-// there would make it eligible for all of that by accident, when the whole
-// point is that it deliberately has none of it. Same jsonb-checklist pattern
-// as businesses.settings.launch_checklist, just a separate table + item set.
-// No LLC item: these pages operate under the parent business's own entity,
-// so forming a separate one was never actually part of the plan (owner
-// confirmed 2026-09-10) — unlike gbp_created/gbp_verified/can_book, which are
-// real per-page facts regardless of whose LLC is behind the page. GBP is
-// split into created vs. verified, same as the business checklist, because
-// for these pages verification is specifically the video method (no public
-// storefront to mail a postcard to) and that's the actual bottleneck the
-// owner is prioritizing — a page can sit at "created" for a while before the
-// video call actually happens.
-// address_chosen mirrors url_chosen_and_directed: a plain milestone tick for
-// "we've settled on an address", independent of what that address actually
-// is. As of 2026-09-10 the owner hasn't decided Fort Worth's (or the other
-// new locations') address yet, so this needs to sit unticked without
-// blocking on anything else. The literal text goes in `address`, its own
-// column on the row (see launchMarketAddressSet below) — a real street
-// address is exactly the thing Google's video verifier checks against, so
-// WHICH one matters and a checkbox alone couldn't say.
-// Same 14 items as a business (owner call 2026-09-22: a TidyHaus location is
-// not a lesser thing than a brand). A market has no keys of its own, so the
-// three `auto` items are plain ticks here rather than live checks.
 const MARKET_CHECKLIST_ITEMS = LAUNCH_CHECKLIST_ITEMS.map(({ key, label }) => ({ key, label }));
 
 async function launchMarketRows(db) {
@@ -2849,21 +2014,10 @@ async function launchMarketRows(db) {
   }));
 }
 
-// GET ?action=launch_traffic — daily unique sessions + page views for the last
-// 30 days, for the chart on every Launch card. One grouped query
-// (public.launch_daily_traffic, migration 0127) across BOTH trackers: the
-// microsites report to web_events_sites keyed by site, tidyhausph.com reports
-// to web_events and is split by URL path so each TidyHaus location page gets
-// its own line.
 const LAUNCH_TRAFFIC_SITE_KEY = { 'mile-high': 'milehightvmounting' };
-// Businesses with no website yet: their Launch card shows title, checklist and
-// notes only -- no traffic, book clicks, bookings or health, and none of it is
-// queried (owner 2026-10-09). Add a slug here to hide another one.
 const LAUNCH_NO_METRICS = new Set(['latvpro', 'lainstall']);
 async function launchTraffic(req, res, db, auth) {
   if (auth.role !== 'owner' && !isLaunchJoey(auth)) return res.status(403).json({ error: 'Owner only' });
-  // 60 days so the 30d chart can show % vs the 30 days before. Reads the
-  // daily rollup (migration 0220), so this is ms, not seconds.
   const DAYS = 60;
   const dayKey = (d) => new Date(d).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const days = [];
@@ -2878,13 +2032,11 @@ async function launchTraffic(req, res, db, auth) {
   const pathOf = (u) => { try { return new URL(u).pathname.replace(/\/+$/, '') || '/'; } catch { return null; } };
   const siteKeyOf = (slug) => LAUNCH_TRAFFIC_SITE_KEY[slug] || slug;
   const marketPath = {};
-  // A market on its own site root (e.g. MillerTime) is not an ihandyandy path: '/' would chart HA's home page.
   const ownSite = new Set();
   for (const m of (markets || [])) { const p = pathOf(m.url); if (p === '/') ownSite.add(m.slug); else if (p) marketPath[m.slug] = p; }
 
   const metricBiz = (businesses || []).filter(b => !LAUNCH_NO_METRICS.has(b.slug));
   const keys = [...new Set([...metricBiz.map(b => siteKeyOf(b.slug)), ...Object.values(marketPath), ...ownSite, 'doms-okc', 'doms-tulsa'])];
-  // Page views and book clicks (migration 0192), same keys, side by side.
   const pub = serviceClientPublic();
   const [{ data: rows, error }, clickRes] = await Promise.all([
     pub.rpc('launch_daily_traffic', { p_days: DAYS + 1 }).in('key', keys).limit(5000),
@@ -2903,8 +2055,6 @@ async function launchTraffic(req, res, db, auth) {
     b.s[i] = Number(r.sessions) || 0;
     b.v[i] = Number(r.views) || 0;
   }
-  // c = book clicks, one per visitor per day. Fail-soft: a failed read just
-  // leaves the cards without the row (c stays null), page views still show.
   const clicksOk = !clickRes.error;
   for (const r of (clicksOk ? (clickRes.data || []) : [])) {
     const i = idx.get(String(r.day).slice(0, 10));
@@ -2917,13 +2067,8 @@ async function launchTraffic(req, res, db, auth) {
   const zeroSeries = () => { const z = zero(); if (!clicksOk) z.c = null; return z; };
   const series = {}, marketSeries = {};
   for (const b of metricBiz) {
-    // The TidyHaus parent has no single-site key (it is charted per location).
-    // Dom's reports to web_events_doms, which the SQL function returns as site 'doms'.
-    series[b.slug] = (b.slug === 'handy-andy') ? null : (bucket[`site:${siteKeyOf(b.slug)}`] || zeroSeries());
+    series[b.slug] = (b.slug === 'tidyhaus') ? null : (bucket[`site:${siteKeyOf(b.slug)}`] || zeroSeries());
   }
-  // Dom's cities come back from SQL as their own site keys (migration 0174):
-  // okc-doms -> 'doms-okc', tulsa-doms -> 'doms-tulsa'. Dom's own card ('doms')
-  // is the home page + Denver pages only.
   for (const m of (markets || [])) {
     const domsKey = /-doms$/.test(m.slug) ? 'doms-' + m.slug.replace(/-doms$/, '') : null;
     marketSeries[m.slug] = domsKey ? (bucket[`site:${domsKey}`] || zeroSeries())
@@ -2933,10 +2078,6 @@ async function launchTraffic(req, res, db, auth) {
   return res.status(200).json({ days, series, marketSeries });
 }
 
-// GET ?action=web_hub&src=&from=&to=&hourly=1&compare=1 -- Analytics >
-// Website. Everything comes pre-aggregated from public.web_hub_stats
-// (migration 0223 rollup: US only, bots and our preview tools removed).
-// compare=1 also returns the same-length window right before.
 async function webHub(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const q = req.query || {};
@@ -2972,15 +2113,8 @@ async function webHub(req, res, db, auth) {
   return res.status(200).json({ sites, cur: cur.data, prev: prev && !prev.error ? prev.data : null });
 }
 
-// Booking -> analytics_config.markets index ({ idx, basis }). Shared by the
-// Overview market rows and the Launch cards so a booking is credited to
-// exactly one page. Booking shape: { source_page, landing_page, city, state }.
 function bookingMarketCreditor(markets) {
   const normPath = p => { const s = String(p || '').trim(); return s ? (s.replace(/\/+$/, '') || '/') : null; };
-  // City keys are city+state first (e.g. "pasadena|tx") so two markets that
-  // both list a same-named city in different states (Houston and LA both
-  // have a Pasadena) don't collide; city-only stays as a fallback for
-  // bookings with no state on file.
   const marketByPath = new Map(), marketByCityState = new Map(), marketByCity = new Map();
   (markets || []).forEach((m, i) => {
     for (const p of (m.paths || [])) { const k = normPath(p); if (k && !marketByPath.has(k)) marketByPath.set(k, i); }
@@ -2991,12 +2125,6 @@ function bookingMarketCreditor(markets) {
       if (m.state) { const k = `${city}|${String(m.state).toLowerCase().trim()}`; if (!marketByCityState.has(k)) marketByCityState.set(k, i); }
     }
   });
-  // The metro row a leftover booking lands on when neither its page nor its
-  // city match anything configured -- the FIRST market in config order
-  // (metro before sub-page), matching how an unattributed booking has
-  // always been credited. Never left unmatched: a booking that matches
-  // nothing would silently vanish from both this row and the portfolio
-  // total instead of just being imprecisely placed.
   const catchAllIdx = 0;
   return (bk) => {
     for (const cand of [bk.source_page, bk.landing_page]) {
@@ -3011,14 +2139,6 @@ function bookingMarketCreditor(markets) {
   };
 }
 
-// GET ?action=launch_health — "how is it going" numbers for every LIVE Launch
-// card, business and market alike, keyed like the traffic chart ('slug' for a
-// business, 'm:slug' for a market). A handful of batched reads over the last
-// 35 days, then everything is bucketed in memory: no per-card queries. Each
-// metric is computed fail-soft: a failing read leaves that metric null (the
-// card shows a grey dash) and never breaks the payload. Website / Stripe /
-// traffic are NOT here — the card already has them from launch_status and
-// launch_traffic.
 async function launchHealth(req, res, db, auth) {
   if (auth.role !== 'owner' && !isLaunchJoey(auth)) return res.status(403).json({ error: 'Owner only' });
   const DAY = 24 * 60 * 60 * 1000, now = Date.now();
@@ -3037,8 +2157,6 @@ async function launchHealth(req, res, db, auth) {
     soft(db.from('call_attempts').select('phone, started_at').gte('started_at', since(8)).limit(10000)),
     soft(db.from('bookings').select('business_id, service_area_id, status, source, city, state, metadata, created_at, customer:customers ( email, phone )').gte('created_at', since(35)).limit(10000)),
     soft(db.from('google_reviews').select('business_id, location_key, rating, review_date').is('dismissed_at', null).limit(10000)),
-    // Website bookings that may have been done in the last 30 days, whenever
-    // they were booked (the exact "done" test is below).
     soft(db.from('bookings').select('business_id, service_area_id, status, payment_status, source, city, state, metadata, completed_at, paid_at, scheduled_at, customer:customers ( email, phone )')
       .neq('status', 'cancelled')
       .or(`completed_at.gte."${since(30)}",paid_at.gte."${since(30)}",scheduled_at.gte."${since(30)}"`).limit(10000)),
@@ -3049,36 +2167,26 @@ async function launchHealth(req, res, db, auth) {
   const bizBySlug = new Map((businesses || []).map(b => [b.slug, b.id]));
   const pathOf = (u) => { try { return new URL(u).pathname.replace(/\/+$/, '') || '/'; } catch { return null; } };
 
-  // Cards: every business, every market.
   const cards = {};
   for (const b of (businesses || [])) if (!LAUNCH_NO_METRICS.has(b.slug)) cards[b.slug] = { kind: 'business', slug: b.slug, bizId: b.id, numbers: [], scores: (b.settings && b.settings.launch_scores) || {}, gbpKey: { doms: 'doms-colorado', a1tvmounting: 'a1-dfw', houstonperfectviewtvmounting: 'perfectview-houston', austin: 'astraea-austin' }[b.slug] || null };
   for (const m of (markets || [])) {
     const city = (m.settings && m.settings.city) || m.name;
     const parentId = bizBySlug.get(m.parent_business_slug);
-    // Dom's OKC/Tulsa are real service areas; TidyHaus pages are credited by
-    // the booking's source page (see booking source attribution).
     const area = (areas || []).find(a => a.business_id === parentId && (a.name === city || a.name === m.name));
     cards['m:' + m.slug] = {
       kind: 'market', slug: m.slug, bizId: parentId, areaId: area ? area.id : null,
-      path: m.parent_business_slug === 'handy-andy' ? pathOf(m.url) : null,
-      // google_reviews.location_key: ha-golden, doms-okc, ...
-      reviewKey: m.parent_business_slug === 'handy-andy' ? 'ha-' + String(m.slug).replace(/-ha$/, '')
+      path: m.parent_business_slug === 'tidyhaus' ? pathOf(m.url) : null,
+      reviewKey: m.parent_business_slug === 'tidyhaus' ? 'ha-' + String(m.slug).replace(/-ha$/, '')
         : (m.parent_business_slug === 'doms' ? 'doms-' + String(m.slug).replace(/-doms$/, '') : null),
       name: m.name, city, parent: m.parent_business_slug, numbers: [],
       scores: (m.settings && m.settings.launch_scores) || {},
     };
-    if (cards['m:' + m.slug].reviewKey === 'ha-la') cards['m:' + m.slug].reviewKey = 'ha-los-angeles';   // google_reviews uses the listing key
+    if (cards['m:' + m.slug].reviewKey === 'ha-la') cards['m:' + m.slug].reviewKey = 'ha-los-angeles';
     const rk = cards['m:' + m.slug].reviewKey;
     const solo = rk ? [] : GMB_LOCATIONS.filter(l => l.business === m.parent_business_slug);
     cards['m:' + m.slug].gbpKey = rk || (solo.length === 1 ? solo[0].key : null);
   }
-  // Tracking numbers: a market owns the parent's numbers whose label names it
-  // ("TidyHaus Golden"); a business owns all of its own.
-  // `tags` = every number shown on the card (inactive ones too, as "not live").
-  // Dom's markets are matched by tracking_numbers.market (OKC's label is just
-  // "Dom's Home Cleaning"); those numbers then leave the Dom's (Denver) card.
   for (const c of Object.values(cards)) c.tags = [];
-  // Unused spare lines the owner doesn't want on Launch (HA Denver 2: 0 calls ever).
   const LAUNCH_HIDDEN_NUMBERS = new Set(['0000000000']);
   for (const n of (numbers || [])) {
     const ph = last10(n.phone), on = n.active !== false;
@@ -3099,7 +2207,6 @@ async function launchHealth(req, res, db, auth) {
     }
   }
 
-  // Index calls / messages by our number.
   const inbound = {}, outTexts = {}, missed = {};
   if (calls) for (const c of calls) {
     const ph = last10(c.grasshopper_number); if (!ph) continue;
@@ -3117,8 +2224,6 @@ async function launchHealth(req, res, db, auth) {
       if (m.status === 'failed' || m.status === 'undelivered') o.failed++;
     }
   }
-  // Returned = called back (called_back_at), a later answered call from the
-  // same caller on any line, or a staff call attempt to them after the miss.
   const answeredBy = {}, attemptBy = {};
   if (calls) for (const c of calls) if (c.answered) { const p = last10(c.caller_phone); (answeredBy[p] = answeredBy[p] || []).push(Date.parse(c.occurred_at)); }
   if (attempts) for (const a of attempts) { const p = last10(a.phone); (attemptBy[p] = attemptBy[p] || []).push(Date.parse(a.started_at)); }
@@ -3128,14 +2233,8 @@ async function launchHealth(req, res, db, auth) {
     return (answeredBy[p] || []).some(x => x > t) || (attemptBy[p] || []).some(x => x > t);
   };
 
-  // Booked from the card's own page (website widget bookings only; cancelled
-  // and internal/test contacts left out). One card per booking: a business
-  // with analytics_config.markets (TidyHaus) is split by the Overview's
-  // page-then-city attribution, so Houston and Greenway (Denver and Golden)
-  // never pool; its business card is the main-site market ("/"). Dom's
-  // OKC/Tulsa by service area, the rest of Dom's on the Dom's card.
   const booked = {}, completed = {};
-  const keyByBizMarket = new Map();   // bizId -> [cardKey per config market]
+  const keyByBizMarket = new Map();
   for (const b of (businesses || [])) {
     const ms = b.analytics_config && Array.isArray(b.analytics_config.markets) ? b.analytics_config.markets : null;
     if (!ms || !ms.length) continue;
@@ -3146,7 +2245,6 @@ async function launchHealth(req, res, db, auth) {
       return hit ? hit[0] : null;
     }) });
   }
-  // The card a website booking belongs to: one rule for Booked and Completed.
   const cardKeyOf = (bk) => {
     const split = keyByBizMarket.get(bk.business_id);
     if (split) {
@@ -3158,18 +2256,14 @@ async function launchHealth(req, res, db, auth) {
   };
   const tally = (into, key, t) => { const e = into[key] || (into[key] = { d7: 0, d30: 0 }); e.d30++; if (t >= now - 7 * DAY) e.d7++; };
   if (bookings !== null) for (const bk of bookings) {
-    if (bk.status === 'cancelled' || isInternalContact(bk.customer)) continue;   // phone bookings count too (owner 2026-10-15)
+    if (bk.status === 'cancelled' || isInternalContact(bk.customer)) continue;
     const t = Date.parse(bk.created_at);
     if (!(t >= now - 30 * DAY)) continue;
     const key = cardKeyOf(bk);
     if (key) tally(booked, key, t);
   }
-  // Completed (owner 2026-10-09): the same website bookings, done -- status
-  // completed or paid -- in the last 7 / 30 days, counted on the day the job
-  // was done (completed_at, else paid_at, else the scheduled time), whenever
-  // it was booked.
   if (doneJobs !== null) for (const bk of doneJobs) {
-    if (bk.status === 'cancelled' || isInternalContact(bk.customer)) continue;   // phone bookings count too (owner 2026-10-15)
+    if (bk.status === 'cancelled' || isInternalContact(bk.customer)) continue;
     if (bk.status !== 'completed' && bk.payment_status !== 'paid') continue;
     const t = Date.parse(bk.completed_at || bk.paid_at || bk.scheduled_at);
     if (!(t >= now - 30 * DAY && t <= now)) continue;
@@ -3182,27 +2276,23 @@ async function launchHealth(req, res, db, auth) {
     const h = { numbers: c.numbers.length, tags: c.tags };
     if (bookings !== null) h.booked = booked[key] || { d7: 0, d30: 0 };
     if (doneJobs !== null) h.completed = completed[key] || { d7: 0, d30: 0 };
-    // Phone line
     if (calls !== null || msgs !== null) {
       if (!c.numbers.length) h.phone = null;
       else {
         const ts = c.numbers.flatMap(n => inbound[n] || []);
         const lastIn = ts.length ? Math.max(...ts) : null;
-        const prior = ts.filter(t => t < now - 2 * DAY).length;   // 28 days before the last 48h
+        const prior = ts.filter(t => t < now - 2 * DAY).length;
         const o = c.numbers.reduce((a, n) => { const x = outTexts[n]; if (x) { a.sent += x.sent; a.failed += x.failed; } return a; }, { sent: 0, failed: 0 });
         h.phone = { lastIn: lastIn ? new Date(lastIn).toISOString() : null, usual: prior >= 3, textsSent: o.sent, textsFailed: o.failed };
       }
     }
-    // Missed calls this week
     if (calls !== null && c.numbers.length) {
       const ms = c.numbers.flatMap(n => missed[n] || []);
-      // One per caller: three rings from the same number are one missed lead.
       const byCaller = new Map();
       for (const x of ms) { const p = last10(x.caller_phone); if (!byCaller.has(p) || Date.parse(x.occurred_at) > Date.parse(byCaller.get(p).occurred_at)) byCaller.set(p, x); }
       const list = [...byCaller.values()];
       h.missed = { count: list.length, notReturned: list.filter(x => !returned(x)).length };
     }
-    // Bookings: this 7 days vs the 7 before, plus the 4 weeks before this one.
     if (bookings !== null && c.bizId) {
       const mine = bookings.filter(b => {
         if (b.status === 'cancelled' || b.business_id !== c.bizId) return false;
@@ -3211,7 +2301,6 @@ async function launchHealth(req, res, db, auth) {
           if (c.path) return ((b.metadata && b.metadata.source_page) || '').replace(/\/+$/, '') === c.path;
           return false;
         }
-        // A business card leaves out bookings credited to its own market cards.
         const sp = ((b.metadata && b.metadata.source_page) || '').replace(/\/+$/, '');
         return !Object.values(cards).some(m => m.kind === 'market' && m.bizId === c.bizId
           && ((m.areaId && m.areaId === b.service_area_id) || (m.path && sp && m.path === sp)));
@@ -3222,7 +2311,6 @@ async function launchHealth(req, res, db, auth) {
         prior4w: mine.filter(t => t < now - 7 * DAY).length,
       };
     }
-    // Google reviews (only where captured reviews exist for the card)
     if (reviews !== null && c.bizId) {
       const rs = reviews.filter(r => r.business_id === c.bizId && (c.kind === 'business' || r.location_key === c.reviewKey));
       if (rs.length) {
@@ -3231,9 +2319,7 @@ async function launchHealth(req, res, db, auth) {
           rating: Math.round(rs.reduce((a, r) => a + (Number(r.rating) || 0), 0) / rs.length * 10) / 10, total: rs.length };
       }
     }
-    // Owner stats (2026-10-15): own scores, calls 7d/30d, reviews 7d/30d, Google review count.
     h.scores = c.scores || {};
-    // Which location has a tech / Google listing / Google Ads (owner 2026-10-15).
     {
       const AREA_OF = { greenway: 'houston', golden: 'denver', 'fort worth': 'dallas-fort worth', arlington: 'dallas-fort worth', dallas: 'dallas-fort worth', okc: 'oklahoma city', 'los angeles': 'los angeles' };
       const want = c.kind === 'market' ? (AREA_OF[String(c.city || c.name || '').toLowerCase()] || String(c.city || c.name || '').toLowerCase()) : null;
@@ -3241,12 +2327,10 @@ async function launchHealth(req, res, db, auth) {
       const chk = c.kind === 'market' ? ((markets || []).find(m => 'm:' + m.slug === key)?.settings?.launch_checklist || {}) : ((businesses || []).find(b => b.slug === key)?.settings?.launch_checklist || {});
       h.ads = !!chk.google_ads;
       h.listing = !!(c.gbpKey && GMB_LOCATIONS.some(l => l.key === c.gbpKey)) || !!chk.gbp_created;
-      // Link to the listing on Maps (owner 2026-10-19): market by gbpKey, a one-listing brand by its business slug.
       {
         const loc = (c.gbpKey && GMB_LOCATIONS.find(l => l.key === c.gbpKey))
           || (c.kind === 'business' ? (() => { const m = GMB_LOCATIONS.filter(l => l.business === c.slug); return m.length === 1 ? m[0] : null; })() : null);
         h.listing_url = (loc && (loc.mapsUrl || (loc.placeId ? 'https://www.google.com/maps/place/?q=place_id:' + loc.placeId : null))) || null;
-        // Ranking button (owner 2026-10-20): only when this listing is in the rank grid.
         { const rc = loc && RANK_CITIES.find(x => x.listings.includes(loc.key)); h.rank = rc ? { city: rc.city, target: loc.key } : null; }
         if (loc) h.posts = (gbpPostRows || []).filter(x => x.location_key === loc.key).slice(0, 2).map(({ location_key, ...x }) => x);
       }
@@ -3271,15 +2355,7 @@ async function launchHealth(req, res, db, auth) {
   return res.status(200).json({ health: out, at: new Date().toISOString() });
 }
 
-// ── Launch saved snapshot (app.launch_snapshots, migration 0238) ─────────────
-// Owner 2026-10-24: the Launch screen paints ONLY from the last saved scan, so
-// opening it is one row read and no live checks. The browser's Refresh button
-// runs launch_status + launch_health + launch_traffic in parallel (no single
-// long serverless request) and stores the combined result with
-// launch_snapshot_save. data = { status, health, traffic, at:{part:iso},
-// failed:[part], took_ms }.
 const LAUNCH_SNAPSHOT_KEEP = 5;
-// GET ?action=launch_snapshot -- the latest snapshot, or null before the first Refresh.
 async function launchSnapshot(req, res, db, auth) {
   const joey = isLaunchJoey(auth);
   if (auth.role !== 'owner' && !joey) return res.status(403).json({ error: 'Owner only' });
@@ -3287,7 +2363,6 @@ async function launchSnapshot(req, res, db, auth) {
     .select('id, rev, data, refreshed_at, refreshed_by').order('id', { ascending: false }).limit(1).maybeSingle();
   if (error) throw error;
   if (!row) return res.status(200).json({ snapshot: null });
-  // Joey: same read-only, no-notes view launch_status gives her.
   if (joey && row.data && row.data.status) {
     const st = row.data.status;
     row.data.status = { ...st, businesses: (st.businesses || []).map(b => ({ ...b, notes: '' })),
@@ -3295,7 +2370,6 @@ async function launchSnapshot(req, res, db, auth) {
   }
   return res.status(200).json({ snapshot: row });
 }
-// POST ?action=launch_snapshot_save { data } -- store a new snapshot, keep the last few.
 async function launchSnapshotSave(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -3311,10 +2385,6 @@ async function launchSnapshotSave(req, res, db, auth, body) {
   if (old && old.length) await db.from('launch_snapshots').delete().in('id', old.map(r => r.id));
   return res.status(200).json({ ok: true, snapshot: row });
 }
-// Small edits (ticks, notes, scores) patch the latest snapshot in place so the
-// saved screen stays correct on every device until the next Refresh. fn
-// mutates data (return false to skip). rev is an optimistic lock: a patch that
-// lost a race re-reads and retries. Fail-soft: the edit itself is already saved.
 async function launchSnapshotPatch(db, fn) {
   for (let i = 0; i < 3; i++) {
     try {
@@ -3333,18 +2403,15 @@ const launchSnapRow = (d, kind, id) => {
   const st = d && d.status; if (!st) return null;
   return ((kind === 'market' ? st.markets : st.businesses) || []).find(x => x && String(x.id) === String(id)) || null;
 };
-// Checklist side effects on the health part (launch_health reads these two).
 const launchSnapHealthTick = (d, key, item, value) => {
   const h = d && d.health && d.health[key]; if (!h) return;
   if (item === 'google_ads') h.ads = !!value;
   if (item === 'gbp_created' && value) h.listing = true;
 };
 
-// Joey sees Launch (owner 2026-10-15): only these city cards, read-only, no notes.
 const JOEY_LAUNCH_MARKETS = new Set(['arlington', 'tulsa-doms', 'okc-doms', 'denver-ha', 'houston-ha', 'austin-ha', 'la', 'fort-worth']);
 const isLaunchJoey = (auth) => !!auth && auth.role === 'secretary' && auth.name === 'Joey';
 async function launchStatus(req, res, db, auth) {
-  // Joey sees the full Launch tab, same as the owner (owner 2026-10-19), read-only, notes hidden.
   const joey = isLaunchJoey(auth);
   if (auth.role !== 'owner' && !joey) return res.status(403).json({ error: 'Owner only' });
   const { data: businesses, error } = await db.from('businesses')
@@ -3377,7 +2444,7 @@ async function launchStatus(req, res, db, auth) {
         site.status = r.status;
         site.ok = r.ok;
         const html = await r.text();
-        site.hasWidget = html.includes('handy-andy-booking.vercel.app/widget.js')
+        site.hasWidget = html.includes('tidyhaus-booking.vercel.app/widget.js')
           && html.includes(`data-business="${biz.slug}"`);
         if ((preview || OWN_WIDGET_SLUGS.has(biz.slug)) && r.ok) {
           const bookingResponse = await fetch(assessmentUrl + '/book', { signal: AbortSignal.timeout(6000), redirect: 'follow' });
@@ -3413,13 +2480,6 @@ async function launchStatus(req, res, db, auth) {
   });
 }
 
-// POST ?action=launch_notes_set — free-text notes on a launch card, business
-// or market. Same jsonb-in-settings pattern as launch_checklist rather than a
-// new column: this is scratch space for the owner ("waiting on Kregg",
-// "landlord wants proof of insurance"), not a tracked fact anything else in
-// the app reads, so it doesn't need a migration or its own table.
-// Owner's own 1-10 scores on a Launch card (owner 2026-10-15): website quality
-// and Google Business Profile. Kept in settings.launch_scores by slug.
 async function launchScoreSet(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const table = body.kind === 'market' ? 'markets' : 'businesses';
@@ -3442,8 +2502,6 @@ async function launchNotesSet(req, res, db, auth, body) {
   const kind = body.kind === 'market' ? 'market' : 'business';
   const id = String(body.id || '').trim();
   if (!id) return res.status(400).json({ error: 'id is required' });
-  // Generous cap — this is a running log a busy owner may paste updates into
-  // over weeks, not a one-line field. 1 char short of "too big to be useful."
   const notes = String(body.notes || '').slice(0, 5000);
 
   const table = kind === 'market' ? 'markets' : 'businesses';
@@ -3505,16 +2563,7 @@ async function launchChecklistSet(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, checklist });
 }
 
-// ── Coupons (Other -> Coupons) ───────────────────────────────────────────────
-// The live promo-code list. Previously three hardcoded copies (api/book.js's
-// HA_COUPONS/DOMS_COUPONS plus public/widget.js's own COUPONS) that had already
-// drifted apart, so the website could call a code invalid that the server would
-// have honored. This is now the single source; book.js reads it and the widget
-// fetches it, with the old maps left only as a fallback.
-//
-// Usage is counted off the bookings themselves: a redeemed code is stored as a
-// "Coupon <CODE>" line item, so the count is real redemptions, not clicks.
-const COUPON_MAX = 500;   // dollars — a fat-fingered code never silently saves
+const COUPON_MAX = 500;
 async function couponsList(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const { data, error } = await db.from('coupons')
@@ -3524,18 +2573,12 @@ async function couponsList(req, res, db, auth) {
     if (/coupons/.test(error.message || '')) return res.status(200).json({ coupons: [], usage: {} });
     throw error;
   }
-  // Redemption counts + what each code has actually given away. Line items live
-  // in their OWN table (app.booking_line_items) — bookings has no line_items
-  // column at all, so reading it there silently returned nothing and every code
-  // reported "never used" while 16 real redemptions sat in the database.
   const usage = {};
   try {
     const { data: lis } = await db.from('booking_line_items')
       .select('name, line_total, booking_id, created_at')
       .eq('business_id', biz.id).ilike('name', 'coupon%')
       .limit(20000);
-    // Exclude cancelled bookings: a cancelled job's coupon was never really
-    // given away, and counting it overstates what the code has cost.
     const ids = [...new Set((lis || []).map(l => l.booking_id).filter(Boolean))];
     const cancelled = new Set();
     for (let i = 0; i < ids.length; i += 200) {
@@ -3545,9 +2588,6 @@ async function couponsList(req, res, db, auth) {
     }
     for (const li of lis || []) {
       if (li.booking_id && cancelled.has(li.booking_id)) continue;
-      // "Coupon TV2026" -> TV2026. A bare "Coupon" line (one exists, from an
-      // early booking) has no code to attribute, so it's counted nowhere
-      // rather than being guessed onto some code that didn't earn it.
       const m = String(li.name || '').match(/^coupon\s+([A-Z0-9_-]+)/i);
       if (!m) continue;
       const k = m[1].toUpperCase();
@@ -3561,7 +2601,6 @@ async function couponsList(req, res, db, auth) {
 }
 async function couponsSave(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  // A promo code is money off every job that uses it — owner only.
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can change coupons' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
 
@@ -3598,7 +2637,7 @@ async function couponsSave(req, res, db, auth, body) {
     }
     out = data;
   }
-  couponCacheClear(biz.slug);   // so a repriced code takes effect on the very next booking
+  couponCacheClear(biz.slug);
   return res.status(200).json({ ok: true, id: out?.id || null });
 }
 async function couponsDelete(req, res, db, auth, body) {
@@ -3612,12 +2651,6 @@ async function couponsDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Seed / repair the TidyHaus "TV Installation" option groups ─────────────
-// The public widget (widget.js) hardcodes every TV-mounting option, so a DB that
-// never received migrations 0003/0015 still books fine publicly — but the admin
-// New Booking form reads the option groups from the DB and would only show the
-// one group that 0001 seeds (TV Size). This action idempotently inserts every
-// missing group + option so the full New Booking flow works. Matches 0003/0015.
 const TV_OPTION_GROUPS = [
   { key: 'size',      label: 'TV Size',                       min: 1, max: 1, sort: 1, options: [
     { label: '32" or Less', price: 99,  zbk: '1685657519214x408615950244710660', sort: 1 },
@@ -3677,7 +2710,6 @@ const TV_OPTION_GROUPS = [
 async function seedTvOptions(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
 
-  // Find the TV-mounting service (named "TV Installation"; fall back to category).
   let { data: svc } = await db.from('services')
     .select('id, name, category').eq('business_id', biz.id).eq('name', 'TV Installation').maybeSingle();
   if (!svc) {
@@ -3689,7 +2721,6 @@ async function seedTvOptions(req, res, db, auth) {
 
   const report = { service: svc.name, groups_created: [], groups_existing: [], options_created: 0, options_existing: 0 };
 
-  // Existing groups for this service, keyed by `key`.
   const { data: existingGroups } = await db.from('service_option_groups')
     .select('id, key').eq('business_id', biz.id).eq('service_id', svc.id);
   const groupByKey = {};
@@ -3709,7 +2740,6 @@ async function seedTvOptions(req, res, db, auth) {
       report.groups_created.push(g.key);
     }
 
-    // Options already present in this group, keyed by zenbooker_option_id.
     const { data: existingOpts } = await db.from('service_options')
       .select('id, zenbooker_option_id').eq('business_id', biz.id).eq('group_id', groupId);
     const haveZbk = new Set((existingOpts || []).map(o => o.zenbooker_option_id));
@@ -3729,19 +2759,12 @@ async function seedTvOptions(req, res, db, auth) {
   return res.status(200).json({ ok: true, ...report });
 }
 
-// Normalize the three large TV size tiers to their canonical labels for
-// whichever business is calling: 70–84 → 70–85", 85–97 → 86–97" (non-overlapping
-// at 85), and "98 plus" → 98"+. Label-only, never inserts rows, so it's safe for
-// any business regardless of its option set. Each rule fires only on the LEGACY
-// form, so it's idempotent (the renamed labels no longer match). The admin New
-// Booking flow calls this once when it detects a stale label, so the rename
-// reaches the live DB on its own.
 function targetSizeLabel(label) {
   const nums = (label.match(/\d+/g) || []).map(Number);
-  if (nums.includes(70) && nums.includes(84)) return '70"–85"';   // 70–84 → 70–85
-  if (nums.includes(85) && nums.includes(97)) return '86"–97"';   // 85–97 → 86–97
-  if (/plus/i.test(label) && nums.includes(98)) return '98"+';    // "98 plus" → 98"+
-  return null;                                                    // small tiers untouched
+  if (nums.includes(70) && nums.includes(84)) return '70"–85"';
+  if (nums.includes(85) && nums.includes(97)) return '86"–97"';
+  if (/plus/i.test(label) && nums.includes(98)) return '98"+';
+  return null;
 }
 async function relabelTvSize(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
@@ -3768,7 +2791,6 @@ async function relabelTvSize(req, res, db, auth) {
   return res.status(200).json({ ok: true, updated });
 }
 
-// ── Available time slots for a date (filtered by technician if provided) ─────
 async function availableSlots(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const dateStr = (req.query.date || '').toString();
@@ -3778,36 +2800,16 @@ async function availableSlots(req, res, db, auth) {
   if (!dateStr) return res.status(400).json({ error: 'date required (YYYY-MM-DD)' });
 
   const dow = dayOfWeekFor(dateStr);
-  // Slots + occupancy are computed in the customer's METRO timezone (from the
-  // zip), so a Central booking's slots line up with how its jobs are stored —
-  // not the single business (Mountain) clock.
   const bookingAreaId = await serviceAreaIdFromPostal(db, biz.id, postalCode);
   const tz = await areaTimezone(db, bookingAreaId, biz.timezone || 'Asia/Manila');
   if (dateStr < localDateStr(tz, new Date().toISOString())) {
     return res.status(200).json({ slots: [], date: dateStr, day_of_week: dow, timezone: tz });
   }
-  // Each technician can come from a different company pool: pool drives the
-  // primary, pool2 the second tech. 'partner' scans the OTHER company's roster.
-  // Every scope is pinned to that company's own metro for this zip — an "any"
-  // side must never offer (or later book) a slot only an out-of-metro tech has.
-  // bookingAreaId is passed through as the host area — rosterScopes would
-  // otherwise repeat the exact same business+zip lookup we just did above.
   const scopesPrimary = await rosterScopes(db, biz, (req.query.pool || '').toString(), postalCode, bookingAreaId);
-  // Want a two-tech pair whenever a second tech is requested — unless it's the
-  // SAME concrete person as the primary (not a real pair). Two "any" sides ARE
-  // a pair: we look for two DISTINCT free techs below.
   const wantPair = !!techId2 && !(techId2 === techId && techId2 !== 'any');
   const primaryAny = !techId || techId === 'any';
   const allowOwnHelper = wantPair && techId2 === 'any' && ['1', 'true'].includes(String(req.query.needs_lifting));
 
-  // The primary side's full roster + per-tech slot state, fetched ONCE. It's
-  // needed to answer "is anyone free" whenever the primary is "any" tech, AND
-  // to build the "who's free" circles below (always the full roster,
-  // regardless of which concrete tech is picked) — one query round now
-  // answers both instead of two separate ones (this used to be computed, then
-  // thrown away, then recomputed from scratch a few lines later — the actual
-  // cost behind every slow date-click on "Any Technician"). Resolved alongside
-  // the secondary scope (independent lookup) instead of after it.
   const [rosterState, scopesSecondary] = await Promise.all([
     rosterSlotState(db, scopesPrimary, dateStr, dow, tz)
       .catch(e => { console.warn('[available_slots] roster/slot-state lookup failed:', e.message); return null; }),
@@ -3817,9 +2819,6 @@ async function availableSlots(req, res, db, auth) {
   const primaryRSS = rosterState && req.query.strict_roster === '1'
     ? {...rosterState, techs:rosterState.techs.filter(t=>t.status!=='off')} : rosterState;
 
-  // Reuse the already-fetched state when a concrete tech is picked. Phone
-  // bookings must stay inside the ZIP roster; an unavailable roster is an
-  // error, never permission to broaden the search to another technician.
   if (req.query.strict_roster === '1' && !primaryRSS) throw new Error('Could not check the technician roster. Please retry.');
   const primaryState = primaryRSS && (primaryAny || primaryRSS.state.has(techId) || req.query.strict_roster === '1')
     ? { ...primaryRSS, techs: primaryRSS.techs.filter(t => primaryAny || t.id === techId) } : null;
@@ -3829,16 +2828,9 @@ async function availableSlots(req, res, db, auth) {
     keys = primaryState ? freeKeysFromState(primaryState)
       : await availableSlotKeys(db, scopesPrimary, techId, dateStr, dow, tz);
   } else {
-    // Two-technician job (e.g. a large-TV lift): only offer slots where a
-    // DISTINCT pair is free — one tech from the primary side and a different
-    // tech from the second side. Each side may be a concrete person OR "any" of
-    // a (possibly different) company pool. The two sides are unrelated, so
-    // fetch them concurrently rather than one after the other.
     const [pMap, sMap] = await Promise.all([
       primaryState ? Promise.resolve(freeMapFromState(primaryState))
         : freeSlotTechMap(db, scopesPrimary, techId, dateStr, dow, tz),
-      // Ineligible-secondary filter on the SECOND-tech side so an "Any <company>"
-      // pick never offers a slot only Juan/Zach can cover.
       primaryRSS && scopesSecondary === scopesPrimary && techId2 === 'any'
         ? Promise.resolve(freeMapFromState({ ...primaryRSS, techs: primaryRSS.techs.filter(t => !isSecondaryIneligibleName(t.name)) }))
         : freeSlotTechMap(db, scopesSecondary, techId2, dateStr, dow, tz, true),
@@ -3847,8 +2839,6 @@ async function availableSlots(req, res, db, auth) {
     for (const [k, P] of pMap) {
       const S = sMap.get(k);
       if (!S || !S.size) continue;
-      // Both sides have someone free here; it's a valid pair unless that
-      // "someone" is the exact same single person on both sides.
       if (new Set([...P, ...S]).size >= 2) keys.add(k);
     }
     if (allowOwnHelper) {
@@ -3856,23 +2846,9 @@ async function availableSlots(req, res, db, auth) {
       for (const key of freeKeysFromState({ ...ownHelperState, techs: ownHelperState.techs.filter(t => (primaryAny || t.id === techId) && bringsOwnSecondTech(t.name)) })) keys.add(key);
     }
   }
-  // Drop slots that have already started, but only for TODAY (in the same
-  // metro tz everything else here is computed in) — a future date's slots are
-  // never affected. Compared by START time, not end: once a slot's window has
-  // begun, it's no longer a real "book this" option even if it technically
-  // runs for another hour or two.
   const nowISO = new Date().toISOString();
   const isToday = dateStr === localDateStr(tz, nowISO);
   const nowHHMM = isToday ? localHHMM(tz, nowISO) : null;
-  // Who's actually free for each offered slot — purely informational (shown as
-  // small circles next to the slot button); always the PRIMARY side's full
-  // roster regardless of which concrete tech is currently picked, so the
-  // office can see at a glance who else is around before committing. If the
-  // shared primaryRSS fetch above hit a transient failure, this gets its own
-  // independent retry rather than silently going blank — the bookability
-  // check (`keys`) already had its own fallback fetch when primaryRSS failed,
-  // so the circles deserve the same second chance instead of riding on that
-  // one failed attempt.
   let freeTechsByKey = {};
   if (primaryRSS) {
     freeTechsByKey = freeTechsByKeyFromState(primaryRSS);
@@ -3887,17 +2863,12 @@ async function availableSlots(req, res, db, auth) {
   return res.status(200).json({ slots: available, date: dateStr, day_of_week: dow, timezone: tz, recommended: rec });
 }
 
-// ── Slot occupancy (existing bookings) ───────────────────────────────────────
-// Local wall-clock HH:MM (business tz) for an instant.
 function localHHMM(tz, instantISO) {
   const p = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour12: false, hour: '2-digit', minute: '2-digit' })
     .formatToParts(new Date(instantISO)).reduce((a, x) => (a[x.type] = x.value, a), {});
-  let hh = p.hour === '24' ? '00' : p.hour;            // some envs emit 24 for midnight
+  let hh = p.hour === '24' ? '00' : p.hour;
   return `${hh}:${p.minute}`;
 }
-// Photo bonus (owner 2026-10-14): pay the tech who took a photo/video. It is a
-// normal tech_bonuses row (so payroll pays it), with the picture attached so
-// the tech's bonus popup shows exactly which shot earned it.
 async function photoBonus(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const amount = Math.round(Number(body.amount) * 100) / 100;
@@ -3910,7 +2881,6 @@ async function photoBonus(req, res, db, auth, body) {
   if (!techId) return res.status(400).json({ error: 'No tech on this photo' });
   const { data: t } = await db.from('technicians').select('business_id, business:businesses ( timezone )').eq('id', techId).maybeSingle();
   const tz = t?.business?.timezone || 'Asia/Manila';
-  // One photo bonus per job per tech (owner 2026-10-23).
   if (ph.booking_id) {
     const { data: sib } = await db.from('booking_photos').select('id').eq('booking_id', ph.booking_id);
     const ids = (sib || []).map(x => x.id);
@@ -3929,36 +2899,22 @@ async function photoBonus(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: row.id });
 }
 
-// Local calendar date 'YYYY-MM-DD' (business tz) for an instant.
 function localDateStr(tz, instantISO) {
   return new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })
     .format(new Date(instantISO));
 }
-// Which fixed slot (if any) a local wall-clock time falls inside: [start,end).
-// A first name fit for a greeting: never a phone number typed into the name field
-// ('Hi 4055551234', audit 2026-10-25).
 function greetName(s) { const n = capName(s); return n && !/\d/.test(n) ? n : ''; }
 function slotKeyForLocalTime(hhmm) {
   const toMin = s => { const [h, m] = s.split(':').map(Number); return h * 60 + m; };
   const t = toMin(hhmm);
   for (const s of SLOTS) if (t >= toMin(s.start) && t < toMin(s.end)) return s.key;
-  for (const s of SLOTS) if (toMin(s.start) === t) return s.key;   // exact-start fallback
+  for (const s of SLOTS) if (toMin(s.start) === t) return s.key;
   return null;
 }
-// Slot keys already occupied by a non-cancelled booking for ONE tech on a date.
-// `excludeId` skips one booking (used when editing it, so it never conflicts
-// with itself).
 async function bookedSlotKeysForTech(db, bizId, techId, dateStr, tz, excludeId = null) {
   if (!techId || !dateStr) return new Set();
   const dayStart = localDateStartUTC(tz, dateStr);
   const dayEnd = localDateStartUTC(tz, addDaysStr(dateStr, 1));
-  // Match where the tech is the PRIMARY *or* the SECOND tech on a two-person job,
-  // for ANY company (no business filter): a tech booked anywhere in this slot is
-  // unavailable everywhere. This is what makes a cross-company booking remove the
-  // slot on BOTH platforms. (technician_id is a globally-unique UUID, so this
-  // never widens results for single-company jobs.) Checking secondary_technician_id
-  // too means a tech booked as a HELPER is correctly seen as busy — without it a
-  // second job could be stacked onto a tech who's already someone's second tech.
   const run = (withSecond) => {
     let q = db.from('bookings')
       .select(`id, scheduled_at${esCol()}`)
@@ -3972,34 +2928,22 @@ async function bookedSlotKeysForTech(db, bizId, techId, dateStr, tz, excludeId =
     if (excludeId) q = q.neq('id', excludeId);
     return q;
   };
-  // Drop the secondary leg on databases predating migration 0019 (column absent);
-  // drop extra_slots on DBs predating migration 0052 — same graceful degrade.
   let { data, error } = await run(bookingLiftCols);
   if (['42703', 'PGRST204'].includes(error?.code) && ['secondary_technician_id', 'extra_slots'].includes(missingColumn(error.message))) {
     if (missingColumn(error.message) === 'secondary_technician_id') bookingLiftCols = false;
     if (missingColumn(error.message) === 'extra_slots') extraSlotsCol = false;
     ({ data, error } = await run(bookingLiftCols));
   }
-  // A genuinely unexpected error must THROW, not silently read as "this tech
-  // has no bookings today" — that would fail the double-booking guard OPEN.
   if (error) throw error;
   const taken = new Set();
   for (const b of (data || [])) {
     const key = slotKeyForLocalTime(localHHMM(tz, b.scheduled_at));
     if (key) taken.add(key);
-    for (const sk of esOf(b)) taken.add(sk);   // a big job's extra slots are busy too
+    for (const sk of esOf(b)) taken.add(sk);
   }
   return taken;
 }
 
-// Batched per-date availability for MANY techs at once: 3 queries TOTAL
-// (recurring, exceptions, bookings) instead of 3 PER TECH. The old per-tech
-// loop made every date click in New Booking's "Any Technician" flow cost
-// ~0.5–2s of sequential round trips; this is the same math over the same
-// rows, just fetched together. Returns Map(techId -> { keys, booked }) with
-// identical semantics to singleTechSlotKeys + bookedSlotKeysForTech
-// (cross-company booked check — no business filter — including jobs where
-// the tech is the SECOND person, and extra_slots block their slots too).
 async function batchTechSlotState(db, techIds, dateStr, dow, tz) {
   const out = new Map(); techIds.forEach(id => out.set(id, { keys: new Set(), booked: new Set() }));
   if (!techIds.length) return out;
@@ -4044,19 +2988,12 @@ async function batchTechSlotState(db, techIds, dateStr, dow, tz) {
   return out;
 }
 
-// Roster + per-tech slot state for a scope, in ONE round of queries (a
-// technicians fetch plus the batched availability/exceptions/bookings read) —
-// the shared foundation for every "who's free" computation over the same
-// scope+date: whether anyone is bookable, a two-tech pair match, and the
-// informational "who's free" circles all derive from this same result instead
-// of each re-fetching the roster and re-running batchTechSlotState.
 async function rosterSlotState(db, scopes, dateStr, dow, tz) {
   const lists = await scopedRosterTechs(db, scopes, 'id, name, color, status');
   const techs = lists.flat();
   const state = await batchTechSlotState(db, techs.map(t => t.id), dateStr, dow, tz);
   return { techs, state };
 }
-// Set of slot keys where at least one tech in a precomputed rosterSlotState is free.
 function freeKeysFromState({ techs, state }) {
   const keys = new Set();
   for (const t of techs) {
@@ -4065,7 +3002,6 @@ function freeKeysFromState({ techs, state }) {
   }
   return keys;
 }
-// Map slot_key -> Set(techId) of every free tech, from a precomputed rosterSlotState.
 function freeMapFromState({ techs, state }) {
   const map = new Map();
   for (const t of techs) {
@@ -4078,11 +3014,6 @@ function freeMapFromState({ techs, state }) {
   }
   return map;
 }
-// slot_key -> [{ id, name, color }] of every tech genuinely free that slot
-// (scheduled + not booked), roster order (host company first), from a
-// precomputed rosterSlotState. Purely informational for the New Booking slot
-// list's "who's free" circles — never used to decide bookability, so it can't
-// introduce a new booking path.
 function freeTechsByKeyFromState({ techs, state }) {
   const byKey = {};
   for (const t of techs) {
@@ -4096,48 +3027,16 @@ function freeTechsByKeyFromState({ techs, state }) {
   return byKey;
 }
 
-// Set of slot keys a tech (or ANY tech) is available for on an exact date,
-// honouring recurring availability, one-time exceptions, AND existing bookings
-// (a slot a tech is already booked for is no longer offered — no double-booking).
-// excludeTechId drops one tech from the "ANY" union, so the SAME person can't be
-// counted as both the primary and the second technician on a two-tech job.
-// Normalize a roster argument to [{ bizId, serviceAreaId }] scopes — accepts
-// the rosterScopes() shape or (unused today, kept for shape safety) a bare
-// biz id, which normalizes to serviceAreaId:null and is therefore dropped
-// entirely by scopedRosterTechs() — there is no unscoped path anymore.
 function normalizeRosterScopes(bizIdOrScopes) {
   const arr = Array.isArray(bizIdOrScopes) ? bizIdOrScopes : [bizIdOrScopes];
   return arr.filter(Boolean).map(s => (typeof s === 'object' ? s : { bizId: s, serviceAreaId: null }));
 }
-// All active tech ids across the given scopes, each scope filtered to its own
-// service area (metro) when one is known — the shared guard that keeps every
-// "any"-side availability scan and auto-pick inside the booking's metro.
 async function scopedRosterTechs(db, scopes, cols = 'id') {
-  // Independent metro queries can run together; Promise.all preserves the
-  // original scope order so an in-house technician still wins over a partner.
   return Promise.all(normalizeRosterScopes(scopes).filter(sc => sc.serviceAreaId).map(async sc => {
-    // A scope with NO resolvable service area contributes NOTHING — it must
-    // never fall back to an unfiltered scan of the whole company. That
-    // "legacy leniency" fallback was the actual bug: an unmapped/blank ZIP
-    // left the scope unfiltered, so Zach's (Austin) genuine recurring
-    // availability satisfied a Denver slot check purely because slot keys
-    // (s1-s5) carry no location. The safe failure mode for "we don't know
-    // this booking's metro" is "nobody is a candidate" (the auto-pick then
-    // comes back null and the job lands UNASSIGNED with a loud warning for a
-    // human to place) — never "everybody in the company is a candidate".
     const { data, error } = await db.from('technicians').select(cols)
       .eq('business_id', sc.bizId).eq('active', true).eq('service_area_id', sc.serviceAreaId)
       .order('created_at', { ascending: true });
     if (error) throw error;
-    // Sole-technician lock (SOLE_TECH, _lib/availability.js): the four Austin
-    // lead-gen brands are Zach's alone. The public widget path always applied
-    // it; this office path did not, so the moment a second TidyHaus Austin
-    // tech existed (one invite link away since 0111) an office "any tech"
-    // booking on those brands could auto-pick them. A no-op for every other
-    // brand, and for callers that pass bare business ids (no soleTechOf).
-    // Every caller's cols include `id`, which the lock filters on.
-    // Keep sole-tech assignment and each technician's saved travel radius in force
-    // while fetching independent metro rosters concurrently.
     return filterTechsByZip(db, sc.soleTechOf ? applySoleTech(sc.soleTechOf, data || []) : (data || []), sc.zip && zip5(sc.zip));
   }));
 }
@@ -4157,10 +3056,6 @@ async function availableSlotKeys(db, bizIdOrScopes, techId, dateStr, dow, tz, ex
   return ks;
 }
 
-// Map slot_key -> Set(techId) of techs FREE at that slot on a date, for a side
-// that is either a concrete tech or "any" of a roster (recurring ± exceptions −
-// existing bookings). Used to match a DISTINCT two-tech pair for big-TV jobs:
-// the union of the two sides' free techs in a slot must be ≥ 2 distinct people.
 async function freeSlotTechMap(db, bizIdOrScopes, techId, dateStr, dow, tz, excludeIneligibleSecondary = false) {
   let techIds;
   if (!techId || techId === 'any') {
@@ -4171,8 +3066,6 @@ async function freeSlotTechMap(db, bizIdOrScopes, techId, dateStr, dow, tz, excl
   } else {
     techIds = [techId];
   }
-  // Batched (3 queries total) — was 3 sequential queries PER TECH, the other
-  // half of the every-date-click N+1 alongside availableSlotKeys.
   const state = await batchTechSlotState(db, techIds, dateStr, dow, tz);
   const map = new Map();
   for (const [tid, s] of state) {
@@ -4185,25 +3078,6 @@ async function freeSlotTechMap(db, bizIdOrScopes, techId, dateStr, dow, tz, excl
   return map;
 }
 
-// Pick the first active tech available for an exact date+slot (recurring OR a
-// one-time exception) who is NOT already booked for that slot. Falls back to any
-// active tech who is free in that slot so we never auto-create a double-booking.
-// excludeTechId skips one tech (e.g. the primary, when auto-picking the second).
-// excludeIneligibleSecondary drops techs who can never be a second tech (Juan/Zach).
-// bizIdOrScopes is the rosterScopes() shape ([{ bizId, serviceAreaId }], ORDERED
-// host-first for the cross-company "Any Technician" pool) — each scope is tried
-// to exhaustion before falling to the next, so "Any Technician" prefers keeping
-// the job in-house and only reaches into the partner company when nobody home
-// is free. Each scope is filtered to its own metro (service area); a scope
-// with no resolvable area contributes zero candidates (see scopedRosterTechs)
-// rather than an unfiltered whole-company scan — an Austin tech's schedule
-// must never satisfy a Denver job's slot check just because slot keys carry
-// no location.
-// strict=true skips the off-schedule "second choice" fallback entirely — for
-// callers with no human in the loop to confirm an override (e.g. a customer's
-// own estimate-approval auto-book), silently handing the job to someone who
-// never marked that slot available is never acceptable; better to come back
-// null and tell the customer to pick another time.
 async function pickAvailableTech(db, bizIdOrScopes, dateStr, slotKey, tz, excludeTechId = null, excludeIneligibleSecondary = false, strict = false, eligibleOnly = false) {
   const rawLists = await scopedRosterTechs(db, bizIdOrScopes, 'id, name, status');
   const scopeLists = rawLists.map(techs => {
@@ -4214,20 +3088,13 @@ async function pickAvailableTech(db, bizIdOrScopes, dateStr, slotKey, tz, exclud
   if (!scopeLists.some(l => l.length)) return null;
   if (dateStr && slotKey) {
     const dow = dayOfWeekFor(dateStr);
-    // Read every candidate in one batch. A busy first technician must not
-    // add another chain of database round trips for each person behind them.
     const state = await batchTechSlotState(db, [...new Set(scopeLists.flat().map(t => t.id))], dateStr, dow, tz);
-    // First choice: scheduled-available AND free in this slot — scope by
-    // scope, in priority order.
     for (const list of scopeLists) {
       for (const t of list) {
         const s = state.get(t.id);
         if (s?.keys.has(slotKey) && !s.booked.has(slotKey)) return t.id;
       }
     }
-    // Second choice: any active tech who is at least free in this slot, even if
-    // not on their normal schedule — still never returns an already-booked tech.
-    // Same scope priority order as above. Skipped entirely in strict mode.
     if (!strict) {
       for (const list of scopeLists) {
         for (const t of list) {
@@ -4236,27 +3103,11 @@ async function pickAvailableTech(db, bizIdOrScopes, dateStr, slotKey, tz, exclud
         }
       }
     }
-    // Everyone is booked for this slot — leave unassigned rather than stack a
-    // second job on a tech. bookingCreate will create it as 'confirmed'/unassigned.
     return null;
   }
-  // No date/slot to check against — we can't verify anyone's actual schedule,
-  // so leave the job unassigned rather than gamble on a blind pick who might be
-  // busy or off that day. The office (or a follow-up guard) assigns explicitly.
   return null;
 }
 
-// Pair-aware auto-pick for a two-tech job where BOTH primary and secondary are
-// 'any'. Picking the primary alone first (pickAvailableTech, greedily) can
-// consume the secondary pool's only scheduled-and-free tech and leave no valid
-// secondary — even when availableSlots had just offered this exact slot as
-// bookable because a DIFFERENT pairing exists (e.g. TK+Steve are both free;
-// greedily taking TK as primary leaves no HA-Denver secondary, when Steve
-// primary + TK secondary works). Mirrors availableSlots' own pair-matching
-// (freeSlotTechMap union) so "offered" and "actually bookable" always agree.
-// excludeIneligibleSecondary is implicit on the secondary side (Juan/Zach can
-// never be a second tech). Returns { primaryId, secondaryId }, both null if no
-// distinct pair exists for this exact date+slot.
 async function pickAvailableTechPair(db, scopesPrimary, scopesSecondary, dateStr, slotKey, tz, eligibleOnly = false) {
   if (!dateStr || !slotKey) return { primaryId: null, secondaryId: null };
   const dow = dayOfWeekFor(dateStr);
@@ -4285,50 +3136,27 @@ async function pickOwnHelperPrimary(db, scopes, dateStr, slotKey, tz, eligibleOn
   return techs.find(tech => (!eligibleOnly || tech.status !== 'off') && bringsOwnSecondTech(tech.name) && state.get(tech.id)?.keys.has(slotKey) && !state.get(tech.id)?.booked.has(slotKey))?.id || null;
 }
 
-// Pick a SECONDARY tech who is genuinely SCHEDULED to work AND free in this exact
-// slot, trying each roster scope in priority order (roster order = created_at
-// ascending). Skips the primary and out-of-town primary-only techs (Juan/Zach).
-// Unlike pickAvailableTech, it never falls back to a tech who isn't on the
-// schedule that day — that's the whole point of the cross-company default: only
-// assign someone who is actually working. Returns null if no scheduled tech is
-// free in any scope (caller leaves the 2nd-tech slot blank for manual assignment).
 async function pickScheduledSecondary(db, scopes, dateStr, slotKey, tz, excludeTechId = null) {
   if (!dateStr || !slotKey) return null;
-  // Share the batched, metro-scoped picker. It keeps the scope's saved ZIP
-  // radius and secondary-tech eligibility checks while avoiding serial queries.
   return pickAvailableTech(db, scopes, dateStr, slotKey, tz, excludeTechId, true, true);
 }
 
-// Resolve the default SECONDARY tech for a job. For a Dom's job the default is the
-// TidyHaus technician scheduled to work that day (same metro, roster order);
-// if none is scheduled+free, fall back to any tech scheduled+free that day (e.g.
-// the other Dom's tech). For a TidyHaus job, keep the existing pool-based pick.
 async function resolveDefaultSecondary(db, biz, postalCode, dateStr, slotKey, tz, primaryTechId, pool2, eligibleOnly = false) {
-  // Phone bookings must use the same explicit team that offered the slot.
-  // Ordinary office bookings retain their existing partner-first default.
   const partner = !eligibleOnly ? await partnerBusiness(db, biz.slug) : null;
   if (biz.slug === 'doms' && partner) {
     const [haArea, ownArea] = await Promise.all([
       serviceAreaIdFromPostal(db, partner.id, postalCode), serviceAreaIdFromPostal(db, biz.id, postalCode),
     ]);
     return await pickScheduledSecondary(db, [
-      { bizId: partner.id, serviceAreaId: haArea, zip: postalCode },   // TidyHaus first — the new default
-      { bizId: biz.id,     serviceAreaId: ownArea, zip: postalCode },   // fallback: any available Dom's tech
+      { bizId: partner.id, serviceAreaId: haArea, zip: postalCode },
+      { bizId: biz.id,     serviceAreaId: ownArea, zip: postalCode },
     ], dateStr, slotKey, tz, primaryTechId);
   }
-  // Each scope carries its own business's area id for this zip (the old code
-  // applied the HOST's area id to the PARTNER roster, which matches nobody —
-  // partner techs carry the partner's own area ids — silently killing the
-  // pool-based partner auto-pick). strict: a silently off-schedule SECOND tech
-  // is never acceptable — same doctrine as the Dom's branch above.
   const scopes2 = await rosterScopes(db, biz, (pool2 || '').toString(), postalCode);
   return await pickAvailableTech(db, scopes2, dateStr, slotKey, tz, primaryTechId, true, true, eligibleOnly);
 }
 
 async function singleTechSlotKeys(db, techId, dateStr, dow) {
-  // Errors THROW rather than silently reading as "zero availability" — a
-  // transient DB hiccup here must never look identical to a real day off (that
-  // would train the office to reflexively force-override past real conflicts).
   const { data: av, error: avErr } = await db.from('technician_availability')
     .select('slot_key').eq('technician_id', techId).eq('day_of_week', dow);
   if (avErr) throw avErr;
@@ -4342,10 +3170,9 @@ async function singleTechSlotKeys(db, techId, dateStr, dow) {
   return slots;
 }
 
-// Which dates in a month have at least one available slot (for the date picker).
 async function availableDates(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
-  const month = (req.query.month || '').toString();        // 'YYYY-MM'
+  const month = (req.query.month || '').toString();
   const techId = (req.query.technician_id || '').toString();
   const techId2 = (req.query.secondary_technician_id || '').toString();
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) return res.status(400).json({ error: 'month required (YYYY-MM)' });
@@ -4354,16 +3181,7 @@ async function availableDates(req, res, db, auth) {
   const [y, m] = month.split('-').map(Number);
   const daysInMonth = new Date(Date.UTC(y, m, 0)).getUTCDate();
 
-  // Resolve each side (primary, optional second tech) to a concrete list of
-  // technician ids to consider. Each side has its own company pool: pool drives
-  // the primary, pool2 the second tech. A side that is "any" expands to that
-  // pool's active roster, scoped to each company's own metro for the booking's
-  // zip — otherwise the date picker lights up days only an out-of-metro tech
-  // has open, which the slot/booking steps would then (rightly) refuse.
   const postalCode = (req.query.postal_code || '').toString();
-  // Resolved up front so an empty roster below can explain ITSELF (unknown zip
-  // vs. a known metro we simply don't staff). Reused for the timezone lookup
-  // further down rather than resolved twice.
   const bookingAreaIdEarly = await serviceAreaIdFromPostal(db, biz.id, postalCode);
   const rosterCache = new Map();
   const rosterList = (pool) => {
@@ -4384,9 +3202,6 @@ async function availableDates(req, res, db, auth) {
   const primaryIds = (techId && techId !== 'any')
     ? (req.query.strict_roster === '1' && !primaryRoster.some(t => t.id === techId) ? [] : [techId])
     : primaryRoster.map(t => t.id);
-  // Want a two-tech pair whenever a second tech is requested — unless it's the
-  // SAME concrete person as the primary (not a real pair). Two "any" sides ARE
-  // a pair: distinctness is enforced per-slot below, not by filtering rosters.
   const wantPair = !!techId2 && !(techId2 === techId && techId2 !== 'any');
   const allowOwnHelper = wantPair && techId2 === 'any' && ['1', 'true'].includes(String(req.query.needs_lifting));
   const ownHelperIds = allowOwnHelper ? primaryRoster.filter(t => primaryIds.includes(t.id) && bringsOwnSecondTech(t.name)).map(t => t.id) : [];
@@ -4396,10 +3211,6 @@ async function availableDates(req, res, db, auth) {
       ? [techId2]
       : (await rosterList((req.query.pool2 || '').toString())).filter(t => !isSecondaryIneligibleName(t.name)).map(t => t.id);
   }
-  // An empty roster is not "no open days" — it's "nobody covers this address",
-  // and the two look identical on a greyed-out calendar. Say which, so the
-  // office isn't left staring at a dead month wondering if it's a bug (it read
-  // as one on the phone script: every August date greyed with no explanation).
   if (!primaryIds.length || (wantPair && !secondaryIds.length && !ownHelperIds.length)) {
     let reason = 'no_roster', areaName = null, unstaffed = false;
     if (postalCode) {
@@ -4421,17 +3232,8 @@ async function availableDates(req, res, db, auth) {
 
   const monthStart = `${month}-01`;
   const monthEnd = `${month}-${String(daysInMonth).padStart(2, '0')}`;
-  // Existing bookings this month so fully-booked days don't show as available.
-  // Bucketed in the booking's METRO tz (from the zip), same as availableSlots —
-  // the single business tz drifts a Central (Houston/Austin) evening booking
-  // onto the wrong slot key (and near-midnight ones onto the wrong date),
-  // which can light up a day whose only slot is actually taken.
   const winStart = localDateStartUTC(tz, monthStart);
   const winEnd = localDateStartUTC(tz, addDaysStr(monthEnd, 1));
-  // No business filter: a partner tech's jobs in their OWN company must also
-  // count as busy, so cross-company bookings can't double-book them. Count a tech
-  // as busy whether they're the PRIMARY or the SECOND tech — a date a tech is
-  // only a helper on must not show as bookable (mirrors bookedSlotKeysForTech).
   const tidList = techIds.join(',');
   const runBk = (withSecond) => {
     let q = db.from('bookings')
@@ -4442,11 +3244,6 @@ async function availableDates(req, res, db, auth) {
       ? q.or(`technician_id.in.(${tidList}),secondary_technician_id.in.(${tidList})`)
       : q.in('technician_id', techIds);
   };
-  // The three reads below (recurring availability, one-off exceptions, this
-  // month's bookings) are mutually independent — nothing here reads a result
-  // from another — so run them concurrently instead of one-at-a-time. The
-  // bookings query keeps its own retry-on-schema-error self-contained inside
-  // its promise so the Promise.all still resolves once every branch is done.
   const [avResult, excResult, bkResult] = await Promise.all([
     db.from('technician_availability').select('technician_id, day_of_week, slot_key').in('technician_id', techIds),
     db.from('technician_availability_exceptions')
@@ -4481,20 +3278,19 @@ async function availableDates(req, res, db, auth) {
     const date = localDateStr(tz, b.scheduled_at);
     const key = slotKeyForLocalTime(localHHMM(tz, b.scheduled_at));
     if (!key) continue;
-    for (const k of [key, ...esOf(b)]) {   // main slot + any extra slots this job holds
+    for (const k of [key, ...esOf(b)]) {
       if (techIdSet.has(b.technician_id)) addOcc(b.technician_id, date, k);
       if (b.secondary_technician_id && techIdSet.has(b.secondary_technician_id)) addOcc(b.secondary_technician_id, date, k);
     }
   }
 
-  // Compute one tech's free slot set for a given date (recurring ± exceptions − booked).
   const daySetFor = (tid, dow, dateStr) => {
     const set = new Set(recurring[`${tid}:${dow}`] || []);
     for (const e of (excByDate[dateStr] || [])) {
       if (e.technician_id !== tid) continue;
       if (e.is_available) set.add(e.slot_key); else set.delete(e.slot_key);
     }
-    for (const k of (occ[`${tid}:${dateStr}`] || [])) set.delete(k);   // drop booked slots
+    for (const k of (occ[`${tid}:${dateStr}`] || [])) set.delete(k);
     for (const k of set) {
       const slot = SLOTS.find(s => s.key === k);
       if (!slot || (dateStr === todayStr && slot.start <= nowHHMM)) set.delete(k);
@@ -4502,13 +3298,11 @@ async function availableDates(req, res, db, auth) {
     return set;
   };
 
-  // Union of one side's free slots for a date (across that side's tech ids).
   const sideSet = (ids, dow, dateStr) => {
     const set = new Set();
     for (const tid of ids) for (const k of daySetFor(tid, dow, dateStr)) set.add(k);
     return set;
   };
-  // Map slot_key -> Set(techId) free for a side on a date (for pair matching).
   const sideSlotTechs = (ids, dow, dateStr) => {
     const map = new Map();
     for (const tid of ids) for (const k of daySetFor(tid, dow, dateStr)) {
@@ -4520,7 +3314,7 @@ async function availableDates(req, res, db, auth) {
   const dates = [], slotsByDate = {};
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${month}-${String(d).padStart(2, '0')}`;
-    if (dateStr < todayStr) continue;                       // no past dates
+    if (dateStr < todayStr) continue;
     const dow = dayOfWeekFor(dateStr);
     let keys;
     if (wantPair) {
@@ -4540,16 +3334,10 @@ async function availableDates(req, res, db, auth) {
     ...(includeSlots ? { slots_by_date: slotsByDate, technicians: primaryRoster } : {}) });
 }
 
-// Attach a tokenized payment method to a Stripe customer (card on file).
-// Returns { customerId, pmId } or null if Stripe isn't configured.
-// `slug` selects the business's Stripe account (Doms has its own).
 async function saveCardOnFile(pmId, cust, slug = null) {
   const SK = businessSecretKey(slug);
   if (!SK) return null;
   const sAuth = { Authorization: `Bearer ${SK}`, 'Content-Type': 'application/x-www-form-urlencoded' };
-  // Each Stripe call is capped at 15s — these three run serially inside
-  // booking_create's response path, so one stalled connection would otherwise
-  // hang the office UI on "Processing…" with the booking already created.
   const fetchT = async (url, opts) => {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
@@ -4561,7 +3349,6 @@ async function saveCardOnFile(pmId, cust, slug = null) {
     catch (e) { throw e.name === 'AbortError' ? new Error('Stripe request timed out') : e; }
     finally { clearTimeout(timer); }
   };
-  // Create a Stripe customer for the card.
   const cb = new URLSearchParams();
   if (cust.email) cb.set('email', cust.email);
   if (cust.name) cb.set('name', cust.name);
@@ -4571,7 +3358,6 @@ async function saveCardOnFile(pmId, cust, slug = null) {
   if (!ccr.ok) throw new Error(cc?.error?.message || 'Stripe customer create failed');
   if (!cc?.id) throw new Error('Stripe did not return a customer');
   const customerId = cc.id;
-  // Attach the payment method and make it the default.
   const ab = new URLSearchParams(); ab.set('customer', customerId);
   const { response: ar, data: pm } = await fetchT(`https://api.stripe.com/v1/payment_methods/${pmId}/attach`, { method: 'POST', headers: sAuth, body: ab });
   if (!ar.ok) throw new Error(pm?.error?.message || 'Attach failed');
@@ -4581,28 +3367,10 @@ async function saveCardOnFile(pmId, cust, slug = null) {
   return { customerId, pmId, brand: pm?.card?.brand || null, last4: pm?.card?.last4 || null };
 }
 
-// ── Price sanity ceiling (circuit breaker against absurd amounts) ──────────
-// Added after a real incident: a browser's own address-autofill matched the
-// word "zip" in the Travel Fee field's placeholder and silently stuffed a
-// 5-digit ZIP code into it as a dollar amount, creating an $86,889 booking
-// nobody had typed. No real job at either business has ever run more than a
-// few hundred dollars. These ceilings are generous relative to that reality
-// specifically so a genuinely large one-off job still goes through — with an
-// explicit, unmissable confirmation — while a stray 5-figure number from a
-// typo, paste, or autofill bug can never silently become a real booking,
-// estimate, or (most importantly) an actual card charge.
-const PRICE_SANITY_LINE_CEILING = 2000;   // per line item / per fee, in dollars
-const PRICE_SANITY_TOTAL_CEILING = 5000;  // whole booking / estimate / charge
+const PRICE_SANITY_LINE_CEILING = 2000;
+const PRICE_SANITY_TOTAL_CEILING = 5000;
 
-// Owner rule (2026-08-31): flat $139 minimum on every normal paid job, every
-// business, every metro — no per-metro exception (Austin used to be $119).
-// GDS, Assurion, No Charge/Callback (all $0), and Handyman Labor (hourly) are
-// exempt. Mirrors MIN_TICKET_PRICE in api/book.js (the public widget).
-const MIN_TICKET_PRICE = 139;
-// TV Dismount Only (owner 2026-10-15): $109 + travel fee, exempt from the $139
-// floor. Only when the ONLY work line is one 'TV Dismount (only)' line at
-// exactly $109; travel / after-hours / tax / discount lines may ride along.
-// Anything else on the ticket = normal pricing, floor applies.
+const MIN_TICKET_PRICE = 0;
 const DISMOUNT_ONLY_PRICE = 109;
 function isDismountOnlyLines(lines) {
   if (!Array.isArray(lines)) return false;
@@ -4618,12 +3386,6 @@ function isHandymanPricedLines(lines) {
   return Array.isArray(lines) && lines.some(line => /^Handyman Labor:/i.test((line && (line.label || line.name)) || ''));
 }
 
-// Returns null when everything is within the sane range; otherwise a short,
-// specific message naming the exact absurd number and line — reused as both
-// the 409 error text and (verbatim) the client's confirmation-dialog text, so
-// what the office sees exactly matches what would have gotten billed.
-// `lines` accepts either shape used across this file: { unit_price } (booking
-// line items, estimate line items) or { price } (New Booking's `selections`).
 function priceSanityIssue({ lines, total } = {}) {
   if (Array.isArray(lines)) {
     for (const l of lines) {
@@ -4642,32 +3404,19 @@ function priceSanityIssue({ lines, total } = {}) {
   return null;
 }
 
-// ── Create a manual / phone booking ──────────────────────────────────────────
 async function bookingCreate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   const c = body.customer || {};
   if (c.name) c.name = capName(String(c.name).trim());
   if (!c.name && !c.phone) return res.status(400).json({ error: 'Customer name or phone required' });
-  // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
   const smsConsent = await textConsentFor(db, c.phone);
   if (c.name && hasDigits(c.name)) return res.status(400).json({ error: 'Please enter a name using letters only — no numbers.' });
   if (await isScammer({ phone: c.phone, email: c.email }, db)) return res.status(403).json({ error: SCAMMER_BOOKING_ERROR, scammer: true });
   console.log(`[admin] booking create: biz=${biz.slug} customer email=${c.email ? 'present' : 'ABSENT'} phone=${c.phone ? 'present' : 'absent'}`);
 
-  // Idempotency: the dashboard sends one key per booking attempt. A double-submit
-  // (double-click, or two concurrent requests) carries the SAME key. If a booking
-  // with this key already exists, return it instead of creating a duplicate. This
-  // is the first line of defense; a partial unique index (migration 0024) is the
-  // real backstop for the concurrent race (handled at insert time below). The
-  // lookup must succeed before another attempt can write. An outage cannot be
-  // interpreted as "no existing booking" and bypass duplicate protection.
   const idempotencyKey = (body.idempotency_key || '').toString().trim() || null;
   if (idempotencyKey) {
-    // A CANCELLED booking must never satisfy this check. Every slot-occupancy
-    // query already excludes cancelled rows, so one matching here would hand the
-    // caller back a dead booking as if it were live: nobody scheduled, customer
-    // told they're confirmed. Re-booking is a real new booking.
     const { data: dupe, error } = await db.from('bookings')
       .select('id, status').eq('business_id', biz.id).eq('idempotency_key', idempotencyKey).maybeSingle();
     if (error) throw error;
@@ -4676,18 +3425,9 @@ async function bookingCreate(req, res, db, auth, body) {
       warning: 'Booking already exists. Check the saved job to confirm its card, line items, and notifications before making any changes.' });
   }
 
-  // Reuse an existing customer (by phone, then email) or create one. Also pull
-  // back their ZIP on file: a repeat customer booked by phone lookup often has
-  // the address field left blank on THIS submission even though a real one is
-  // already stored — without this, the metro-scoped auto-pick below sees a
-  // blank zip and (correctly, per the hard rule) refuses to guess a metro,
-  // leaving an otherwise-routine repeat booking UNASSIGNED for no real reason.
   let customer_id = c.id || null;
   let matchedExisting = !!c.id;
   let matchedPostalCode = null;
-  // A form opened before the 2026-09-26 duplicate-customer merge can still hold
-  // the id of a copy that was removed: follow it to the record that was kept,
-  // or fall through to the phone/email lookup below.
   if (customer_id) {
     const { data: live } = await db.from('customers').select('id').eq('id', customer_id).eq('business_id', biz.id).maybeSingle();
     if (!live) {
@@ -4697,16 +3437,12 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
   if (!customer_id && c.phone) {
-    // Duplicate customer rows exist (old imports), so take the newest match
-    // instead of .maybeSingle(), which errors when there are several (2026-09-25).
     const { data: rows, error } = await db.from('customers').select('id, postal_code').eq('business_id', biz.id).eq('phone', c.phone).order('created_at', { ascending: false }).limit(1);
     if (error) throw error;
     const data = rows && rows[0];
     if (data?.id) { customer_id = data.id; matchedExisting = true; matchedPostalCode = data.postal_code || null; }
   }
   if (!customer_id && c.email) {
-    // Duplicate customer rows exist (old imports), so take the newest match
-    // instead of .maybeSingle(), which errors when there are several (2026-09-25).
     const { data: rows, error } = await db.from('customers').select('id, postal_code').eq('business_id', biz.id).eq('email', c.email).order('created_at', { ascending: false }).limit(1);
     if (error) throw error;
     const data = rows && rows[0];
@@ -4721,9 +3457,6 @@ async function bookingCreate(req, res, db, auth, body) {
     if (error) throw error;
     customer_id = data.id;
   } else if (matchedExisting) {
-    // Backfill/refresh contact details the form supplied so info added later
-    // (e.g. an email captured on a repeat booking) actually lands on the record
-    // instead of being silently dropped. Only non-empty fields are written.
     const patch = {};
     if (c.email) patch.email = c.email;
     if (c.name) patch.name = c.name;
@@ -4738,17 +3471,9 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
 
-  // This booking's METRO timezone (Central for Houston/Austin), resolved from the
-  // customer's zip → service area. ALL of this booking's time math is anchored
-  // here — the slot's wall-clock time, availability picks, and the confirmation's
-  // displayed time — never the single business tz, so a Central 8am slot is truly
-  // stored and shown as 8am Central. Also stamps service_area_id on the booking.
   const bookingAreaId = await serviceAreaIdFromPostal(db, biz.id, effectivePostalCode);
   const tz = await areaTimezone(db, bookingAreaId, biz.timezone || 'Asia/Manila');
 
-  // Convert scheduled_date + scheduled_slot to scheduled_at timestamp. The slot
-  // start is a LOCAL wall-clock time in the metro timezone, so anchor it to local
-  // midnight (as UTC) and add the slot offset — never store it as raw UTC.
   let scheduled_at = body.scheduled_at || null;
   if (body.scheduled_date && body.scheduled_slot) {
     const slotDef = SLOTS.find(s => s.key === body.scheduled_slot);
@@ -4759,72 +3484,31 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
 
-  // If technician_id='any', pick the first technician actually available for
-  // this date+slot. Honours one-time exceptions (not just recurring), and falls
-  // back to any active tech so a bookable date never lands as an unassigned job
-  // the technician can't see.
-  // pool='partner' books from the OTHER company's roster. A specific partner
-  // tech UUID is used as-is (technician_id is globally unique); 'any' auto-picks
-  // from whichever roster the pool points at.
   let technician_id = body.technician_id;
   let unassignedWarning = null;
-  // Read the secondary request now (before the primary pick) — a mandatory
-  // two-tech job needs the PAIR resolved together, not the primary greedily
-  // assigned first and the secondary left to pick over the leftovers.
   const secondaryRaw = body.secondary_technician_id || null;
   const secondaryConcreteId = (secondaryRaw && secondaryRaw !== 'any') ? secondaryRaw : null;
   if (technician_id === 'any') {
-    // Scoped to each company's own metro for this zip (the unscoped roster
-    // once handed a Denver Dom's job to Zach in Austin), and strict: never
-    // silently book a tech who didn't mark the slot available — if nobody
-    // scheduled is free, the job lands UNASSIGNED with the loud warning
-    // below instead of on someone who never opted into that time.
     const scopes = await rosterScopes(db, biz, (body.pool || '').toString(), effectivePostalCode);
     if (secondaryRaw === 'any') {
-      // BOTH sides need auto-resolving. Picking the primary alone first (the
-      // old behavior) could greedily consume the secondary pool's only
-      // scheduled tech and then refuse the booking outright, even though
-      // availableSlots had just offered this exact slot as a valid pair (e.g.
-      // TK+Steve both free — picking TK primary first leaves no HA-Denver
-      // secondary, when Steve-primary+TK-secondary would have worked). Match
-      // the offered pair, not just the first primary candidate.
       const scopesSecondary = await rosterScopes(db, biz, (body.pool2 || '').toString(), effectivePostalCode);
       const pair = await pickAvailableTechPair(db, scopes, scopesSecondary, body.scheduled_date, body.scheduled_slot, tz, body.require_available === true);
       technician_id = pair.primaryId;
-      if (pair.secondaryId) body.secondary_technician_id = pair.secondaryId; // resolved below; skips the redundant 'any' branch
+      if (pair.secondaryId) body.secondary_technician_id = pair.secondaryId;
       if (!technician_id) {
-        // No valid pair — still try to staff SOMEONE for the primary role
-        // alone rather than losing the booking entirely; the needs_lifting
-        // check further down still refuses if a second tech is mandatory.
         technician_id = body.needs_lifting ? await pickOwnHelperPrimary(db, scopes, body.scheduled_date, body.scheduled_slot, tz, body.require_available === true) : null;
         if (!technician_id) technician_id = await pickAvailableTech(db, scopes, body.scheduled_date, body.scheduled_slot, tz, null, false, true, body.require_available === true);
       }
     } else {
-      // excludeTechId=secondaryConcreteId so an 'any' primary can never land
-      // on the exact person the office already picked as the second tech
-      // (which used to trip the "must be different" refusal on a slot that
-      // was, in fact, bookable with a different primary).
       technician_id = await pickAvailableTech(db, scopes, body.scheduled_date, body.scheduled_slot, tz, secondaryConcreteId, false, true, body.require_available === true);
     }
-    // The slot showed as available when the office picked it, but every tech
-    // got booked in the meantime (a two-secretary race), or no ZIP/metro
-    // could be resolved for this booking. The booking is still created —
-    // losing the customer over a race would be worse — but it lands
-    // UNASSIGNED, and silently: the office had no idea anyone still had to be
-    // assigned. Surface it as a blocking warning on the response.
     if (!technician_id) {
       if (body.require_available === true) return res.status(409).json({ code: 'slot_unavailable', error: 'That time is no longer available. Refresh the available times and choose another slot.' });
       unassignedWarning = 'Heads up: no technician was still free for that slot, so this booking was created UNASSIGNED. Open the job and assign a tech (or move the time) — nobody is scheduled to show up yet.';
     }
   }
 
-  // Does the primary tech bring their own second person (Juan/Zach + spouse)? If
-  // so we never assign a roster second tech and a two-person job doesn't require
-  // one. Resolve the primary's name to decide (covers a concrete pick AND an
-  // "any" pick that happened to land on Juan/Zach).
   let primaryBringsOwnSecond = false;
-  // Also carries photo_url/bio_years/bio_blurb for the confirmation email's
-  // "Meet your tech" block further down — one query serves both purposes.
   let primaryTechInfo = null;
   if (technician_id) {
     const { data: pt, error } = await db.from('technicians').select('name, active, status, photo_url, bio_years, bio_blurb').eq('id', technician_id).maybeSingle();
@@ -4836,25 +3520,13 @@ async function bookingCreate(req, res, db, auth, body) {
     primaryTechInfo = pt || null;
   }
 
-  // Secondary technician (for jobs requiring 2 techs, e.g. a large-TV lift). The
-  // second tech may come from EITHER company (pool2) and may be "any", which we
-  // auto-pick from that pool excluding the primary so it's never the same person.
-  // For cross-company secondary tech selection, filter by the booking's service area.
   let secondary_technician_id = body.secondary_technician_id || null;
   if (primaryBringsOwnSecond) {
-    // Juan/Zach bring their own helper (off-schedule) — never put a roster tech
-    // in the secondary slot, even if the form sent one. The two-person fee still
-    // applies (it rides on the line items, not on this field).
     secondary_technician_id = null;
   } else if (secondary_technician_id === 'any') {
-    // Default the 2nd tech. For a Dom's job this prefers the TidyHaus tech
-    // scheduled to work that day; otherwise the existing pool-based pick. Never
-    // auto-picks Juan/Zach, and never picks a tech who isn't scheduled+free.
     secondary_technician_id = await resolveDefaultSecondary(
       db, biz, effectivePostalCode, body.scheduled_date, body.scheduled_slot, tz, technician_id, body.pool2, body.require_available === true);
   }
-  // Backstop: a concrete second tech (or one that slipped through) must never be
-  // an out-of-town, primary-only tech (Juan/Zach). Verify by name before saving.
   if (secondary_technician_id) {
     const { data: secTech, error } = await db.from('technicians').select('name, active, status').eq('id', secondary_technician_id).maybeSingle();
     if (error) throw error;
@@ -4865,10 +3537,6 @@ async function bookingCreate(req, res, db, auth, body) {
       return res.status(400).json({ error: `${secTech.name} can't be booked as a second technician. Pick another second tech or another time.` });
     }
   }
-  // A mandatory two-person job (large TV, customer can't help lift) must end up
-  // with a concrete second technician, and the two must differ — UNLESS the
-  // primary brings their own second person (Juan/Zach), who covers the job
-  // without a roster second tech.
   if (body.needs_lifting && !secondary_technician_id && !primaryBringsOwnSecond) {
     return res.status(body.require_available === true ? 409 : 400).json({ code: 'slot_unavailable', error: 'This job requires a second technician, but no one from the chosen team is free for that time. Pick a specific second tech or another time.' });
   }
@@ -4876,14 +3544,6 @@ async function bookingCreate(req, res, db, auth, body) {
     return res.status(400).json({ error: 'The two technicians must be different.' });
   }
 
-  // Cross-metro backstop: a tech tagged to a DIFFERENT metro than this
-  // booking's zip must be explicitly confirmed, never silently saved (see
-  // crossMetroMismatch above for the Jul 2026 Zach/Denver incident this
-  // exists for). Auto-picked techs pass trivially, they came from the scoped
-  // roster; this catches explicit picks and anything a stale client sends.
-  // Confirmation is per-TECH (confirm_cross_metro_ids); two mismatched techs
-  // on one booking each get their own named 409 rather than one confirm
-  // silently blessing both.
   {
     const mm = await crossMetroMismatch(db, bookingAreaId,
       [technician_id, secondary_technician_id], body.confirm_cross_metro_ids);
@@ -4896,24 +3556,11 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
 
-  // Guard against double-booking AND against booking a tech during a time
-  // they've marked unavailable (a requested day off, or off their recurring
-  // schedule). Picking a CONCRETE tech from the dropdown used to skip the
-  // availability half entirely — only the 'any'-pick path (pickAvailableTech)
-  // ever consulted the exceptions table. Double-booking can never be
-  // overridden (a tech can't be in two places at once); the availability half
-  // can be, per-technician, via force_unavailable_ids (the office confirming
-  // "book them anyway" for THAT specific person only — not a blanket bypass
-  // that would also silently wave through an unrelated conflict on the OTHER
-  // tech in the same request).
   if (scheduled_at && (technician_id || secondary_technician_id)) {
     const conflictDate = body.scheduled_date || localDateStr(tz, scheduled_at);
     const conflictSlot = body.scheduled_slot || slotKeyForLocalTime(localHHMM(tz, scheduled_at));
     const forcedIds = new Set((body.force_unavailable_ids || []).map(String));
     if (!conflictSlot) {
-      // Can't place this time inside one of the 5 fixed slots, so nothing below
-      // can be verified — fail CLOSED (require an explicit override) instead of
-      // silently skipping every check for an off-grid time.
       const uncheckedId = technician_id && !forcedIds.has(String(technician_id)) ? technician_id
         : (secondary_technician_id && !forcedIds.has(String(secondary_technician_id)) ? secondary_technician_id : null);
       if (uncheckedId) {
@@ -4922,9 +3569,6 @@ async function bookingCreate(req, res, db, auth, body) {
       }
     } else {
       const dow = dayOfWeekFor(conflictDate);
-      // Fresh final check, independent of the earlier auto-pick. Check both
-      // technicians together, including bookings where either is a helper.
-      // The database's unique slot constraint remains the final race backstop.
       const slotState = await batchTechSlotState(db, [technician_id, secondary_technician_id].filter(Boolean), conflictDate, dow, tz);
       if (technician_id) {
         const taken = slotState.get(technician_id).booked;
@@ -4955,15 +3599,9 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
 
-  const paymentMethod = body.payment_method || null;        // card | cash | quote | null
+  const paymentMethod = body.payment_method || null;
   const status = technician_id ? 'assigned' : 'confirmed';
 
-  // Duplicate backstop BEYOND the idempotency key: the dashboard mints a fresh
-  // key per modal-open, so "request timed out → close modal → reopen → re-enter
-  // the same job" carries a NEW key and the key dedupe can't catch it. The same
-  // customer with a non-cancelled booking at the same exact date+slot is that
-  // exact re-entry — refuse with the existing booking id instead of silently
-  // double-booking (best-effort: any query error falls through to a normal create).
   if (customer_id && scheduled_at) {
     try {
       const { data: same } = await db.from('bookings').select('id, status')
@@ -4978,43 +3616,19 @@ async function bookingCreate(req, res, db, auth, body) {
     } catch { /* dedupe is best-effort — never block a legitimate booking on it */ }
   }
 
-  // Reject a completely bare booking — no service, no selections, no notes at
-  // all. Every legitimate flow (Home Cleaning, Handyman, Assurion, GDS) always
-  // supplies at least ONE of these three; a booking with none of them means
-  // nothing was actually chosen before the office hit Create. Client-side
-  // validation (admin.html) should already stop this, but the server is the
-  // authoritative check — this codebase's whole pattern is that money/data
-  // guards never rely on the client alone. (Lucinda Simpson job, Jul 2026:
-  // created exactly this way — no service_id, no line items, $0 — sat
-  // invisible for a week and read as "the line items got removed" when they
-  // had never actually been entered.)
   const hasSelections = Array.isArray(body.selections) && body.selections.length > 0;
   if (!body.service_id && !hasSelections && !(body.notes || '').toString().trim()) {
     return res.status(400).json({ error: 'Choose a service category and at least one option before creating this booking — nothing was selected.' });
   }
 
-  // Sanity ceiling on the price BEFORE any row is created (real incident: a
-  // browser autofilled a 5-digit ZIP into the Travel Fee box and an $86,889
-  // booking was created with nobody having typed that number). See
-  // priceSanityIssue() for the thresholds and rationale.
   if (body.confirm_high_price !== true) {
     const issue = priceSanityIssue({ lines: body.selections, total: body.price });
     if (issue) return res.status(409).json({ error: issue, code: 'high_price_confirm_required' });
   }
 
-  // Hard $139 minimum ticket (owner rule 2026-08-31): "if it's not 139 then I
-  // don't want it." Mirrors the same floor in api/book.js — this is the office
-  // New Booking tool's server-side backstop, since the client-side warn/topup
-  // in admin.html can be bypassed by anyone calling this endpoint directly.
-  // GDS, Assurion, and No Charge/Callback are intentionally $0 (the office UI
-  // sends price:0 for all three), and Handyman Labor is hourly, not a TV
-  // mounting ticket — none of those are subject to this floor. Everything
-  // else — any normal paid job, any business, any metro — is a hard reject,
-  // not a topup: the office must add more service or the booking doesn't happen.
   {
     const _price = Number(body.price) || 0;
     const _isHandyman = isHandymanPricedLines(body.selections);
-    // A 'TV Dismount (only)' line must be the exact $109 dismount-only ticket.
     const _hasDismount = Array.isArray(body.selections) && body.selections.some(l => /^TV Dismount \(only\)/i.test(String((l && l.label) || '')));
     const _isDismountOnly = isDismountOnlyLines(body.selections);
     if (_hasDismount && !_isDismountOnly) {
@@ -5025,8 +3639,6 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   }
 
-  // Signed review-link token (30-day TTL) so the completion follow-up can point
-  // the customer at the review widget. booking_id is patched in after insert.
   const bookingInsert = {
     business_id: biz.id, customer_id,
     technician_id: technician_id || null,
@@ -5046,23 +3658,11 @@ async function bookingCreate(req, res, db, auth, body) {
     tv_size_category: body.tv_size_category || null,
     sms_consent: smsConsent,
     idempotency_key: idempotencyKey,
-    // Who booked it, for the "Booked by" line on the job detail. Owner = "Admin";
-    // a secretary = their name (Heather / Joey). Widget bookings carry source
-    // 'widget' instead and are labeled "Booking widget" client-side.
     metadata: { booked_by: auth.role === 'owner' ? 'Admin' : (auth.name || 'Office'),
       ...((body.scheduled_date && SLOT_KEYS.has(body.scheduled_slot)) ? { slot_key: body.scheduled_slot,
         slot_recommended: isRecommended(await recommendedSlots(db), dayOfWeekFor(body.scheduled_date), body.scheduled_slot) } : {}) },
   };
 
-  // Some columns depend on later migrations (0014 sms_consent, 0019 lift cols).
-  // If a DB hasn't been migrated yet, the insert reports the missing column —
-  // drop it and retry so a booking can still be created. Loop in case more than
-  // one optional column is missing.
-  //
-  // EXCEPTION: if the office actually assigned a SECOND technician but the
-  // secondary_technician_id column is missing, do NOT silently drop them — that
-  // would create a one-tech job and the second tech would never see it. Fail
-  // loudly with a fix hint so the booking isn't quietly wrong.
   const OPTIONAL_INSERT_COLS = ['sms_consent', 'secondary_technician_id', 'needs_lifting', 'tv_size_category', 'idempotency_key'];
   const wantedSecondTech = !!bookingInsert.secondary_technician_id;
   let insertObj = { ...bookingInsert };
@@ -5070,10 +3670,6 @@ async function bookingCreate(req, res, db, auth, body) {
   for (let attempt = 0; attempt < OPTIONAL_INSERT_COLS.length + 1; attempt++) {
     ({ data: bRow, error: bErr } = await db.from('bookings').insert(insertObj).select('id').single());
     if (!bErr) break;
-    // Concurrent duplicate: a simultaneous request with the SAME idempotency key
-    // won the race and already inserted. The unique index (0024) rejects this one
-    // with a 23505 — return the winner's booking instead of erroring, so a
-    // double-submit is a no-op rather than a phantom job.
     if (idempotencyKey && (bErr.code === '23505' || /idempotency/i.test(bErr.message || '') || /duplicate key/i.test(bErr.message || ''))) {
       const { data: winner, error } = await db.from('bookings')
         .select('id, status').eq('business_id', biz.id).eq('idempotency_key', idempotencyKey).maybeSingle();
@@ -5082,16 +3678,12 @@ async function bookingCreate(req, res, db, auth, body) {
       if (winner?.id) return res.status(200).json({ id: winner.id, duplicate: true,
         warning: 'Booking already exists. Check the saved job to confirm its card, line items, and notifications before making any changes.' });
     }
-    // Tech/slot race lost at the DB (bookings_tech_slot_unique, migration 0073):
-    // two offices passed the pre-insert conflict check simultaneously and the
-    // other one's insert won. This surfaced as a raw 500 ("duplicate key…")
-    // instead of the same friendly 409 the pre-check gives.
     if (bErr.code === '23505' && /bookings_tech_slot_unique/.test(bErr.message || '')) {
       return res.status(409).json({ code: 'slot_unavailable', error: 'That technician was just booked for this exact time slot by someone else. Refresh the available times and pick another slot or technician.' });
     }
     const missing = ['42703', 'PGRST204'].includes(bErr.code) && OPTIONAL_INSERT_COLS.find(c => missingColumn(bErr.message) === c && c in insertObj);
-    if (!missing) break;                       // not an optional-column problem — give up
-    if (missing === 'idempotency_key' && idempotencyKey) break; // never silently remove retry protection
+    if (!missing) break;
+    if (missing === 'idempotency_key' && idempotencyKey) break;
     if (missing === 'secondary_technician_id' && wantedSecondTech) {
       return res.status(503).json({ error: 'This database can\'t store a second technician yet (missing the two-technician upgrade). Apply migration 0019_secondary_technician.sql in Supabase, then rebook. The booking was not created so the second tech isn\'t silently lost.' });
     }
@@ -5104,21 +3696,9 @@ async function bookingCreate(req, res, db, auth, body) {
 
   let postInsertWarning = unassignedWarning;
   try {
-  // Generate the review-link token now that we have the booking id.
   await ensureReviewToken(db, { id: bRow.id });
 
-  // NOTE: the booking row already exists past this point. NOTHING below may
-  // throw a 500 — that would tell the office "booking failed" for a booking
-  // that EXISTS, and the natural retry double-books. Failures here are
-  // collected as a warning on the (still-200) response instead. Seeded with
-  // the unassigned-race warning from the tech pick above, if any.
 
-  // Save a tokenized card on file in Stripe so it can be charged at service time.
-  // A failure here used to be silently swallowed (console.warn only) — the
-  // booking looked completely successful (confirmation email/SMS still sent),
-  // so the office had no way to know the card never actually attached until a
-  // charge attempt failed at time of service, sometimes days later. Now it
-  // surfaces as a warning on the (still-successful) booking-create response.
   if (paymentMethod === 'card' && body.payment_method_id) {
     try {
       const ids = await saveCardOnFile(body.payment_method_id, { name: c.name, email: c.email, phone: c.phone }, biz.slug);
@@ -5129,8 +3709,6 @@ async function bookingCreate(req, res, db, auth, body) {
       if (error) throw error;
     } catch (e) {
       console.warn('[admin] card-on-file save failed:', e.message);
-      // Compose (don't clobber) — the unassigned-race warning may already be
-      // set, and both are must-see: no tech AND no card is a double surprise.
       const cardWarn = `Booking was created, but the card could not be saved (${e.message}). Open the job and use "Change card" to add it before the appointment.`;
       postInsertWarning = postInsertWarning ? `${postInsertWarning}\n\n${cardWarn}` : cardWarn;
     }
@@ -5138,8 +3716,6 @@ async function bookingCreate(req, res, db, auth, body) {
   const selections = Array.isArray(body.selections) ? body.selections : [];
   const selectionCount = selections.length;
   if (selections.length) {
-    // Canonical ticket order from birth (TVs smallest-first, then work, then
-    // travel fee / discounts; tax is appended after, so it lands last).
     const rows = canonicalizeLineItems(selections.map(s => {
       const qty = Number(s.quantity) || 1;
       const unit = Number(s.price) || 0;
@@ -5157,16 +3733,10 @@ async function bookingCreate(req, res, db, auth, body) {
     }
     if (liErr) {
       console.error('[admin] line-items insert failed (booking exists):', liErr.message);
-      // `||`, never a plain assignment — a prior card-save warning (money-
-      // relevant) must never be silently discarded just because line items
-      // ALSO failed to save in the same request. Matches the tax-line warning
-      // below, which already gets this right.
       postInsertWarning = postInsertWarning || 'Booking was created, but its line items could not be saved — open the job and re-add them.';
     }
   }
 
-  // Add tax as a line item — sort_order after every selection, so tax is the
-  // very last line on the ticket (owner rule: tax always at the bottom).
   if (Number(body.tax) > 0) {
     const taxRow = {
       booking_id: bRow.id, business_id: biz.id,
@@ -5191,18 +3761,12 @@ async function bookingCreate(req, res, db, auth, body) {
   });
   if (statusEventError) postInsertWarning = [postInsertWarning, 'Booking was created, but its status history could not be saved.'].filter(Boolean).join('\n\n');
 
-  // Send booking confirmation SMS to customer. Same value as the insert above,
-  // so the stored row and the text always agree.
   const customerSmsP = (async () => {
     if (!c.phone || !scheduled_at || !smsConsent) return;
-    if (!(await staffTextGate(db, c.phone, true)).ok) return;   // blocked / STOP (audit 2026-10-25)
-    // Use the JOB's local time (tz was resolved from the service area above), so an
-    // Austin customer sees Central time — not the business's Mountain time.
+    if (!(await staffTextGate(db, c.phone, true)).ok) return;
     const _d = new Date(scheduled_at);
     const dateStr = _d.toLocaleDateString('en-US', { timeZone: tz, weekday: 'short', month: 'short', day: 'numeric' });
     const timeStr = _d.toLocaleTimeString('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit' });
-    // Same template as the widget confirmation (_lib/booking-confirm-sms.js):
-    // the slot's window when the office picked a slot, else the exact start.
     const slotLabel = (body.scheduled_date && body.scheduled_slot)
       ? ((SLOTS.find(s => s.key === body.scheduled_slot) || {}).label || null) : null;
     const msg = bookingConfirmMessage({
@@ -5211,7 +3775,6 @@ async function bookingCreate(req, res, db, auth, body) {
       timeWindow: slotLabel || '',
       techName: primaryTechInfo?.name || null,
     });
-    // Awaited: an un-awaited send is killed when Vercel freezes the lambda on response.
     try {
       const _confirmResult = await sendSMSResult(c.phone, msg);
       if (!_confirmResult.ok) {
@@ -5222,17 +3785,12 @@ async function bookingCreate(req, res, db, auth, body) {
     } catch (e) { console.error(e); }
   })();
 
-  // SMS consent is stored on the booking; do not duplicate it in staff notes.
 
-  // Notify the technician if one was assigned at creation time (job-local tz).
-  // AWAITED: unawaited, Vercel can freeze the lambda when the response goes out
-  // and the Twilio call never happens.
   const techNotifyP = Promise.allSettled([technician_id, secondary_technician_id].filter(Boolean).map(async id => {
     try { await notifyTechAssigned(db, biz, id, scheduled_at, tz, { bookingId: bRow.id }); }
     catch (e) { console.error('[tech-notify]', e.message); }
   }));
 
-  // Owner SMS when this ticket carries 4+ brackets (same alert as widget bookings).
   maybeSendBigBracketAlert({
     db, technicianId: technician_id,
     lines: selections,
@@ -5243,7 +3801,6 @@ async function bookingCreate(req, res, db, auth, body) {
     })(),
   });
 
-  // Owner SMS when this ticket is $0 and not GDS, or its estimated profit is under $20.
   maybeSendZeroOrLowProfitAlert({
     price: Number(body.price) || 0,
     lines: selections,
@@ -5256,17 +3813,6 @@ async function bookingCreate(req, res, db, auth, body) {
     })(),
   });
 
-  // ---- Branded booking-confirmation email (best-effort; never fails the booking) ----
-  // Mirrors the public widget's confirmation so phone-in jobs the office books
-  // also get the branded "You're booked" email. Brand-aware: TidyHaus and Doms
-  // each get their own colors, sender, and reply-to via emailConfig/brandFor.
-  // sendEmail itself is gated by emailNotificationsOn() + the Resend key, so this
-  // no-ops safely until those are set.
-  // Both notification emails run CONCURRENTLY and each Resend call is capped at
-  // 8s inside sendEmail — they stay awaited (a serverless function must not
-  // return before its sends finish or they get frozen mid-flight), but they can
-  // no longer stall the response unboundedly: worst case adds a few seconds, not
-  // the pre-timeout "Processing… forever" hang the office was hitting.
   const confirmationEmailP = (async () => {
     if (!c.email) return;
     try {
@@ -5278,8 +3824,6 @@ async function bookingCreate(req, res, db, auth, body) {
       const slotDef = SLOTS.find(s => s.key === body.scheduled_slot);
       const timeWindow = slotDef ? slotDef.label : '';
 
-      // Calendar links: scheduled_at is the slot start (UTC); derive the end from
-      // the slot's duration (default 2h) so the .ics / Google event has a window.
       let startEpoch = null, endEpoch = null;
       if (scheduled_at) {
         startEpoch = Math.floor(new Date(scheduled_at).getTime() / 1000);
@@ -5293,7 +3837,6 @@ async function bookingCreate(req, res, db, auth, body) {
       }
       const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
 
-      // Price block only when there's an actual charge (skip $0 insurance jobs).
       const hasPrice = (Number(body.price) || 0) > 0;
       let emailLines = null;
       if (hasPrice) {
@@ -5327,10 +3870,6 @@ async function bookingCreate(req, res, db, auth, body) {
         rescheduleUrl: rescheduleUrlFor({ bookingId: bRow.id, baseUrl }),
       }, brandFor(biz.slug));
       const { from } = emailConfig(biz.slug);
-      // TEMP diagnostic: reveal which Resend key path is in use (no secrets logged).
-      // Tells us if DOMS_RESEND_API_KEY is actually present on this project/env or
-      // if we're silently falling back to the shared TidyHaus key (which can't
-      // send from tidyhausph.com). Safe to remove once Doms email is confirmed.
       const _domsKey = process.env.DOMS_RESEND_API_KEY || '';
       const _haKey = process.env.RESEND_API_KEY || '';
       console.log(`[admin] email key path (${biz.slug}): DOMS_RESEND_API_KEY set=${!!_domsKey} (len=${_domsKey.length}) RESEND_API_KEY set=${!!_haKey} (len=${_haKey.length}) usingFallback=${biz.slug === 'doms' && !_domsKey} domsKeyDiffersFromHA=${!!_domsKey && _domsKey !== _haKey} from=${from}`);
@@ -5344,9 +3883,6 @@ async function bookingCreate(req, res, db, auth, body) {
     }
   })();
 
-  // TEMPORARY owner heads-up: email the owner when a SECRETARY (Heather/Joey)
-  // books a job from the dashboard — NOT when the owner books one. Toggle off any
-  // time by setting NOTIFY_SECRETARY_BOOKINGS=0 in the environment. Best-effort.
   const ownerAlertP = (async () => {
     if (auth.role === 'owner' || process.env.NOTIFY_SECRETARY_BOOKINGS === '0') return;
     try {
@@ -5380,8 +3916,6 @@ async function bookingCreate(req, res, db, auth, body) {
     } catch (e) { console.warn('[admin] secretary booking alert non-fatal:', e.message); }
   })();
 
-  // Start independent deliveries together, but wait for every one even when
-  // another rejects: returning early can freeze unfinished serverless sends.
   const deliveries = await Promise.allSettled([customerSmsP, techNotifyP, confirmationEmailP, ownerAlertP]);
   if (deliveries.some(result => result.status === 'rejected')) {
     postInsertWarning = [postInsertWarning, 'Booking was created, but some notifications could not be completed. Check the saved job before retrying a notification.'].filter(Boolean).join('\n\n');
@@ -5395,19 +3929,12 @@ async function bookingCreate(req, res, db, auth, body) {
   }
 }
 
-// ── Booking update: confirm | cancel | reschedule | assign | status ──────────
-// opts (tech reschedule, api/tech.js): { biz, actor: 'tech:<id>', techNote: { author_id, author_name } }.
-// The tech path has already checked ownership + the per-tech flag; it passes the
-// booking's business so the office slug gate is skipped.
 export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = opts.biz || await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   const id = body.id;
   if (!id) return res.status(400).json({ error: 'id required' });
 
-  // Confirm the booking belongs to this business before touching it. The 0019
-  // column (secondary_technician_id) may not exist yet — fall back without it so
-  // confirm/cancel/status/assign keep working until the migration is applied.
   const existingSel = () => `id, status, technician_id, ${bookingLiftCols ? 'secondary_technician_id, ' : ''}scheduled_at, postal_code, review_token, sms_consent, metadata, payment_status, amount_paid, customer:customers ( phone, email, name )`;
   let { data: existing, error: e0 } = await db.from('bookings')
     .select(existingSel()).eq('id', id).eq('business_id', biz.id).single();
@@ -5417,29 +3944,20 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
   }
   if (e0 || !existing) return res.status(404).json({ error: 'Booking not found' });
 
-  // Cancel deletes the booking outright. Child rows (line items, status events,
-  // photos, notes) are removed by ON DELETE CASCADE.
   const patch = {};
   let newStatus = null;
-  let confirmedBrackets = null;   // { used, detected } from the office's bracket picker
-  let platesAnswer = null;        // wire plates the office says went in (null = not asked)
+  let confirmedBrackets = null;
+  let platesAnswer = null;
   const now = new Date().toISOString();
 
   switch (body.action) {
     case 'confirm':
       patch.status = newStatus = 'confirmed'; patch.confirmed_at = now; break;
     case 'cancel':
-      // A paid job can't just be cancelled: the money and the tech's pay vanish
-      // from every report (Delia Gaines, audit 2026-10-25). Refund or move it first.
       if (String(existing.payment_status || '').toLowerCase() === 'paid' && Number(existing.amount_paid) > 0) {
         return res.status(409).json({ error: 'This job is paid. Refund the payment (or move it to the new job) before cancelling.' });
       }
-      // Soft-cancel: keep the row (status='cancelled') so it stays auditable and
-      // visible under "Include canceled". Every slot-occupancy query excludes
-      // cancelled bookings, so the slot is freed exactly as the old delete did.
       patch.status = newStatus = 'cancelled'; patch.cancelled_at = now;
-      // Notify the assigned tech their job was canceled (internal, no consent
-      // needed). Fire-and-forget + best-effort so it can never block the cancel.
       if (existing.technician_id) {
         (async () => {
           try {
@@ -5459,10 +3977,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       }
       break;
     case 'reschedule': {
-      // Preferred path: a calendar date + one of the fixed slots. Convert it to a
-      // timestamp server-side in the booking's METRO timezone (same logic as new
-      // bookings) and derive scheduled_end from the slot, so the calendar shows
-      // the right time range. Falls back to a raw scheduled_at if one is passed.
       const rtz = await areaTimezone(db, await serviceAreaIdFromPostal(db, biz.id, existing.postal_code), biz.timezone || 'Asia/Manila');
       if (body.scheduled_date && body.scheduled_slot) {
         const slotDef = SLOTS.find(s => s.key === body.scheduled_slot);
@@ -5478,24 +3992,8 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       } else {
         return res.status(400).json({ error: 'scheduled_at (or scheduled_date + scheduled_slot) required' });
       }
-      // Optional technician change riding along with the reschedule — the office
-      // asked to do both in one step (e.g. the customer requested a different
-      // tech at the new time). Same undefined-check as 'assign' so omitting it
-      // leaves the existing tech untouched.
       if (body.technician_id !== undefined) patch.technician_id = body.technician_id || null;
-      // A big job's extra slots were reserved for the OLD time — drop them on a
-      // reschedule so they can't silently land on another job at the new time.
-      // (Also correct when only the tech changed: the extra slots belong to the
-      // OLD tech's schedule and must be re-validated for the new one.)
       if (extraSlotsCol) patch.extra_slots = [];
-      // A lateness alert already sent for the OLD time doesn't mean anything
-      // about the NEW time — clear it so a tech who's late for the rescheduled
-      // slot is still checked/alerted (see api/_lib/tech-late.js). No grace-
-      // period stamp needed here (unlike reassignment): the new scheduled_at
-      // itself is the buffer, since the lateness check only fires 30+ min
-      // after whatever scheduled_at currently says. Also drops the 4-stage
-      // markers (stage1-4) and the tech's own late_reported_at/by self-report —
-      // all of that belonged to the OLD time too.
       {
         const existMetaResched = existing.metadata || {};
         const {
@@ -5505,14 +4003,8 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           late_reported_at, late_reported_by,
           ...restMetaResched
         } = existMetaResched;
-        // Owner wants a visible record on the job card when a customer's time
-        // changes, not just buried in the notes list. Stamp the time being
-        // REPLACED so the card can show "rescheduled from <old time>", only
-        // when the time is actually moving, so a reschedule that only swaps
-        // the tech doesn't paint a false history.
         if (existing.scheduled_at && existing.scheduled_at !== patch.scheduled_at) {
           restMetaResched.rescheduled_from = existing.scheduled_at;
-          // The 24h reminder went out for the OLD time; let it go again (audit 2026-10-25).
           delete restMetaResched.reminder_sent_at;
         }
         restMetaResched.rescheduled_by = opts.actor || `office:${auth.name || auth.role || 'office'}`;
@@ -5521,21 +4013,13 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       break;
     }
     case 'assign': {
-      // Only touch the field that was actually sent, so changing the second tech
-      // doesn't wipe the primary (and vice-versa). Skip the secondary if the DB
-      // hasn't been migrated for it yet.
       if (body.technician_id !== undefined) patch.technician_id = body.technician_id || null;
       const primaryChanged = body.technician_id !== undefined && (body.technician_id || null) !== (existing.technician_id || null);
-      // Changing the PRIMARY tech moves the reserved extra slots to a different
-      // person — drop them so they must be re-added (and re-validated) for the new tech.
       if (primaryChanged && extraSlotsCol) patch.extra_slots = [];
       let secondaryChanged = false;
       if (body.secondary_technician_id !== undefined && bookingLiftCols) {
         let sec = body.secondary_technician_id || null;
-        // 'any' → resolve to the scheduled default (TidyHaus first for Dom's).
         if (sec === 'any') {
-          // METRO tz (Central for Houston/Austin), not the single business tz —
-          // see the guard block below for why this distinction matters.
           const aTz = await areaTimezone(db, await serviceAreaIdFromPostal(db, biz.id, existing.postal_code), biz.timezone || 'Asia/Manila');
           const effTechId = (body.technician_id !== undefined ? patch.technician_id : existing.technician_id) || null;
           const aDate = existing.scheduled_at ? localDateStr(aTz, existing.scheduled_at) : null;
@@ -5545,17 +4029,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
         patch.secondary_technician_id = sec;
         secondaryChanged = (sec || null) !== (existing.secondary_technician_id || null);
       }
-      // Either tech changing means whoever's newly on the hook for this job
-      // didn't cause any lateness already tracked against it — clear the
-      // lateness-alert state and stamp reassigned_at so tech-late.js gives
-      // them a full fresh 30-minute grace period instead of instantly
-      // flagging them late for a slot that was already overdue when it
-      // landed on them (see api/_lib/tech-late.js). One shared timestamp for
-      // the whole booking is deliberate — simpler than tracking a grace
-      // period per tech slot, and the only cost is a rare few extra minutes
-      // of delay on a legitimately new lateness incident. Also drops the
-      // 4-stage markers (stage1-4) and the tech's own late_reported_at/by
-      // self-report — none of that should follow onto whoever's newly assigned.
       if (primaryChanged || secondaryChanged) {
         const existMetaAssign = existing.metadata || {};
         const {
@@ -5571,19 +4044,10 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       break;
     }
     case 'reopen':
-      // Reopen a completed job by setting it back to assigned (if tech is assigned)
-      // or confirmed (if no tech). Mark it so we never resend the review email.
       if (existing.status !== 'completed') return res.status(400).json({ error: 'Only completed jobs can be reopened' });
       patch.status = newStatus = existing.technician_id ? 'assigned' : 'confirmed';
       {
         const existMeta = existing.metadata || {};
-        // Any lateness alert already sent belongs to whatever happened before
-        // this reopen — clear it so the reopened job (protected by its own
-        // 30-min reopened_at grace period, see api/_lib/tech-late.js) is still
-        // checked/alerted fresh if it genuinely goes late again. Also drops the
-        // 4-stage markers (stage1-4) and the tech's own late_reported_at/by
-        // self-report — a reopened job should be checked fresh, not silenced
-        // by a self-report from whatever happened before.
         const {
           late_alert_sent_at, tech_late_notified_ids, otw_nudge_sent_ids, staff_late_notified_at,
           stage1_sent_ids, stage2_sent_ids, stage3_tech_sent_ids,
@@ -5596,18 +4060,10 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       break;
     case 'status':
       if (!body.status) return res.status(400).json({ error: 'status required' });
-      // Validated, and deliberately WITHOUT 'arrived'/'in_progress'. We don't
-      // track on-site arrival, the tech app has no button for either, and a job
-      // parked on one of them used to render the tech no advance button at all.
-      // The DB enum still allows them so imported Zenbooker rows stay valid;
-      // this just stops anything new landing there. Previously this accepted any
-      // string, so a typo became a 500 from the enum column instead of a 400.
       if (!SETTABLE_STATUSES.includes(body.status)) {
         return res.status(400).json({ error: `Unknown status "${body.status}". Allowed: ${SETTABLE_STATUSES.join(', ')}` });
       }
       patch.status = newStatus = body.status;
-      // Bracket confirm (owner 2026-10-13): the office's per-TV answer, checked
-      // against the server's TV count. Absent = old path (ticket lines) below.
       if (body.status === 'completed') {
         const parsed = parseBracketsUsed(body.brackets_used);
         if (parsed.error) return res.status(400).json({ error: parsed.error });
@@ -5623,8 +4079,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           if (pf.tv_count > 0) {
             const bad = checkBracketsUsed(parsed.value, pf.tv_count);
             if (bad) return res.status(400).json({ error: bad, code: 'bracket_confirm' });
-            // Whose stock: recorded supplier, else the assigned tech; on a
-            // two-tech job the office may name either tech in the answer.
             let sup = null;
             try {
               const { data: r, error: rErr } = await db.from('bookings')
@@ -5643,7 +4097,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
             confirmedBrackets = { used: u, detected, supplier, orig };
           }
         } else if (existing.status !== 'completed') {
-          // Required (owner 2026-10-24): an explicit per-TV answer. Exempt crews and 0-TV jobs pass.
           const { data: liNow } = await db.from('booking_line_items').select('name, quantity').eq('booking_id', id);
           const pf = bracketPrefill(liNow || [], detectBracketQtys(liNow || []));
           if (pf.tv_count > 0) {
@@ -5654,47 +4107,22 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           }
         }
       }
-      // Mirror the tech app (TECH_STATUS stamp in api/tech.js): a dashboard
-      // completion used to leave completed_at NULL, so about half of Denver's
-      // completed jobs had no completion time and sorted to the wrong end of
-      // the Reviews tab. Only on the transition INTO completed — a replayed
-      // "completed" on an already-completed job (double-click, stale tab)
-      // must not overwrite the tech's real completion time.
       if (body.status === 'completed' && existing.status !== 'completed') patch.completed_at = now;
       break;
     case 'sms_consent':
-      // The office records a verbal opt-in/opt-out taken over the phone (e.g.
-      // a widget customer who skipped the checkbox but asks for text updates).
-      // No other path in the app can change this flag once a booking exists.
       patch.sms_consent = body.value === true || body.value === 'true';
       break;
     default:
       return res.status(400).json({ error: `Unknown booking action "${body.action}"` });
   }
 
-  // Double-booking guard for reschedule / reassign, PLUS a guard against
-  // dropping a tech onto a time they've marked unavailable. Double-booking can
-  // never be overridden; the availability half can be, per-technician, via
-  // force_unavailable_ids — see the matching comment in bookingCreate.
   if (body.action === 'reschedule' || body.action === 'assign') {
-    // METRO tz (Central for Houston/Austin), not the single business tz — a
-    // booking's wall-clock time is always anchored in the metro it's in (see
-    // bookingCreate / the reschedule branch above), so slot-key math here must
-    // match or it silently computes the WRONG slot (or none at all, which used
-    // to make every guard below no-op for every Houston/Austin booking).
     const tz = await areaTimezone(db, await serviceAreaIdFromPostal(db, biz.id, existing.postal_code), biz.timezone || 'Asia/Manila');
     const effTech = ('technician_id' in patch) ? patch.technician_id : existing.technician_id;
     const effSecondTech = ('secondary_technician_id' in patch) ? patch.secondary_technician_id : existing.secondary_technician_id;
-    // The same person can't be both technicians on one job.
     if (effTech && effSecondTech && effTech === effSecondTech) {
       return res.status(400).json({ error: 'The two technicians must be different.' });
     }
-    // Cross-metro backstop, same as bookingCreate: a NEWLY assigned tech tagged
-    // to a different metro than this booking's zip needs an explicit per-tech
-    // confirm (confirm_cross_metro_ids). Only techs actually CHANGING in this
-    // request are checked, so a booking that already carries a confirmed
-    // cross-metro tech can still be rescheduled to a new time without
-    // re-answering the same question.
     {
       const changedIds = [
         ('technician_id' in patch) && patch.technician_id !== existing.technician_id ? patch.technician_id : null,
@@ -5716,9 +4144,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       const effDate = localDateStr(tz, effAt);
       const forcedIds = new Set((body.force_unavailable_ids || []).map(String));
       if (!slotKey) {
-        // Can't place this time inside one of the 5 fixed slots — fail CLOSED
-        // (require an explicit override) instead of silently skipping every
-        // check for an off-grid time.
         const uncheckedId = effTech && !forcedIds.has(String(effTech)) ? effTech
           : (effSecondTech && !forcedIds.has(String(effSecondTech)) ? effSecondTech : null);
         if (uncheckedId) {
@@ -5761,13 +4186,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
   if (e1) throw e1;
 
   if (body.action === 'sms_consent') {
-    // A2P 10DLC / CTIA: a phone opt-in gets ONE immediate confirmation text
-    // (brand, frequency, rates, HELP, STOP). Only on the flip from not opted in
-    // to opted in, so re-saving a flag that is already on (stale tab, double
-    // click) never texts the customer twice. Best-effort: never fails the save.
-    // Texts are on for every customer with a phone (owner rule 2026-09-19); this
-    // switch exists to turn them OFF for someone who asked by phone, or back on.
-    // Leave a note saying who flipped it.
     await db.from('booking_notes').insert({
       business_id: biz.id, booking_id: id,
       author_kind: auth.role === 'owner' ? 'owner' : 'secretary', author_id: null, author_name: adminAuthorName(auth),
@@ -5781,20 +4199,13 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       status: newStatus, note: `Set by ${auth.role} (dashboard)`,
     });
 
-    // Send review email and SMS when job is completed. Heal a missing review
-    // link first (estimate-approved bookings were created without one, so
-    // completing them used to send nothing at all).
     if (newStatus === 'completed') await ensureReviewToken(db, existing);
     if (newStatus === 'completed' && existing.review_token) {
       const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
-      // Click-tracking redirect URL for both email and SMS — logs which channel the click came from
       const emailClickUrl = `${baseUrl}/api/book?action=review_click&token=${encodeURIComponent(existing.review_token)}&ch=email`;
       const smsClickUrl = `${baseUrl}/api/book?action=review_click&token=${encodeURIComponent(existing.review_token)}&ch=sms`;
-      // Twilio POSTs delivery status here as the text progresses (see api/analytics.js action=sms_status)
       const smsStatusCallback = `${baseUrl}/api/analytics?action=sms_status&token=${encodeURIComponent(existing.review_token)}`;
 
-      // Send review email immediately — only once per booking (metadata stamp),
-      // so a reopen → re-complete never double-emails the customer.
       if (existing.customer?.email && !existing.metadata?.review_email_sent_at) {
         try {
           const brand = brandFor(biz.slug);
@@ -5805,14 +4216,10 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           const { from } = emailConfig(biz.slug);
           const emailResult = await sendEmail({ slug: biz.slug, to: existing.customer.email, subject, html, replyTo: from });
 
-          // Mark review email as sent — best-effort, never blocks completion
           if (emailResult.sent) {
             const { data: cur } = await db.from('bookings').select('metadata').eq('id', id).maybeSingle();
             const newMeta = { ...(cur?.metadata || existing.metadata || {}), review_email_sent_at: now };
             await db.from('bookings').update({ metadata: newMeta }).eq('id', id);
-            // review_email_id lets the Resend delivery webhook match its event
-            // back to this booking; review_email_status starts 'sent' and the
-            // webhook upgrades it to 'delivered'/'bounced'/'complained'.
             try {
               await db.from('bookings').update({
                 review_email_sent_at: now, review_email_count: 1,
@@ -5826,19 +4233,14 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
         }
       }
 
-      // Review-request SMS if the customer opted in — same once-only stamp.
-      // (Replaces the old setTimeout pattern that never fired on serverless.)
       if (existing.customer?.phone && existing.sms_consent && !existing.metadata?.review_sms_sent_at) {
         try {
-          // Wording lives in _lib/review-token.js, shared with api/tech.js and the Reviews-tab resend.
           const msg = reviewRequestSms({ slug: biz.slug, name: biz.name, token: existing.review_token, clickUrl: smsClickUrl, techName: await reviewTechName(db, { ...existing, technician_id: patch.technician_id ?? existing.technician_id }) });
           const smsResult = await sendSMSResult(existing.customer.phone, msg, { statusCallback: smsStatusCallback });
           await logAutomatedMessage(db, { businessId: biz.id, customerPhone: existing.customer.phone, body: msg, result: smsResult });
           if (smsResult.ok) {
             const { data: cur } = await db.from('bookings').select('metadata').eq('id', id).maybeSingle();
             await db.from('bookings').update({ metadata: { ...(cur?.metadata || existing.metadata || {}), review_sms_sent_at: now } }).eq('id', id);
-            // review_sms_status starts 'sent'; Twilio's status callback upgrades
-            // it to 'delivered'/'failed'/'undelivered' (see api/analytics.js).
             try { await db.from('bookings').update({ review_sms_sent_at: now, review_sms_status: 'sent' }).eq('id', id); } catch { /* column not applied yet */ }
             console.log(`[review] SMS sent (${biz.slug}) booking=${id}`);
           } else {
@@ -5848,18 +4250,12 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           console.error(`[review] SMS failed for booking ${id}:`, e.message);
         }
       } else if ((!existing.customer?.phone || !existing.sms_consent) && !existing.metadata?.review_sms_sent_at) {
-        // Stamp the skip so the notification log says WHY no review text went
-        // out — it used to leave no trace at all. Guarded twice so a reopen →
-        // texts turned off → re-complete can never overwrite a real send.
         const why = existing.customer?.phone ? 'skipped_no_consent' : 'skipped_no_phone';
         console.log(`[review] SMS skipped (${why}) booking=${id}`);
         try { await db.from('bookings').update({ review_sms_status: why }).eq('id', id).is('review_sms_sent_at', null); } catch { /* column not applied yet */ }
       }
     }
 
-    // Wire plates (ledger, 0205) -- same rule as the tech app: the office's
-    // answer is what's charged; with none, the ticket count once. Only the
-    // difference vs what this job is already charged posts.
     if (newStatus === 'completed' && (platesAnswer != null || !existing.metadata?.wire_plate_deducted_at)) {
       try {
         const { data: liRows } = await db.from('booking_line_items')
@@ -5899,16 +4295,12 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       }
     }
 
-    // Confirmed answer: the ledger follows it (re-completion posts only the
-    // difference vs what this booking was already charged).
     if (newStatus === 'completed' && confirmedBrackets) {
       try {
         const u = confirmedBrackets.used;
         const qtys = { flat: u.flat, tilting: u.tilting, full_motion: u.full_motion };
         const supplier = confirmedBrackets.supplier;
         const actor = auth.name || auth.role || 'office';
-        // existing.metadata = before this completion: a pre-ledger stamp there
-        // means the job was already charged (legacy baseline), not "never".
         let legacy = null;
         if (supplier) ({ legacy } = await applyConfirmedBrackets(db, {
           businessId: biz.id, bookingId: id, supplier, qtys, actor,
@@ -5931,9 +4323,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       }
     }
 
-    // Auto-decrement the company BRACKETS this job used from the supplier's
-    // inventory — same rule as the tech app, for solo AND two-tech jobs. Stamped
-    // (bracket_deducted_at) so completing/reopening never double-deducts.
     else if (newStatus === 'completed' && !existing.metadata?.bracket_deducted_at) {
       try {
         const { data: liRows } = await db.from('booking_line_items')
@@ -5947,10 +4336,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
             supplier = sup?.bracket_supplied_by || sup?.technician_id || existing.technician_id || null;
           } catch (_) { /* pre-0035: fall back to assigned tech */ }
           if (supplier) {
-            // debitForJob is keyed on the booking id (migration 0088's
-            // bracket_moves ledger) — calling it twice for the same job is a
-            // no-op, so this is now safe even if the metadata stamp below is
-            // ever lost or raced. The stamp stays as a fast bailout only.
             await debitForJob(db, {
               businessId: biz.id, technicianId: supplier, qtys: need, bookingId: id,
               reason: 'job completion (office)', actor: auth.name || auth.role || 'office',
@@ -5960,14 +4345,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
               metadata: { ...(cur?.metadata || existing.metadata || {}), bracket_deducted_at: now, brackets_used: { flat: need.flat || 0, tilting: need.tilting || 0, full_motion: need.full_motion || 0, supplier } },
             }).eq('id', id);
           } else {
-            // No technician/supplier on file at completion — can't charge a
-            // specific truck's stock, but the brackets really were used and
-            // must not vanish silently (found 2026-09-02 auditing bracket
-            // inventory drift). Log it unattributed and deliberately leave
-            // bracket_deducted_at UNSET, so once a technician/supplier IS on
-            // file, a future reopen->recomplete (or the line-item-edit
-            // reconciliation in bookingLineItemsSave) still performs the
-            // real deduction instead of skipping it forever.
             try {
               await db.from('bracket_usage_logs').insert({
                 business_id: biz.id, booking_id: id, technician_id: null,
@@ -5983,9 +4360,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
       }
     }
 
-    // Auto-decrement Apple TV brackets when this job used one -- same rule as
-    // the tech app. Stamped (appletv_bracket_deducted_at) so completing/
-    // reopening never double-deducts.
     if (newStatus === 'completed' && !existing.metadata?.appletv_bracket_deducted_at) {
       try {
         const { data: liRows } = await db.from('booking_line_items')
@@ -6012,12 +4386,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
     }
   }
 
-  // Notify the technician when they are newly assigned to this job (only when the
-  // tech actually changed, so re-saving the same assignment doesn't re-text them).
-  // Resolve the JOB's local tz from its zip so the texted time is the job's local
-  // time (an Austin job is Central), not the business's Mountain time.
-  // AWAITED (not fire-and-forget): unawaited, the `return res.json()` on the
-  // very next line lets Vercel freeze the lambda before Twilio is ever called.
   const notifyTz = (body.action === 'assign' || body.action === 'reschedule')
     ? await areaTimezone(db, await serviceAreaIdFromPostal(db, biz.id, existing.postal_code), biz.timezone || 'Asia/Manila')
     : (biz.timezone || 'Asia/Manila');
@@ -6025,22 +4393,11 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
     await notifyTechAssigned(db, biz, patch.technician_id, existing.scheduled_at, notifyTz, { bookingId: id })
       .catch(e => console.error('[tech-notify]', e.message));
   }
-  // Also notify secondary technician if assigned
   if (body.action === 'assign' && 'secondary_technician_id' in patch && patch.secondary_technician_id && patch.secondary_technician_id !== existing.secondary_technician_id) {
     await notifyTechAssigned(db, biz, patch.secondary_technician_id, existing.scheduled_at, notifyTz, { bookingId: id })
       .catch(e => console.error('[tech-notify]', e.message));
   }
-  // A RESCHEDULE moves an already-assigned tech's job to a new time but used to
-  // notify nobody — the notify above was gated on action==='assign' only, so a
-  // tech kept the old time in their head and showed up wrong (or not at all).
-  // patch.scheduled_at is the new time; existing.technician_id is unchanged by
-  // this action, which is exactly why it needs telling.
   if (body.action === 'reschedule') {
-    // The primary tech changed alongside the reschedule (office does both in
-    // one step) — text the OLD tech that the job left them, and the NEW tech
-    // that they've got it, both at the (possibly also new) time. Distinct from
-    // the plain time-move notify below, which fires for whoever is STILL on
-    // the job.
     const primaryChanged = 'technician_id' in patch && (patch.technician_id || null) !== (existing.technician_id || null);
     if (primaryChanged) {
       if (existing.technician_id) {
@@ -6052,8 +4409,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
           .catch(e => console.error('[tech-notify]', e.message));
       }
     }
-    // Plain time move: notify whoever is (still) on the job — the primary,
-    // unless they were JUST reassigned away above, plus the secondary.
     if (patch.scheduled_at && patch.scheduled_at !== existing.scheduled_at) {
       const stillPrimary = primaryChanged ? null : existing.technician_id;
       for (const techId of [stillPrimary, existing.secondary_technician_id]) {
@@ -6061,8 +4416,6 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
         await notifyTechAssigned(db, biz, techId, patch.scheduled_at, notifyTz, { bookingId: id, kind: 'rescheduled' })
           .catch(e => console.error('[tech-notify]', e.message));
       }
-      // Tell the CUSTOMER the new time too; before, only techs heard (audit 2026-10-25).
-      // Same consent/STOP/block gate as every staff text.
       const cph = existing.customer?.phone;
       if (cph && body.notify_customer !== false) {
         try {
@@ -6091,19 +4444,11 @@ export async function bookingUpdate(req, res, db, auth, body, opts = {}) {
   return res.status(200).json({ ok: true });
 }
 
-// Normalize editor line items into storable booking_line_items rows. Each
-// editor line is just { text, price } (a dollar amount), so quantity is always 1
-// and line_total == unit_price == price. `kind` is preserved when the client
-// sends it back (so a fee/tip/coupon line keeps its category); new lines default
-// to 'service'. Blank lines (no text and no price) are dropped.
 function sanitizeBookingLineItems(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.map(it => {
     const name = ((it && (it.name != null ? it.name : it.label)) || '').toString().trim().slice(0, 300);
     const qty = Math.min(99, Math.max(1, Math.round(Number(it && it.quantity) || 1)));
-    // Prefer an explicit per-item unit_price; otherwise derive it from a total
-    // (price / line_total) divided by the quantity. Backward-compatible with
-    // callers that only send a single total and no quantity (qty defaults to 1).
     let unit;
     if (it && it.unit_price != null && Number.isFinite(Number(it.unit_price))) {
       unit = Number(it.unit_price);
@@ -6119,16 +4464,7 @@ function sanitizeBookingLineItems(arr) {
   }).filter(it => it.name || it.unit_price);
 }
 
-// Tax constants + recalcTaxLine + isTaxLine now live in api/_lib/line-items.js
-// (shared with api/tech.js so the tech-side save applies the same tax rule —
-// see the Boohaker/Bland stale-tax notes there).
 
-// ── Edit a booking's line items (text + price) ───────────────────────────────
-// Owner + secretary. The office sees every line on a job, so the posted set is
-// authoritative: we delete the old rows and insert the new ones, then set the
-// booking's price to the sum of the lines so the total can never drift from the
-// items it's made of. Works on any job, including imported (Zenbooker) jobs that
-// arrived with no line items at all — the editor seeds one line from the price.
 async function bookingLineItemsSave(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -6139,12 +4475,6 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
     .select('id, metadata').eq('id', id).eq('business_id', biz.id).single();
   if (e0 || !existing) return res.status(404).json({ error: 'Booking not found' });
 
-  // ── Optimistic lock (the Throckmorton incident, 2026-08-21) ───────────────
-  // The office and the tech edited this same ticket from two stale copies and
-  // silently clobbered each other five times in four minutes — the customer
-  // ended up charged for the same brackets twice. Every editor now loads
-  // li_rev with the ticket and must hand it back; a save whose li_rev no
-  // longer matches is refused instead of applied.
   const curRev = Number(existing.metadata?.li_rev) || 0;
   if (body.li_rev == null) {
     return res.status(409).json({
@@ -6159,30 +4489,18 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
     });
   }
 
-  // Tax is re-derived from the submitted lines on every save, so changing a
-  // quantity can no longer leave the ticket taxed on a stale amount — and the
-  // whole set is rewritten into the canonical ticket order (TVs smallest-first,
-  // then work, then travel fee, discounts, tax last — owner rule, 2026-08-24).
   const items = canonicalizeLineItems(recalcTaxLine(sanitizeBookingLineItems(body.items)));
 
-  // Same sanity ceiling as booking_create — an edit can introduce an absurd
-  // line item just as easily as the original create (see priceSanityIssue).
   if (body.confirm_high_price !== true) {
     const issue = priceSanityIssue({ lines: items });
     if (issue) return res.status(409).json({ error: issue, code: 'high_price_confirm_required' });
   }
 
-  // Current rows: the snapshot source AND the exact ids we'll delete after the
-  // new rows are safely in.
   const { data: oldRows, error: oldErr } = await db.from('booking_line_items')
     .select('id, kind, name, quantity, unit_price, line_total, taxable')
     .eq('booking_id', id).eq('business_id', biz.id);
   if (oldErr) throw oldErr;
 
-  // A save that would EMPTY a ticket that currently has items is almost always
-  // a client-side bug (a modal that rendered before its data arrived), not an
-  // office intention — require an explicit confirmation flag the UI only sends
-  // after a typed-out warning. (Lucinda Simpson incident, Jul 2026.)
   if (!items.length && (oldRows || []).length && body.confirm_empty !== true) {
     return res.status(400).json({
       error: 'This would remove EVERY line item from the ticket. If that is really what you want, confirm it in the dialog.',
@@ -6192,11 +4510,6 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
 
   console.log(`[line_items] save booking=${id} by=${auth.name || auth.role || 'office'} before=${(oldRows || []).length} after=${items.length}`);
 
-  // Claim the ticket with a compare-and-swap on li_rev, folding the snapshot
-  // (ring buffer of the last 5 item sets — the Lucinda Simpson undo trail)
-  // into the SAME metadata write. If another save slipped in between our rev
-  // check above and this write, the CAS matches zero rows and we refuse —
-  // that's the whole point: two blind full-replaces can never both land.
   const backups = Array.isArray(existing.metadata?.li_backups) ? existing.metadata.li_backups.slice() : [];
   backups.push({
     at: new Date().toISOString(), by: `office:${auth.name || auth.role || '?'}`,
@@ -6216,24 +4529,11 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
     }
     newRev = cas.rev;
   } catch (e) {
-    // The lock write itself failed (transient DB error) — do NOT proceed to a
-    // blind replace without it; that's the unguarded path this lock exists to
-    // close. Surface the error so the office just retries.
     console.error(`[line_items] li_rev CAS failed for booking ${id}:`, e.message);
     return res.status(500).json({ error: 'Could not lock the ticket for saving — try again in a moment.' });
   }
 
-  // INSERT the new rows FIRST, then delete the old ones BY ID. The two steps
-  // are separate transactions (PostgREST), so this order is what makes failure
-  // non-destructive: if the insert dies, the old ticket is untouched; if the
-  // delete dies, the ticket briefly shows duplicates — annoying, visible, and
-  // fixable, unlike the old delete-first order where an insert failure had
-  // already destroyed every row with nothing to recover from.
   if (items.length) {
-    // sort_order = the array's index, so however the office dragged the rows
-    // into order on save is exactly how they read back next time (migration
-    // 0071 — without it, a delete-and-reinsert has no reliable original order:
-    // created_at is identical for every row in one insert, id is a random uuid).
     const rows = items.map((it, i) => ({
       booking_id: id, business_id: biz.id,
       kind: it.kind, name: it.name,
@@ -6257,26 +4557,11 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
   }
 
   const price = Math.round(items.reduce((t, it) => t + it.line_total, 0) * 100) / 100;
-  // subtotal is the PRE-TAX total (same meaning it carries everywhere else that
-  // writes it, e.g. the estimate->booking path). It used to be left untouched by
-  // an edit, so it drifted away from the lines the moment a quantity changed.
   const subtotal = Math.round(items.reduce((t, it) => t + (isTaxLine(it) ? 0 : it.line_total), 0) * 100) / 100;
   const { error: upErr } = await db.from('bookings')
     .update({ price, subtotal }).eq('id', id).eq('business_id', biz.id);
   if (upErr) throw upErr;
 
-  // If real company brackets were already deducted for this booking
-  // (bracket_deducted_at stamped — the job completed and the deduction ran),
-  // an edit that changes which/how-many bracket-type lines are on the ticket
-  // must reconcile the supplier's physical stock too, or the inventory and
-  // ledger silently diverge from what the ticket now actually says (found
-  // 2026-09-02 auditing bracket inventory — this was the one LIVE gap behind
-  // an otherwise-historical drift, since bookingLineItemsSave never touched
-  // bracket accounting at all). Mirrors the "restore old supplier, charge new
-  // supplier" pattern in api/tech.js's jobBracketSetSupplier — same idea, just
-  // keyed on a QUANTITY change instead of a supplier change.
-  // A confirmed answer (bracket confirm at completion) is what the truck used;
-  // a later price/line edit doesn't change it. Reopen + complete to correct.
   if (existing.metadata?.bracket_deducted_at && !existing.metadata?.brackets_used?.confirmed_at) {
     try {
       const oldQtys = detectBracketQtys(oldRows || []);
@@ -6289,9 +4574,6 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
           supplier = sup?.bracket_supplied_by || sup?.technician_id || null;
         } catch (_) { /* pre-0035: bracket_supplied_by column absent */ }
         if (supplier) {
-          // Pre-ledger job (no job_use move): keep its baseline (the OLD
-          // ticket) before this edit posts a move, or a later confirm/supplier
-          // change would count the edit twice.
           if (!existing.metadata?.brackets_used?.legacy) {
             const { legacy } = await chargedSoFar(db, id, existing.metadata, { supplier, ticketQtys: oldQtys });
             if (legacy) {
@@ -6300,9 +4582,6 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
               await db.from('bookings').update({ metadata: { ...m0, brackets_used: { ...(m0.brackets_used || {}), legacy } } }).eq('id', id);
             }
           }
-          // Keyed per li_rev (migration 0088) so this exact edit reconciles
-          // exactly once — a retry or a race with another save is a no-op
-          // instead of re-applying the same restore-and-recharge twice.
           await reconcileJobEdit(db, {
             businessId: biz.id, technicianId: supplier, oldQtys, newQtys, bookingId: id, liRev: newRev,
             reason: 'line items edited after completion', actor: auth.name || auth.role || 'office',
@@ -6316,22 +4595,8 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
     }
   }
 
-  // SEAL the rewrite with a second CAS bump. The claim above happens BEFORE
-  // the insert/delete land (separate PostgREST transactions), so a fetch in
-  // that window can capture the claimed rev alongside stale or duplicated
-  // rows — and a save built minutes later from that poisoned snapshot would
-  // pass the lock. Bumping again once the rows are final invalidates every
-  // snapshot taken mid-rewrite. The still-open modal gets THIS rev back; if
-  // the seal fails we return no li_rev at all, so that modal's next save
-  // fails closed (409) instead of trusting a rev the DB may not hold.
   let sealedRev = null;
   try {
-    // FRESH read, never the claim-time copy: the claim-to-seal window spans
-    // the whole rewrite, and completion stamps (bracket_deducted_at etc.)
-    // written in it don't touch li_rev — sealing with the stale object would
-    // silently revert them (and re-completing would double-deduct inventory).
-    // If li_rev moved off our claim, someone else already invalidated the
-    // ticket — skip the seal and fail closed (no li_rev in the response).
     const { data: freshRow } = await db.from('bookings').select('metadata').eq('id', id).maybeSingle();
     if (Number(freshRow?.metadata?.li_rev) === newRev) {
       const seal = await casBumpLiRev(db, id, freshRow.metadata);
@@ -6351,17 +4616,12 @@ async function bookingLineItemsSave(req, res, db, auth, body) {
     ...(sealedRev != null && { li_rev: sealedRev }) });
 }
 
-// Rewrite a booking's stored line items into the canonical ticket order (TVs
-// smallest-first, work, travel fee, discounts, tax last) without touching
-// their content — for paths that APPEND a row outside the full editors (GDS
-// upsell, Zenbooker GDS backfill) and would otherwise leave it stranded at
-// sort_order 0/99. Best-effort: an ordering failure never blocks the caller.
 async function recanonicalizeBookingRows(db, bookingId) {
   try {
     const { data: rows, error } = await db.from('booking_line_items')
       .select('id, kind, name, quantity, line_total, taxable, sort_order')
       .eq('booking_id', bookingId).order('sort_order', { ascending: true });
-    if (error) { if (!isSortOrderErr(error)) throw error; return; }   // no column yet — nothing to order
+    if (error) { if (!isSortOrderErr(error)) throw error; return; }
     const ordered = canonicalizeLineItems(rows || []);
     for (let i = 0; i < ordered.length; i++) {
       if (Number(ordered[i].sort_order) === i) continue;
@@ -6372,10 +4632,6 @@ async function recanonicalizeBookingRows(db, bookingId) {
   } catch (e) { console.warn(`[line_items] recanonicalize failed for booking ${bookingId}:`, e.message); }
 }
 
-// ── Add / change the card on file (customer wants to pay with a different card) ──
-// The office tokenizes the new card client-side (booking.stripe_pk) and posts the
-// payment_method_id here; we attach it in the booking's Stripe account and point
-// the booking at it, so the next charge uses the new card.
 async function bookingCardUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -6390,10 +4646,6 @@ async function bookingCardUpdate(req, res, db, auth, body) {
   }
   if (error || !b) return res.status(404).json({ error: 'Booking not found' });
   if (b.payment_status === 'paid') return res.status(400).json({ error: 'This booking is already paid — the card cannot be changed.' });
-  // 'charging' is a transient lock a charge-in-progress holds (see
-  // bookingPayment) — changing the card underneath it would race the charge
-  // itself, and this write's own `if (b.payment_status !== 'card_on_file')`
-  // patch below would silently clobber the lock either way.
   if (b.payment_status === 'charging') return res.status(409).json({ error: 'This booking is being charged right now — wait a moment and try again.' });
 
   const acct = { account: b.stripe_account || null, slug: biz.slug };
@@ -6412,9 +4664,6 @@ async function bookingCardUpdate(req, res, db, auth, body) {
   const patch = { stripe_payment_method_id: pmId };
   if (r.customerId) patch.stripe_customer_id = r.customerId;
   if (b.payment_status !== 'card_on_file') patch.payment_status = 'card_on_file';
-  // CAS on the payment_status we READ — see api/tech.js jobCardUpdate for why:
-  // the 'charging' guard above is a plain read, and a charge can acquire its
-  // lock during the seconds-long Stripe call between it and this write.
   const { data: upRow, error: upErr } = await db.from('bookings').update(patch)
     .eq('id', id).eq('business_id', biz.id).eq('payment_status', b.payment_status).select('id').maybeSingle();
   if (upErr) throw upErr;
@@ -6422,12 +4671,6 @@ async function bookingCardUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Read-only "which card is this?" lookup — same resolution order the real
-// charge path uses (stored id -> email lookup -> customer's default payment
-// method), but never charges anything. Lets the office tell a customer which
-// card is on file before/without actually running a charge. Best-effort: any
-// resolution failure just means "no card info to show," never an error the
-// office has to deal with.
 async function bookingCard(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const id = (req.query.id || '').toString();
@@ -6456,17 +4699,6 @@ async function bookingCard(req, res, db, auth) {
   let card = { brand: null, last4: null, customer: null };
   let lookupOk = false;
   try { card = await retrieveCard(pmId, acct); lookupOk = true; } catch (_) { /* Stripe hiccup — just show nothing */ }
-  // A PaymentMethod object exists in Stripe the instant the widget tokenizes
-  // the card — even when the attach was DECLINED and nothing was saved (the
-  // booking row still carries the dead pm id; see the Caplan booking,
-  // 2026-08-20). An unattached pm is not chargeable and must not render the
-  // "Card on file" chip. If the customer has a real attached default (e.g.
-  // added later via "Change card" against the customer record), show that —
-  // resolveChargeablePm below applies the SAME swap at charge time, so the
-  // chip and the Charge button stay on the same card. Only a CONFIRMED
-  // unattached pm falls back; a lookup that merely errored keeps the old
-  // "show nothing" behavior rather than asserting a card the charge path
-  // might not use.
   if (lookupOk && !card.customer) {
     let fallbackPm = null;
     try { if (custId) fallbackPm = await defaultPaymentMethod(custId, acct); } catch (_) { /* no card */ }
@@ -6479,23 +4711,14 @@ async function bookingCard(req, res, db, auth) {
   return res.status(200).json({ has_card: true, brand: card.brand, last4: card.last4 });
 }
 
-// ── Booking payments: charge card on file | mark paid (cash) | refund ────────
-// Business model is "card on file at booking, charged at time of service". The
-// card was attached to a Stripe customer (keyed by email) by the live widget,
-// so we can charge it from here without ever touching the live booking code.
 async function bookingPayment(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   const id = body.id;
   if (!id) return res.status(400).json({ error: 'id required' });
   const act = (body.action || 'charge').toString();
-  // Each business is its own Stripe account; charge/refund the card with THIS
-  // booking's business key (TidyHaus → global key, Doms → DOMS_STRIPE_SECRET_KEY).
   const slug = biz.slug;
 
-  // stripe_account (migration 0032) may not be applied yet — select it
-  // optimistically and fall back without it so charging never breaks on deploy
-  // order. Absent column -> b.stripe_account undefined -> legacy slug behavior.
   const payCols = (withAcct) => `id, business_id, price, amount_paid, tip, metadata, payment_status, payment_method, updated_at, status, on_the_way_at, completed_at, ${withAcct ? 'stripe_account, ' : ''}stripe_customer_id, stripe_payment_method_id, stripe_payment_intent_id,
              customer:customers ( id, name, email, phone, stripe_customer_id )`;
   let { data: b, error } = await db.from('bookings').select(payCols(true)).eq('id', id).eq('business_id', biz.id).single();
@@ -6504,34 +4727,16 @@ async function bookingPayment(req, res, db, auth, body) {
   }
   if (error || !b) return res.status(404).json({ error: 'Booking not found' });
 
-  // The card lives in the Stripe account it was saved in. Prefer the per-booking
-  // marker; fall back to the business slug for bookings made before stamping
-  // (TidyHaus -> global account, Doms -> Doms account) so nothing changes for them.
   const acct = { account: b.stripe_account || null, slug };
 
   const now = new Date().toISOString();
 
-  // Manual states — no Stripe involved (e.g. paid in cash to the technician).
-  // A FRESH 'charging' lock means a real card charge is mid-flight right now
-  // (the whole charge path finishes in well under 2 minutes) — marking cash
-  // over it would record cash AND let the in-flight card charge land: double
-  // collection. A STALE 'charging' lock is a crashed charge; mark-paid is the
-  // office's escape hatch for exactly that, so it's allowed through. The
-  // updated_at trigger stamps every write, including the lock acquisition,
-  // so lock age is just now - updated_at. The write itself is a CAS on the
-  // status we read, so a state change in the gap cleanly 409s instead of
-  // clobbering.
-  // Undo a cash mark (owner 2026-10-23): back to unpaid card, any time, reason required.
   if (act === 'undo_cash') {
     const r = await revertCash(db, b, { who: adminAuthorName(auth), kind: 'office', reason: body.reason });
     if (!r.ok) return res.status(r.status || 400).json({ error: r.error });
     return res.status(200).json(r);
   }
   if (act === 'mark_paid' || act === 'mark_unpaid') {
-    // A booking paid by a REAL card charge must never be quietly re-opened:
-    // the money already moved, and 'unpaid' would let a second charge through
-    // (a different amount/card gets a different idempotency key — a genuine
-    // second charge, not a replay). Refund it instead.
     if (act === 'mark_unpaid' && b.payment_status === 'paid' && b.stripe_payment_intent_id) {
       return res.status(400).json({ error: 'This booking was paid by CARD (the charge is on file with Stripe). Marking it unpaid could lead to charging the customer twice — issue a refund instead.' });
     }
@@ -6541,15 +4746,9 @@ async function bookingPayment(req, res, db, auth, body) {
         return res.status(409).json({ error: 'This booking is being charged right now — wait a moment and check whether the charge went through before marking it.' });
       }
     }
-    // Cash-mark reconciliation: see api/tech.js — a client-side charge timeout
-    // doesn't stop Stripe finishing server-side; if an unrecorded landed charge
-    // exists, record THAT instead of cash so the customer isn't collected twice.
     let landed = null;
     if (act === 'mark_paid' && !b.stripe_payment_intent_id) landed = await findLandedCharge(id, acct);
     else if (act === 'mark_paid' && b.payment_status !== 'paid') {
-      // The row carries an intent from an attempt whose outcome was unknown when
-      // it ended (see chargeCardOnFile) — or an old refunded one. Read it
-      // directly before taking cash: if that charge landed, record it instead.
       const pend = await pendingIntentState(b.stripe_payment_intent_id, acct);
       if (pend.state === 'processing') return res.status(409).json({ error: 'A card charge for this booking is still processing at the bank — wait a minute and check before marking it paid.' });
       landed = pend.landed;
@@ -6568,7 +4767,6 @@ async function bookingPayment(req, res, db, auth, body) {
     }
     const patch = act === 'mark_paid'
       ? { payment_status: 'paid', paid_at: now, amount_paid: Number(b.price) || 0,
-          // cash on a row that only carried an unsettled (or refunded) intent: drop it, or the receipt would say "Card"
           ...(b.stripe_payment_intent_id && b.payment_status !== 'paid' ? { stripe_payment_intent_id: null } : {}) }
       : { payment_status: 'unpaid', paid_at: null };
     const { data: updated } = await db.from('bookings').update(patch)
@@ -6577,10 +4775,6 @@ async function bookingPayment(req, res, db, auth, body) {
     return res.status(200).json({ ok: true, payment_status: patch.payment_status });
   }
 
-  // refund_status / refund both need the TRUE remaining refundable balance —
-  // re-fetched from Stripe rather than trusted from our own amount_refunded
-  // column, since that column could drift (e.g. a refund issued directly in
-  // the Stripe dashboard) and refunding off a stale number risks over-refunding.
   if (act === 'refund_status' || act === 'refund') {
     if (!b.stripe_payment_intent_id) return res.status(400).json({ error: 'No Stripe charge on this booking to refund.' });
     let pi;
@@ -6595,39 +4789,20 @@ async function bookingPayment(req, res, db, auth, body) {
     if (act === 'refund_status') return res.status(200).json({ ok: true, remaining: remainingCents / 100 });
 
     if (remainingCents <= 0) return res.status(400).json({ error: 'This charge has already been fully refunded.' });
-    // Amount is REQUIRED — never fall back to refunding the full remaining
-    // balance just because it was omitted (that's a silent full refund).
     if (body.amount == null) return res.status(400).json({ error: 'A refund amount is required.' });
     const requestedDollars = Number(body.amount);
     if (!requestedDollars || !isFinite(requestedDollars) || requestedDollars <= 0) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
-    // toFixed(2) first to dodge float noise (e.g. 10.005*100 -> 1000.4999999999999)
-    // before rounding to the nearest whole cent.
     const requestedCents = Math.round(Number((requestedDollars * 100).toFixed(2)));
     if (requestedCents <= 0) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
     if (requestedCents > remainingCents) return res.status(400).json({ error: `Amount exceeds the refundable balance ($${(remainingCents / 100).toFixed(2)}).` });
-    // Keyed on the id + the refunded-balance we just read + the requested amount:
-    // a double-click (or a browser retry of the same request) reads the SAME
-    // pre-refund refundedCents and submits the SAME amount, so it replays this
-    // same idempotency key and Stripe coalesces it into the one real refund
-    // instead of a second one. A genuinely later, separate refund has a
-    // different refundedCents by then (the first one already posted), so it
-    // still gets its own fresh key.
     const idempotencyKey = `refund-${id}-${refundedCents}-${requestedCents}`;
     try { await stripe('/refunds', { idempotencyKey, body: { payment_intent: b.stripe_payment_intent_id, amount: requestedCents }, ...acct }); }
     catch (e) { return res.status(e.status || 400).json({ error: 'Refund failed: ' + e.message }); }
     const newRefundedCents = refundedCents + requestedCents;
     const amount_refunded = Math.round(newRefundedCents) / 100;
-    // Deliberately NOT a new payment_status value — payroll's paymentState()
-    // and the revenue 'earned' filters below both key on status === 'paid',
-    // so a partial refund must keep reading as 'paid'. Only flip to 'refunded'
-    // once the balance is fully exhausted, same as a one-shot full refund today.
     const payment_status = newRefundedCents >= capturedCents ? 'refunded' : 'paid';
-    // Mirror the esCol()/extraSlotsCol short-circuit convention: skip straight
-    // to the column-less write once we already know amount_refunded is missing,
-    // instead of a write-then-catch round trip every time.
     const patch = amountRefundedCol ? { payment_status, amount_refunded } : { payment_status };
     const { error: updErr } = await db.from('bookings').update(patch).eq('id', id);
-    // The Stripe refund already succeeded above regardless of what happens here.
     if (updErr) {
       if (isAmountRefundedErr(updErr)) {
         amountRefundedCol = false;
@@ -6640,30 +4815,18 @@ async function bookingPayment(req, res, db, auth, body) {
     return res.status(200).json({ ok: true, payment_status, amount_refunded, remaining: (capturedCents - newRefundedCents) / 100 });
   }
 
-  // Extra money owed on an ALREADY-PAID ticket (lines added after payment).
   if (act === 'balance_status' || act === 'charge_balance' || act === 'balance_cash') {
     return balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, now });
   }
 
-  // Charge the card on file.
   if (act !== 'charge') return res.status(400).json({ error: `Unknown payment action "${act}"` });
   if (!stripeConfigured(acct)) return res.status(400).json({ error: 'Payments are not configured for this business. Use “Mark paid (cash)”.' });
   if (b.payment_status === 'paid') return res.status(400).json({ error: 'This booking is already paid.' });
-  // Owner rule 2026-10-23 (the $722 stolen-card chargeback): staff never charge
-  // a card read out over the phone before the job starts. A caller who wants to
-  // prepay gets the invoice pay link and types their own card (bank-verified).
   if (auth.role !== 'owner' && !(b.status === 'completed' || b.completed_at || b.on_the_way_at)) {
     return res.status(403).json({ error: 'No charging before the job. If they want to prepay, use Send invoice: they pay with their own card.' });
   }
   if (await isScammer({ phone: b.customer && b.customer.phone, email: b.customer && b.customer.email }, db)) return res.status(403).json({ error: 'SCAMMER: do not charge this customer.', scammer: true });
 
-  // The tech app can charge this SAME booking from the field at the same
-  // moment the office charges it here — a plain "not paid yet" read isn't
-  // enough on its own (two requests can both read "not paid" before either
-  // writes). Acquire an actual lock via compare-and-swap: flip payment_status
-  // to the transient 'charging' state conditioned on it still being whatever
-  // we just read, so only ONE request can win the swap. The loser gets a
-  // clear "already being charged" error instead of creating a second charge.
   let priorPaymentStatus;
   {
     const { data: fresh } = await db.from('bookings').select('payment_status').eq('id', id).eq('business_id', biz.id).maybeSingle();
@@ -6683,17 +4846,7 @@ async function bookingPayment(req, res, db, auth, body) {
     }
   }
 
-  // Past this point the lock is held — ANY exit must release it (restore
-  // payment_status to what it was) or the booking gets stuck showing
-  // "charging" forever with no way to retry or use "Mark paid (cash)".
   try {
-    // Reconciliation guard: a previous attempt (from EITHER app) that timed
-    // out client-side may still have LANDED on Stripe, leaving this booking
-    // unpaid with no recorded intent. A retry at a different amount/card gets
-    // a different idempotency key — a second real charge. If an unrecorded
-    // landed charge exists, ADOPT it and stop. See api/tech.js for details.
-    // Shared by the search-based guard right below AND the idempotent-replay
-    // adopt after chargeCardOnFile: one write, one warning text.
     const adoptLanded = async (landed) => {
       const patch = { payment_status: 'paid', paid_at: now, amount_paid: landed.amount, tip: landed.tip, stripe_payment_intent_id: landed.id };
       if (landed.customerId) patch.stripe_customer_id = landed.customerId;
@@ -6711,22 +4864,14 @@ async function bookingPayment(req, res, db, auth, body) {
 
     const ticketAmount = body.amount != null ? Number(body.amount) : Number(b.price);
     if (!ticketAmount || ticketAmount <= 0) { const e = new Error('Enter an amount greater than $0.'); e.status = 400; throw e; }
-    // Sanity ceiling — this is the step that actually moves real money, so it
-    // gets the same circuit breaker as booking_create/line_items_save (see
-    // priceSanityIssue) with the highest stakes of any of them.
     if (body.confirm_high_price !== true) {
       const issue = priceSanityIssue({ total: ticketAmount });
       if (issue) { const e = new Error(issue); e.status = 409; e.code = 'high_price_confirm_required'; throw e; }
     }
-    // Optional tip (e.g. the office runs the signed flow on a tablet too).
     const tip = Math.max(0, Math.round((Number(body.tip) || 0) * 100) / 100);
-    // No ceiling here means a fat-fingered tip (e.g. $1500 instead of $15)
-    // would silently charge the customer's card for the full typo amount.
-    // A 100%-of-ticket tip is already generous, so cap there and reject above it.
     if (tip > ticketAmount) { const e = new Error(`Tip ($${tip.toFixed(2)}) can't be more than the amount charged ($${ticketAmount.toFixed(2)}).`); e.status = 400; throw e; }
     const dollars = Math.round((ticketAmount + tip) * 100) / 100;
 
-    // Resolve a Stripe customer + payment method (stored first, else look up by email).
     let custId = b.stripe_customer_id || (b.customer && b.customer.stripe_customer_id) || null;
     let pmId = b.stripe_payment_method_id || null;
     try {
@@ -6738,17 +4883,11 @@ async function bookingPayment(req, res, db, auth, body) {
     } catch (e) { e.status = e.status || 400; throw e; }
     if (!custId || !pmId) { const e = new Error('No card on file for this customer. Use “Mark paid (cash)” instead.'); e.status = 400; throw e; }
 
-    // Verify the pm is actually attached before charging — a dead
-    // tokenized-but-declined pm can linger on old rows, and Stripe would
-    // reject it with a raw error instead of the friendly no-card message.
-    // Also yields brand/last4 for the receipt + dispute evidence.
     const resolved = await resolveChargeablePm({ customerId: custId, paymentMethodId: pmId, ...acct });
     if (!resolved.pmId) { const e = new Error('No card on file for this customer. Use “Mark paid (cash)” instead.'); e.status = 400; throw e; }
     pmId = resolved.pmId;
     const card = resolved.card;
 
-    // One shared helper builds the PaymentIntent for BOTH apps (chargeCardOnFile
-    // in api/_lib/stripe.js) — see api/tech.js jobPayment for the full note.
     let pi, recovered;
     try {
       ({ pi, recovered } = await chargeCardOnFile({
@@ -6763,7 +4902,6 @@ async function bookingPayment(req, res, db, auth, body) {
     }
     if (recovered) {
       return adoptLanded({ id: pi.id, amount: Math.round(Number(pi.amount)) / 100, tip: Number(pi.metadata && pi.metadata.tip) || 0,
-        // the card the landed intent was actually charged on (it may differ from this request's after a swap)
         customerId: (typeof pi.customer === 'string' ? pi.customer : pi.customer?.id) || custId,
         paymentMethodId: (typeof pi.payment_method === 'string' ? pi.payment_method : pi.payment_method?.id) || pmId });
     }
@@ -6772,16 +4910,12 @@ async function bookingPayment(req, res, db, auth, body) {
     }
     const chargeId = pi.latest_charge || (pi.charges && pi.charges.data && pi.charges.data[0] && pi.charges.data[0].id) || null;
 
-    // The money has MOVED at this point — this write is also the lock release,
-    // so its error can't be ignored (supabase returns errors, it doesn't
-    // throw): an unnoticed failure would 200 "paid" while the row stays stuck
-    // on 'charging', blocking every retry/card-change. Mirrors api/tech.js.
     const paidPatch = {
       payment_status: 'paid', paid_at: now, amount_paid: dollars, tip,
       stripe_payment_intent_id: pi.id, stripe_customer_id: custId, stripe_payment_method_id: pmId,
     };
     let { error: payErr } = await db.from('bookings').update(paidPatch).eq('id', id);
-    if (payErr) ({ error: payErr } = await db.from('bookings').update(paidPatch).eq('id', id));   // one retry for a transient blip
+    if (payErr) ({ error: payErr } = await db.from('bookings').update(paidPatch).eq('id', id));
     if (payErr) {
       const { error: fbErr } = await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id);
       console.error('[admin charge] CRITICAL: Stripe charge succeeded but booking update failed', { booking: id, pi: pi.id, err: payErr.message, minimal_write_ok: !fbErr });
@@ -6789,17 +4923,10 @@ async function bookingPayment(req, res, db, auth, body) {
         warning: `The charge WENT THROUGH on Stripe ($${dollars.toFixed(2)}, intent ${pi.id}), but saving it to the booking failed: ${payErr.message}. Do NOT charge again — reconcile manually.` });
     }
 
-    // Freeze the authorization (signature is optional from the office). Best-effort.
     await saveAuthorization(db, req, { ...b, business_id: biz.id }, { businessId: biz.id, total: dollars, ticketAmount, tip, card, pi, chargeId, body });
 
     return res.status(200).json({ ok: true, payment_status: 'paid', amount: dollars, tip, payment_intent_id: pi.id });
   } catch (e) {
-    // Release the lock on any failure so the booking can be retried (or paid
-    // with cash) instead of being stuck on 'charging'.
-    // An outcome the helper could not settle (our abort fired mid-confirm, or
-    // Stripe reported it still processing) keeps the intent id on the row, so the
-    // NEXT attempt — from either app — reads that exact intent instead of hoping
-    // Stripe's search has indexed it (see chargeCardOnFile / pendingIntentState).
     try { await db.from('bookings').update({ payment_status: priorPaymentStatus, ...(e.payment_intent_id ? { stripe_payment_intent_id: e.payment_intent_id } : {}) }).eq('id', id).eq('payment_status', 'charging'); } catch (_) { /* best-effort */ }
     const payload = { error: e.message };
     if (e.code) payload.code = e.code;
@@ -6809,13 +4936,6 @@ async function bookingPayment(req, res, db, auth, body) {
   }
 }
 
-// ── Balance on a paid booking ───────────────────────────────────────────────
-// A booking marked paid whose ticket was later raised owes (price - ticket
-// portion already collected). The first payment may include a tip (amount_paid
-// = ticket + tip), so the ticket portion is read from Stripe (the intent's own
-// metadata.tip), not guessed. Later balance payments are recorded in
-// metadata.extra_payments and added to amount_paid; stripe_payment_intent_id
-// stays the ORIGINAL payment so Refund keeps working on it.
 async function balanceDueFor(b, acct) {
   const priceCents = Math.round((Number(b.price) || 0) * 100);
   const paid = Number(b.amount_paid) || 0;
@@ -6830,7 +4950,6 @@ async function balanceDueFor(b, acct) {
   }
   const ticketPaidCents = Math.round((paid - tipIn) * 100);
   const dueCents = priceCents - ticketPaidCents;
-  // Never the whole ticket: that would be a full re-charge.
   if (dueCents >= priceCents) { const e = new Error('Nothing recorded as paid on the ticket, so the balance cannot be worked out. Use Send invoice.'); e.status = 400; throw e; }
   return { dueCents: Math.max(0, dueCents), priceCents };
 }
@@ -6839,7 +4958,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
   const fail = (status, error, extra = {}) => res.status(status).json({ error, ...extra });
   if (b.payment_status !== 'paid') return fail(400, 'Only a paid booking has a balance. Use Charge card.');
   if (act === 'charge_balance') {
-    // Same rules as the main Charge card (owner 2026-10-23).
     if (auth.role !== 'owner' && !(b.status === 'completed' || b.completed_at || b.on_the_way_at)) return fail(403, 'No charging before the job. Use Send pay link: they pay with their own card.');
     if (await isScammer({ phone: b.customer && b.customer.phone, email: b.customer && b.customer.email }, db)) return fail(403, 'SCAMMER: do not charge this customer.', { scammer: true });
   }
@@ -6853,7 +4971,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
   const dueDollars = due.dueCents / 100;
   const extras = Array.isArray(b.metadata && b.metadata.extra_payments) ? b.metadata.extra_payments : [];
 
-  // Who would be charged (read-only; also feeds the confirm dialog).
   let custId = b.stripe_customer_id || (b.customer && b.customer.stripe_customer_id) || null;
   let pmId = b.stripe_payment_method_id || null;
   let card = null, cardErr = null;
@@ -6873,7 +4990,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
   if (act === 'balance_status') {
     return res.status(200).json({ ok: true, due: dueDollars, has_card: !!(custId && pmId), brand: (card && card.brand) || null, last4: (card && card.last4) || null, card_error: cardErr || undefined });
   }
-  // The caller saw an exact amount in the confirm dialog; refuse if it moved.
   if (Number(body.expected_cents) !== due.dueCents) {
     return fail(409, `The balance is now $${dueDollars.toFixed(2)}. Reopen the job and check it.`, { due: dueDollars });
   }
@@ -6882,7 +4998,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
     if (!custId || !pmId) return fail(400, 'No card on file for this customer. Use Send invoice.');
   }
 
-  // Lock: paid -> charging (CAS). A double-tap or a tech-app charge loses here.
   const { data: locked, error: lockErr } = await db.from('bookings').update({ payment_status: 'charging' })
     .eq('id', id).eq('business_id', biz.id).eq('payment_status', 'paid').select('id').maybeSingle();
   if (lockErr) return fail(500, lockErr.message);
@@ -6908,8 +5023,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
       piId = pi.id;
       if (extras.some(x => x && x.pi === piId)) { await unlock(); return res.status(200).json({ ok: true, payment_status: 'paid', amount: dueDollars, warning: 'This balance was already recorded. No new charge was made.' }); }
     }
-    // Record it. Re-read metadata right before writing (keeps li_rev and anything
-    // else another editor just wrote), one retry on a blip.
     const record = async () => {
       const { data: cur } = await db.from('bookings').select('metadata, amount_paid').eq('id', id).maybeSingle();
       const meta = { ...((cur && cur.metadata) || {}) };
@@ -6944,9 +5057,6 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
   }
 }
 
-// Edit a booking's SERVICE address after it's booked (office fixes a typo or the
-// customer moves the job). Re-derives the service area from the new zip so the
-// territory filter + travel payout stay correct. Available to any office user.
 async function bookingAddressUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -6965,8 +5075,6 @@ async function bookingAddressUpdate(req, res, db, auth, body) {
     state: str(body.state).toUpperCase() || null,
     postal_code: str(body.postal_code) || null,
   };
-  // A new zip changes territory + travel tier — re-resolve the service area when
-  // the zip is one we serve; otherwise leave the existing area untouched.
   if (patch.postal_code && patch.postal_code !== existing.postal_code) {
     const areaId = await serviceAreaIdFromPostal(db, biz.id, patch.postal_code);
     if (areaId) patch.service_area_id = areaId;
@@ -6978,9 +5086,6 @@ async function bookingAddressUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, address, ...patch });
 }
 
-// Fetch the signed authorization stored for a booking (the tech/office charge
-// flow captures the signature + tip + terms + signing IP/time). Returns the most
-// recent one. Degrades cleanly before migration 0046 is applied.
 async function bookingAuthorization(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const id = (req.query.id || '').toString();
@@ -6990,7 +5095,6 @@ async function bookingAuthorization(req, res, db, auth) {
     .select(cols).eq('business_id', biz.id).eq('booking_id', id)
     .order('created_at', { ascending: false }).limit(1).maybeSingle();
   if (error) {
-    // Table not created yet (migration 0046 not applied) — say so, don't 500.
     if (/relation|does not exist|booking_authorizations/i.test(error.message || '')) {
       return res.status(200).json({ authorization: null, table_missing: true });
     }
@@ -6999,21 +5103,14 @@ async function bookingAuthorization(req, res, db, auth) {
   return res.status(200).json({ authorization: data || null });
 }
 
-// ── Chargeback disputes (draft evidence from stored signatures, owner submits) ──
-// A booking's card can live in more than one Stripe account for a business
-// (TidyHaus: the legacy 'global' account AND its own; Doms: its own). Return
-// every account we might have charged in for this business.
 function candidateAccounts(slug) {
   if (slug === 'doms') return ['doms'];
-  if (slug === 'handy-andy') return ['global', 'handy-andy'];   // HA transitioned off the global account, so old charges may live in either
-  if (slug === 'mile-high') return ['mile-high'];               // always its own account, never global -- it never existed pre-split
-  if (slug === 'austin') return ['austin'];                     // same: born after the split
-  if (slug === 'precision') return ['precision'];               // same
-  // Austin lead-gen quad — all four charge on the shared 'austin' account
-  // (see LEGACY_SLUG_ACCOUNT in api/_lib/stripe.js), so that is the one
-  // account their disputes can live in.
+  if (slug === 'tidyhaus') return ['global', 'tidyhaus'];
+  if (slug === 'mile-high') return ['mile-high'];
+  if (slug === 'austin') return ['austin'];
+  if (slug === 'precision') return ['precision'];
   if (slug === 'atxmountpros' || slug === 'atxtvmount' || slug === 'austinmountingpros' || slug === 'austintvinstall') return ['austin'];
-  if (slug === 'a1tvmounting') return ['a1tvmounting'];         // own account, born after the split
+  if (slug === 'a1tvmounting') return ['a1tvmounting'];
   return ['global'];
 }
 
@@ -7026,9 +5123,6 @@ async function fetchAsBase64(url) {
   } catch (_) { return null; }
 }
 
-// List open (needs-response) disputes across this business's Stripe account(s),
-// each matched to the signed authorization we stored so the office can see the
-// evidence we'll submit. No writes — this is the "inbox".
 async function disputes(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const accounts = candidateAccounts(biz.slug).filter(a => businessSecretKey({ account: a }));
@@ -7036,7 +5130,6 @@ async function disputes(req, res, db, auth) {
 
   const raw = [];
   for (const account of accounts) {
-    // 'global' and 'handy-andy' can be the same Stripe account: list each dispute once (owner 2026-10-23).
     try { for (const d of await listOpenDisputes({ account })) if (!raw.some((x) => x.d.id === d.id)) raw.push({ d, account }); }
     catch (_) { /* one account erroring must not hide the others */ }
   }
@@ -7077,13 +5170,10 @@ async function disputes(req, res, db, auth) {
       photos_count: photosCount,
     });
   }
-  // Soonest deadline first so the office answers the most urgent one next.
   out.sort((x, y) => (x.due_by || Infinity) - (y.due_by || Infinity));
   return res.status(200).json({ disputes: out, configured: true });
 }
 
-// Owner-only, read-only: the Stripe facts behind one dispute (card checks,
-// network reason, wallet, risk) so the evidence can be judged before submitting.
 async function disputeDetail(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only.' });
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
@@ -7111,8 +5201,6 @@ async function disputeDetail(req, res, db, auth) {
   });
 }
 
-// Minimal PDF, no dependency: text pages (Helvetica 11pt, wrapped) and one
-// JPEG per page (DCTDecode). Non-JPEG images are skipped. Returns a Buffer.
 function jpegDims(b) {
   if (!(b && b[0] === 0xFF && b[1] === 0xD8)) return null;
   let i = 2;
@@ -7169,8 +5257,6 @@ function buildPdf(pages) {
   return { pdf: Buffer.concat(parts), pages: flat.length };
 }
 
-// Owner-only: assemble the evidence packet from our stored authorization + job
-// photos, upload the signature/photo to Stripe, and submit it for the dispute.
 async function disputeSubmit(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can submit dispute evidence.' });
@@ -7191,7 +5277,6 @@ async function disputeSubmit(req, res, db, auth, body) {
   const { data: photos } = await db.from('booking_photos')
     .select('url').eq('booking_id', a0.booking_id).eq('business_id', biz.id).order('created_at', { ascending: true }).limit(20);
 
-  // Calls + texts with the customer's phone around the booking back up the timeline.
   const photoUrls = (photos || []).map((p) => p.url).filter(Boolean);
   const facts = { calls: [], inbound_texts: [], outbound_texts: [], brand_name: biz.name, technician_name: booking?.technician?.name || null,
     followup_call_at: booking?.review_call_at || null, followup_call_status: booking?.review_call_status || null };
@@ -7208,13 +5293,10 @@ async function disputeSubmit(req, res, db, auth, body) {
     facts.outbound_texts = (ms || []).filter((m) => m.direction === 'out' || m.direction === 'outbound');
   }
   const sel = { account };
-  // The issuer's own CVC / ZIP results (only quoted when both passed).
   if (a0.stripe_charge_id) {
     try { const ch = await stripe(`/charges/${a0.stripe_charge_id}`, { method: 'GET', account }); facts.card_checks = ch && ch.payment_method_details && ch.payment_method_details.card && ch.payment_method_details.card.checks || null; } catch (_) { /* optional */ }
   }
 
-  // Job photos for the work-order PDF. Mastercard caps the whole packet at 19
-  // pages and 4.5 MB (Stripe's own receipt counts too), so stop at 12 photos / 3.4 MB.
   const jpgs = []; let bytes = 0;
   for (const u of photoUrls) {
     if (jpgs.length >= 12) break;
@@ -7223,20 +5305,16 @@ async function disputeSubmit(req, res, db, auth, body) {
   facts.photo_count = jpgs.length;
 
   const { evidence, narrative, in_person, mode, docs } = buildDisputeEvidence({ booking: booking || {}, auth: a0, customer: booking && booking.customer, facts });
-  // Preview first: the owner reads exactly what will go to Stripe before the final submit.
   if (body.preview) {
     return res.status(200).json({ preview: true, in_person, mode, narrative, evidence, docs, photos: jpgs.length, photos_total: photoUrls.length, signature: !!(in_person && a0.signature_url) });
   }
 
-  // Only a real in-person signature goes in as customer_signature.
   if (in_person && a0.signature_url) {
     try {
       const b64 = await fetchAsBase64(a0.signature_url);
       if (b64) evidence.customer_signature = await stripeUploadFile({ dataBase64: b64, contentType: 'image/png', filename: 'signature.png', ...sel });
     } catch (_) { /* fall back to text-only evidence */ }
   }
-  // service_documentation = work order page + job photos; customer_communication
-  // = written account of the order and every message. One file per field.
   try {
     const wo = buildPdf([{ lines: docs.work_order }, ...jpgs.map((j) => ({ jpeg: j }))]);
     if (wo) evidence.service_documentation = await stripeUploadFile({ dataBase64: wo.pdf.toString('base64'), contentType: 'application/pdf', filename: 'work-order-and-photos.pdf', ...sel });
@@ -7251,7 +5329,6 @@ async function disputeSubmit(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, submitted: true });
 }
 
-// ── Booking photos (view the tech's job photos; add/delete from the office) ──
 async function assertBooking(db, biz, id) {
   if (!id) { const e = new Error('id required'); e.status = 400; throw e; }
   const { data } = await db.from('bookings').select('id').eq('id', id).eq('business_id', biz.id).single();
@@ -7297,7 +5374,6 @@ async function bookingPhotoDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Booking notes (internal; owner/secretary author; permanent delete) ───────
 async function bookingNotes(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business, { view: true }); } catch (e) { return bail(res, e); }
   const id = (req.query.id || '').toString();
@@ -7309,19 +5385,14 @@ async function bookingNotes(req, res, db, auth) {
   return res.status(200).json({ notes: data || [] });
 }
 
-// ── Staff notices + call tasks (owner 2026-10-23) ──────────────────────────
-// Blocking "Got it" notice for the secretaries, plus one-off call tasks, shown
-// only while that person is on shift (staff_schedules; else 8am-6pm Denver).
 const STAFF_NOTICES = [{
   key: 'no_precharge_2026_10_23',
   to: ['Heather', 'Joey'],
   text: "New rule (from Owner): a stolen card cost us $722 on Oct 6.\n1. Never charge a card before the job. Save it; it's charged after the work.\n2. If a caller insists on paying now, use Send invoice so they pay themselves.\n3. Red flags: out of town, 'someone else will be home', 'pay now', 'charge me before I hang up', a ZIP that doesn't match, a new house whose address they have to look up. Two or more = tell Owner before booking.\n4. A red SCAMMER box = don't book, don't take a card.",
 }, {
-  // anyTime: shows even off shift (Joey has no schedule rows).
   key: 'backup_ring_2026_10_25', to: ['Joey'], anyTime: true,
   text: 'If Joe misses a call, it now rings you next.',
 }];
-// The $722 dispute task keeps its own buttons; every other task gets the generic set.
 const DISPUTE_TASK_ID = '7e73e456-a45d-4159-ab82-d97e2bad1279';
 const DISPUTE_OUTCOMES = { will_withdraw: 'Reached: will withdraw', not_them: 'Reached: says not them', no_answer: 'No answer', wrong_number: 'Wrong number' };
 const GENERIC_OUTCOMES = { reached: 'Reached', no_answer: 'No answer', wrong_number: 'Wrong number' };
@@ -7397,7 +5468,6 @@ async function callTaskLog(req, res, db, auth, body) {
   if (error) return res.status(500).json({ error: error.message });
   return res.status(200).json({ ok: true });
 }
-// Office/owner override for the tech app's signature gate ("customer not home").
 async function signatureWaive(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -7434,19 +5504,12 @@ async function bookingNoteDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Joey (Dom's secretary) also handles TidyHaus's social posting, so she
-// needs the TidyHaus "To Post" bucket specifically -- nothing else of
-// TidyHaus's. resolveBusiness() would 403 her for any slug but her own
-// scope, which is correct for everything else; this is the one deliberate,
-// narrow hole in that rule. Returns { biz, crossBusinessToPostOnly } so
-// callers can clamp what a cross-business caller is allowed to see/do.
 async function resolveBusinessForPhotos(db, auth, slug, opts) {
   try {
     return { biz: await resolveBusiness(db, auth, slug), crossBusinessToPostOnly: false };
   } catch (e) {
-    // Joey views every folder of every business (owner 2026-10-07); writes keep the rule below.
     if (opts && opts.read && isAllJobsViewer(auth)) return { biz: await resolveBusiness(db, auth, slug, { view: true }), crossBusinessToPostOnly: false };
-    if (auth.role === 'secretary' && auth.scope === 'doms' && slug === 'handy-andy') {
+    if (auth.role === 'secretary' && auth.scope === 'doms' && slug === 'tidyhaus') {
       const { data, error } = await db.from('businesses').select('id, slug, name, timezone').eq('slug', slug).single();
       if (error || !data) throw e;
       return { biz: data, crossBusinessToPostOnly: true };
@@ -7455,28 +5518,13 @@ async function resolveBusinessForPhotos(db, auth, slug, opts) {
   }
 }
 
-// ── Photo gallery (every job photo for the business, newest first) ───────────
 async function photoGallery(req, res, db, auth) {
   let biz, crossBusinessToPostOnly;
   try { ({ biz, crossBusinessToPostOnly } = await resolveBusinessForPhotos(db, auth, req.query.business, { read: true })); } catch (e) { return bail(res, e); }
   const limit = Math.min(Number(req.query.limit) || 60, 200);
   const offset = Number(req.query.offset) || 0;
-  // ?logo=1 narrows to the logo shots (migration 0105) — a finished mount with
-  // the company logo up on the customer's TV.
   const logoOnly = req.query.logo === '1' || req.query.logo === 'true';
 
-  // ?status=<bucket> filters the folder SERVER-side.
-  //
-  // This used to be done in the client, over whatever the newest 200 photos
-  // happened to be, which quietly became a bug as the table grew: by Sep 2026
-  // TidyHaus had 148 photos in Posted but only 6 of them fell inside that
-  // 200-row window, so the Posted folder looked nearly empty and older photos
-  // appeared to have vanished. Nothing was ever deleted — they were simply
-  // past the edge of what got loaded. Filtering here means a folder shows its
-  // own newest N regardless of how much sits in the other folders.
-  //
-  // 'new' is the catch-all: legacy 'private' rows and any null fold into the
-  // inbox, matching photoCat() in admin.html.
   const statusFilter = (req.query.status || '').toString();
   const sel = (withStatus, withLogo) => {
     let q = db.from('booking_photos')
@@ -7490,19 +5538,9 @@ async function photoGallery(req, res, db, auth) {
         ? q.or('status.is.null,status.eq.new,status.eq.private')
         : q.eq('status', statusFilter);
     }
-    // The cross-business hole above only ever opens the To Post bucket -- New,
-    // Posted, Records, and anything private-to-New-Booking stays invisible to
-    // her from the other company, enforced here rather than trusted from the
-    // client. Only reachable when withStatus is true (status column exists);
-    // the no-status fallback below already treats everything as 'new', which
-    // this caller must never see, so it's short-circuited to empty instead.
     if (crossBusinessToPostOnly) q = withStatus ? q.eq('status', 'to_post') : q.eq('id', '00000000-0000-0000-0000-000000000000');
     return q.order('created_at', { ascending: false }).range(offset, offset + limit - 1);
   };
-  // Try selecting the photo category (status) and the logo-shot tag. If either
-  // migration hasn't been applied yet the column is missing — fall back so the
-  // gallery still loads: no status means treat everything as 'new' (the inbox),
-  // no logo column means the Logo tab is simply empty rather than an error.
   let hasStatus = true;
   let hasLogo = true;
   let { data, error } = await sel(true, true);
@@ -7526,15 +5564,12 @@ async function photoGallery(req, res, db, auth) {
     scheduled_at: p.booking?.scheduled_at || null,
     status_booking: p.booking?.status || null,
   }));
-  // Photo bonus already paid (owner 2026-10-14) -- shown on the card so the
-  // same shot is never paid twice by accident.
   if (auth.role === 'owner' && photos.length) {
     try {
       const { data: pb } = await db.from('tech_bonuses').select('photo_id, amount').in('photo_id', photos.map(p => p.id));
       const paid = new Map();
       for (const b of pb || []) paid.set(b.photo_id, (paid.get(b.photo_id) || 0) + (Number(b.amount) || 0));
       for (const p of photos) if (paid.has(p.id)) p.bonus_paid = paid.get(p.id);
-      // Job-level: another photo of the same job already earned this tech a bonus.
       const bids = [...new Set(photos.map(p => p.booking_id).filter(Boolean))];
       if (bids.length) {
         const { data: sib } = await db.from('booking_photos').select('id, booking_id, technician_id, booking:bookings ( technician_id )').in('booking_id', bids);
@@ -7550,10 +5585,6 @@ async function photoGallery(req, res, db, auth) {
       }
     } catch (e) { console.warn('[photo_gallery] bonus lookup failed:', e.message); }
   }
-  // True per-folder totals. The tab badges used to count only what was loaded,
-  // so they under-reported for exactly the same reason the folders did. These
-  // are head-only counts (no rows fetched) against the existing status index,
-  // so five of them cost far less than the page of photos above.
   let counts = null;
   if (hasStatus && !crossBusinessToPostOnly) {
     const countFor = (apply) => {
@@ -7572,8 +5603,6 @@ async function photoGallery(req, res, db, auth) {
       counts = {
         new: cNew.count || 0, to_post: cToPost.count || 0, posted: cPosted.count || 0,
         records: cRecords.count || 0, logo: cLogo.count || 0,
-        // How many are still waiting on the vision pass — drives the "Scan now"
-        // button's label so the owner can see the backfill draining.
         unscanned: cUnscanned.count || 0,
       };
     } catch (e) { console.warn('[photo_gallery] counts failed:', e.message); }
@@ -7584,26 +5613,6 @@ async function photoGallery(req, res, db, auth) {
   });
 }
 
-// Run the logo-shot vision scan on demand, from the Photos tab, instead of
-// waiting for the twice-a-day cron to work through the backlog 40 at a time.
-// ── Analytics: portfolio overview (migration 0106) ──────────────────────────
-// One health check across every business's booking-funnel tracking: is it
-// even wired up, and when did it last actually see a visitor. Built after
-// "Home Cleaning Los Angeles" turned out to 400 on its own analytics tab — LA
-// wasn't alone in being silently unmonitored, it was just the one someone
-// happened to click into. Owner-only: this is portfolio-wide traffic data,
-// not any one business's own numbers.
-//
-// Reads app.businesses.analytics_config for the `widget` tag each business's
-// events are stored under (see migration 0106 — this is what replaces the 5
-// hand-maintained slug lists the old code kept in analytics.js, log-event.js
-// and admin.html), then does ONE grouped query over the last 30 days of
-// public.events rather than one round trip per business.
-// Read every row of a filtered query past Supabase's 1000-row response cap.
-// One cheap count first, then every page in flight at once — versus the
-// old page-by-page loop, where 13 pages meant 13 sequential round trips.
-// `build(cols, opts)` returns the filtered query; cols/opts are only passed
-// for the count probe.
 async function fetchAllPages(build, { pageSize = 1000, maxPages = 100 } = {}) {
   const { count, error: countErr } = await build('id', { count: 'exact', head: true });
   if (countErr) throw countErr;
@@ -7631,39 +5640,24 @@ async function analyticsOverview(req, res, db, auth) {
     if (tag) tagToBiz.set(tag, b);
   }
 
-  // Range picker (owner, 2026-09-21): last 7 days, last 30 days, or all time.
-  // The field names below still end in _30d for the older client; they now mean
-  // "in the chosen range". All time starts 2026-06-01, before any tracker data.
   const rangeParam = ['7', '30', 'all'].includes(String(req.query.range || '30')) ? String(req.query.range || '30') : '30';
   const ALL_SINCE = '2026-06-01T00:00:00.000Z';
   const rangeDays = rangeParam === '7' ? 7 : rangeParam === 'all' ? Math.max(30, Math.ceil((Date.now() - Date.parse(ALL_SINCE)) / 86400000)) : 30;
   const since = rangeParam === 'all' ? ALL_SINCE : new Date(Date.now() - rangeDays * 24 * 60 * 60 * 1000).toISOString();
-  const stats = new Map(); // tag -> { n30, lastSeen }
+  const stats = new Map();
   if (tagToBiz.size) {
     const pub = serviceClientPublic();
-    // widget + created_at + session_id. session_id is what turns a raw event
-    // count into a PEOPLE count: an event total answers "how busy", not "how
-    // many", and one visitor clicking through the funnel can log 20+ rows.
-    // Supabase caps a response at 1000 rows; ~12k rows/30d means a dozen
-    // pages, fetched in parallel (see fetchAllPages) rather than one after
-    // another, which alone was 2-3s of this tab's load.
     {
       const evRows = await fetchAllPages((cols, opts) =>
         pub.from('events').select(cols || 'widget, created_at, session_id, event_type, browser', opts)
           .in('widget', [...tagToBiz.keys()])
           .gte('created_at', since));
       for (const r of evRows) {
-        // api/log-event.js drops these at the door now, but rows logged before
-        // that shipped are still in the table — same rule applied on read so the
-        // 30-day window doesn't show two different realities either side of the
-        // deploy. Safe to delete once the bot rows age out of the window.
         if (isBotUserAgent(r.browser)) continue;
         let s = stats.get(r.widget);
         if (!s) {
           s = {
             n30: 0, lastSeen: null, visitors: new Set(), byDay: new Map(),
-            // The booking page is the money step, so it gets its own counters:
-            // who reached the widget, and who actually came out the far end.
             bookVisitors: new Set(), bookByDay: new Map(),
             bookings: 0, bookingsByDay: new Map(),
           };
@@ -7671,51 +5665,27 @@ async function analyticsOverview(req, res, db, auth) {
         }
         s.n30++;
         if (!s.lastSeen || r.created_at > s.lastSeen) s.lastSeen = r.created_at;
-        // Same visitor rule the per-business funnel already uses (see
-        // api/analytics.js): a session id is "<visitor>.<session>", so the part
-        // before the first dot is the stable visitor, and one person who comes
-        // back next week counts once. Ids with no dot are their own visitor.
         const sid = r.session_id || '';
         if (!sid) continue;
         const visitor = sid.includes('.') ? sid.split('.')[0] : sid;
         s.visitors.add(visitor);
-        // UTC day. The portfolio spans Denver/Houston/Austin/LA, so there is no
-        // single correct local midnight here; a per-business tz split would move
-        // a handful of late-evening visits one bucket over and change neither
-        // the 30-day total nor the average.
         const day = r.created_at.slice(0, 10);
         let ds = s.byDay.get(day);
         if (!ds) { ds = new Set(); s.byDay.set(day, ds); }
         ds.add(visitor);
 
-        // ── Booking page ────────────────────────────────────────────────────
-        // The widget emits exactly one page_view ('zip_verify') from boot(),
-        // so a page_view row IS "this person opened the booking widget" — the
-        // /book arrival, deduped to people rather than counting reloads.
         if (r.event_type === 'page_view') {
           s.bookVisitors.add(visitor);
           let bd = s.bookByDay.get(day);
           if (!bd) { bd = new Set(); s.bookByDay.set(day, bd); }
           bd.add(visitor);
         }
-        // NB bookings are NOT counted from booking_confirmed events here. That
-        // event knows nothing about who booked or whether it survived, so it
-        // cannot tell a real job from the owner testing the funnel, nor from a
-        // booking cancelled a minute later. Counted from app.bookings below.
       }
     }
   }
 
-  // ── Bookings: from the booking records, not the event stream ───────────────
-  // source='widget' keeps this a true /book funnel number — office- and
-  // phone-created jobs never touched the booking page, so counting them would
-  // invent conversions the page never produced. Cancelled jobs are counted
-  // separately rather than dropped silently: a customer who books and cancels
-  // is a real signal, just not revenue.
-  const bookedByBiz = new Map(); // business_id -> { kept, cancelled, internal, byDay }
-  // Same bookings kept per-row as well, so a multi-market business can split
-  // them by service city without a second trip to the database.
-  const bookingsByBiz = new Map(); // business_id -> [{ city, created_at, cancelled, internal }]
+  const bookedByBiz = new Map();
+  const bookingsByBiz = new Map();
   {
     const { data: bkRows, error: bkErr } = await db.from('bookings')
       .select('business_id, created_at, status, city, state, metadata, customer:customers ( email, phone )')
@@ -7727,8 +5697,6 @@ async function analyticsOverview(req, res, db, auth) {
       if (!e) { e = { kept: 0, cancelled: 0, internal: 0, byDay: new Map() }; bookedByBiz.set(bk.business_id, e); }
       const internal = isInternalContact(bk.customer);
       const cancelled = bk.status === 'cancelled';
-      // landing_page lives inside metadata jsonb, not a top-level column — see
-      // mirror.js bookingRow.metadata.landing_page.
       const landing_page = (bk.metadata && bk.metadata.landing_page) || null;
       const source_page = (bk.metadata && bk.metadata.source_page) || null;
       if (!bookingsByBiz.has(bk.business_id)) bookingsByBiz.set(bk.business_id, []);
@@ -7741,13 +5709,7 @@ async function analyticsOverview(req, res, db, auth) {
     }
   }
 
-  // ── Calls per business in the chosen range ────────────────────────────────
-  // A call counts when it reached a phone or a voicemail box: Twilio-logged
-  // inbound calls (robocalls that never pressed 1, and blocked numbers, are left
-  // out) plus the main Grasshopper lines from the auditor's hand count. A
-  // multi-market business is split by market; rows with no market of their own
-  // (a landing page like Golden, or the main site) show a dash, not a guess.
-  const callsByBiz = new Map();   // business_id -> { total, byMarket: Map }
+  const callsByBiz = new Map();
   try {
     const addCall = (bizId, market) => {
       if (!bizId) return;
@@ -7765,11 +5727,11 @@ async function analyticsOverview(req, res, db, auth) {
       .eq('direction', 'incoming').gte('audit_date', String(since).slice(0, 10)).limit(10000);
     for (const a of (au || [])) {
       const d = digitsOf(a.grasshopper_number);
-      if (trackingPhones.has(d)) continue;          // already counted from the Twilio log
+      if (trackingPhones.has(d)) continue;
       addCall(a.business_id, (GRASSHOPPER_LINES[d] || {}).market || null);
     }
   } catch (e) { console.warn('[admin] analytics calls count failed:', e.message); }
-  const CALL_MARKETS = new Set(['Denver', 'Houston', 'Austin', 'Los Angeles', 'San Antonio', 'Dallas']);
+  const CALL_MARKETS = new Set(['Manila', 'Houston', 'Austin', 'Los Angeles', 'San Antonio', 'Dallas']);
   const callsForMarket = (bizId, marketName) => {
     const e = callsByBiz.get(bizId);
     const key = String(marketName || '').replace(/^HA\s+/i, '');
@@ -7777,46 +5739,17 @@ async function analyticsOverview(req, res, db, auth) {
     return CALL_MARKETS.has(key) ? 0 : null;
   };
 
-  // Dense, zero-filled 30-day axis so a quiet day reads as a real zero in the
-  // sparkline instead of being compressed out of the line entirely.
   const dayKeys = [];
   for (let i = rangeDays - 1; i >= 0; i--) dayKeys.push(new Date(Date.now() - i * 86400000).toISOString().slice(0, 10));
 
-  // ── Multi-market businesses ───────────────────────────────────────────────
-  // One domain covering several metros (today only tidyhausph.com) is really
-  // several independent operations sharing a site, and rolling them into one
-  // row hides that Denver is carrying it while Dallas has never sold a job.
-  // Split per analytics_config.markets — each entry names its landing pages
-  // and the service cities its bookings land in.
-  //
-  // Measured from public.web_events, NOT the booking-widget events used for
-  // every other row: the widget stream has no page attribution at all, so it
-  // physically cannot say which metro a visitor came through. That means these
-  // rows' Visitors count everyone who landed on the page, while a single-city
-  // site counts people who opened its widget. Flagged as `market: true` so the
-  // UI can say so rather than quietly comparing two different things.
   const marketRowsByBiz = new Map();
-  // Distinct sessions across ALL of a business's markets. A session that reads
-  // the Denver page and then the homepage is rightly a visitor to both rows,
-  // but it is one person in the portfolio total -- summing rows would count it
-  // twice (measured: 914 summed vs 851 distinct, 51 sessions in 2+ markets).
-  const marketDedup = new Map(); // slug -> { visitors:Set, book:Set, bookByDay:Map<day,Set> }
+  const marketDedup = new Map();
   {
     const withMarkets = (rows || []).filter(b => b.analytics_config
       && Array.isArray(b.analytics_config.markets) && b.analytics_config.markets.length);
     for (const b of withMarkets) {
       const pub = serviceClientPublic();
       const host = (() => { try { return new URL(b.url).hostname.replace(/^www\./, ''); } catch { return ''; } })();
-      // session -> { paths:Set, days:Set, last }
-      //
-      // page_view only, and filtered to this business's own host in the query.
-      // web_events carries ~190k rows per 30 days for this site, almost all of
-      // it time_on_page ticks firing every 30s — pulling it all would be tens
-      // of round trips AND still truncate, silently undercounting markets.
-      // Page views alone are a couple of thousand, which is what "which pages
-      // did this session touch" actually needs.
-      // Served by the partial index web_events_page_view_created_idx (0116);
-      // without it each page walked every page_view ever logged (2s a page).
       const sess = new Map();
       {
         const pvRows = await fetchAllPages((cols, opts) =>
@@ -7826,15 +5759,15 @@ async function analyticsOverview(req, res, db, auth) {
             .gte('created_at', since), { maxPages: rangeParam === 'all' ? 60 : 12 });
         for (const r of pvRows) {
           if (isBotUserAgent(r.user_agent)) continue;
-          if (!isUsTimezone(r.metadata && r.metadata.timezone)) continue; // USA-only traffic
+          if (!isUsTimezone(r.metadata && r.metadata.timezone)) continue;
           let path;
           try { path = new URL(r.page_url).pathname.replace(/\/+$/, '') || '/'; }
           catch { continue; }
-          if (isBlogPath(path)) continue; // blog traffic is not counted
+          if (isBlogPath(path)) continue;
           let e = sess.get(r.session_id);
           if (!e) { e = { paths: new Set(), days: new Map(), views: new Map(), last: null }; sess.set(r.session_id, e); }
           e.paths.add(path);
-          e.views.set(path, (e.views.get(path) || 0) + 1); // real page views, for the Events column
+          e.views.set(path, (e.views.get(path) || 0) + 1);
           const day = String(r.created_at).slice(0, 10);
           if (!e.days.has(path)) e.days.set(path, new Set());
           e.days.get(path).add(day);
@@ -7846,16 +5779,6 @@ async function analyticsOverview(req, res, db, auth) {
       const out = [];
       const dedup = { visitors: new Set(), book: new Set(), bookByDay: new Map() };
 
-      // Each booking is credited to exactly ONE market, decided up front so no
-      // booking is ever counted twice (Denver and Golden share a city list).
-      //   1. By page: metadata.source_page (the market page that sent them to
-      //      /book), else metadata.landing_page when it's a real page. "/book"
-      //      itself says nothing — every market links to the same /book page.
-      //   2. By city, only when the page is unknown: the FIRST market in config
-      //      order whose cities include the booking city. Config lists the
-      //      metro page before its sub-page (Houston before Greenway, Denver
-      //      before Golden), so unattributed bookings go to the metro row the
-      //      way they always did, and a sub-page only gets what its page sent.
       const bookingMarket = bkAll.map(bookingMarketCreditor(b.analytics_config.markets));
 
       for (const [mIdx, m] of b.analytics_config.markets.entries()) {
@@ -7869,13 +5792,12 @@ async function analyticsOverview(req, res, db, auth) {
           visitors.add(sid);
           dedup.visitors.add(sid);
           for (const p of paths) {
-            events += e.views.get(p) || 0; // page views of this market's pages
+            events += e.views.get(p) || 0;
             for (const d of (e.days.get(p) || [])) {
               if (!byDay.has(d)) byDay.set(d, new Set());
               byDay.get(d).add(sid);
             }
           }
-          // Reached the booking page in the same session as this market's page.
           if (e.paths.has('/book')) {
             bookVisitors.add(sid);
             dedup.book.add(sid);
@@ -7888,7 +5810,6 @@ async function analyticsOverview(req, res, db, auth) {
           }
           if (!lastSeen || (e.last && e.last > lastSeen)) lastSeen = e.last;
         }
-        // Bookings credited to this market by the one-market-per-booking pass above.
         const bookingsNa = false;
         let kept = 0, cancelled = 0, internal = 0, keptByCity = 0, keptUnattributed = 0;
         const bookingsByDay = new Map();
@@ -7920,8 +5841,8 @@ async function analyticsOverview(req, res, db, auth) {
           book_by_day: dayKeys.map(d => (bookByDay.get(d) ? bookByDay.get(d).size : 0)),
           bookings_na: bookingsNa,
           bookings_30d: kept,
-          bookings_by_city_30d: keptByCity, // of bookings_30d, page unknown but service city matched this market
-          bookings_unattributed_30d: keptUnattributed, // of bookings_30d, neither page nor city matched anything — landed on the catch-all row
+          bookings_by_city_30d: keptByCity,
+          bookings_unattributed_30d: keptUnattributed,
           bookings_cancelled_30d: cancelled,
           bookings_internal_30d: internal,
           bookings_by_day: dayKeys.map(d => bookingsByDay.get(d) || 0),
@@ -7948,15 +5869,10 @@ async function analyticsOverview(req, res, db, auth) {
       has_gsc: !!(cfg && cfg.gsc_domain),
       events_30d: s ? s.n30 : 0,
       visitors_30d: visitors30,
-      // Averaged over the full 30-day window, not just days with traffic, so a
-      // site that saw one visitor on one day reads as 0.0/day rather than 1/day.
       avg_visitors_day: Math.round((visitors30 / rangeDays) * 10) / 10,
       visitors_by_day: s ? dayKeys.map(d => (s.byDay.get(d) ? s.byDay.get(d).size : 0)) : dayKeys.map(() => 0),
-      // Booking page: people who actually opened the widget, and what came of it.
       book_visits_30d: s ? s.bookVisitors.size : 0,
       book_by_day: s ? dayKeys.map(d => (s.bookByDay.get(d) ? s.bookByDay.get(d).size : 0)) : dayKeys.map(() => 0),
-      // Real, surviving bookings only. cancelled/internal are surfaced beside
-      // it rather than hidden, so the number can always be reconciled.
       bookings_30d: bk ? bk.kept : 0,
       bookings_cancelled_30d: bk ? bk.cancelled : 0,
       bookings_internal_30d: bk ? bk.internal : 0,
@@ -7965,14 +5881,8 @@ async function analyticsOverview(req, res, db, auth) {
       last_event: s ? s.lastSeen : null,
     };
   })
-  // A multi-market business is replaced by its markets, not listed alongside
-  // them: showing both would double every one of its numbers in the totals.
   .flatMap(b => marketRowsByBiz.get(b.slug) || [b]);
 
-  // Portfolio-wide totals. Single-site rows sum cleanly; a multi-market
-  // business contributes its DISTINCT session sets instead of the sum of its
-  // market rows, or one person on two of its pages counts twice. Bookings
-  // never overlap (one service city each) so those still sum.
   const single = businesses.filter(b => !b.market);
   const dedups = [...marketDedup.values()];
   const visitors_30d_total = single.reduce((n, b) => n + b.visitors_30d, 0)
@@ -7998,20 +5908,13 @@ async function analyticsOverview(req, res, db, auth) {
   });
 }
 
-// ── Insights (owner dashboard: "what needs my attention") ──────────────────
-// One 60-day bookings pull per business, sliced every way the Insights tab
-// needs: metro trend, tech workload/lateness/reviews, and revenue anomaly.
-// Deliberately NOT a cron/materialized table — the query is a single indexed
-// range scan per business (bookings_business_created_idx-shaped), so computing
-// it fresh on every tab open is cheaper than keeping a cache correct. Revisit
-// only if a business's booking volume ever makes this slow to compute live.
-const INSIGHTS_LATE_THRESHOLD = 3;      // nudges in 30d before a tech is flagged
-const INSIGHTS_OVERWORK_RATIO = 1.5;    // jobs vs team average
+const INSIGHTS_LATE_THRESHOLD = 3;
+const INSIGHTS_OVERWORK_RATIO = 1.5;
 const INSIGHTS_UNDERWORK_RATIO = 0.5;
-const INSIGHTS_METRO_MIN_AVG = 3;       // weekly bookings needed before a swing means anything
-const INSIGHTS_METRO_DROP = 0.25;       // 25% below trailing average = "slow"
-const INSIGHTS_METRO_SPIKE = 0.4;       // 40% above trailing average = "busy"
-const INSIGHTS_REVIEW_MIN_N = 3;        // reviews needed before an average means anything
+const INSIGHTS_METRO_MIN_AVG = 3;
+const INSIGHTS_METRO_DROP = 0.25;
+const INSIGHTS_METRO_SPIKE = 0.4;
+const INSIGHTS_REVIEW_MIN_N = 3;
 
 async function insightsOverview(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -8025,12 +5928,6 @@ async function insightsOverview(req, res, db, auth) {
   const [{ data: techRows, error: techErr }, { data: areaRows, error: areaErr }, { data: bkRows, error: bkErr }] = await Promise.all([
     db.from('technicians').select('id, name, active').eq('business_id', biz.id),
     db.from('service_areas').select('id, name').eq('business_id', biz.id),
-    // scheduled_at, not created_at: the Zenbooker history import backfilled
-    // years of old jobs with a recent created_at (all stamped at migration
-    // time), so created_at alone would count that whole import as "this
-    // week." scheduled_at is when the job actually happened. Same convention
-    // as avgTicketRange. Upper-bounded at now so a job scheduled for next
-    // week doesn't count as work already done.
     db.from('bookings')
       .select('id, technician_id, secondary_technician_id, service_area_id, status, price, review_rating, reviewed_at, scheduled_at, metadata')
       .eq('business_id', biz.id).gte('scheduled_at', since60).lt('scheduled_at', nowISO),
@@ -8042,7 +5939,6 @@ async function insightsOverview(req, res, db, auth) {
   const areaName = new Map((areaRows || []).map(a => [a.id, a.name]));
   const flags = [];
 
-  // ── Metro trend: this week vs the trailing 4-week weekly average ─────────
   const metroCur = new Map(), metroTrail = new Map();
   const cur7 = now - 7 * DAY, trail35 = now - 35 * DAY;
   for (const b of bkRows || []) {
@@ -8063,10 +5959,6 @@ async function insightsOverview(req, res, db, auth) {
     else if (m.pct_change >= INSIGHTS_METRO_SPIKE * 100) flags.push({ severity: 'good', text: `${m.name} is up ${m.pct_change}% this week vs its trailing average (${m.bookings_this_week} vs ~${m.trailing_weekly_avg}/wk).` });
   }
 
-  // ── Revenue anomaly: portfolio-of-one — this business's own trailing avg ──
-  // Completed jobs only (avgTicketRange's convention) — an assigned-but-not-
-  // yet-done job isn't revenue yet, and counting it would make a normal week
-  // look inflated until those jobs actually close out.
   let revCur = 0, revTrail = 0;
   for (const b of bkRows || []) {
     if (b.status !== 'completed' || !b.price) continue;
@@ -8080,7 +5972,6 @@ async function insightsOverview(req, res, db, auth) {
     flags.push({ severity: 'high', text: `Revenue this week ($${Math.round(revCur)}) is down ${Math.abs(revPct)}% vs the trailing weekly average ($${Math.round(revAvgWeekly)}).` });
   }
 
-  // ── Per-tech: workload, lateness, review trend ────────────────────────────
   const cur30 = now - 30 * DAY, prior30 = now - 60 * DAY;
   const techStats = new Map((techRows || []).filter(t => t.active !== false).map(t => [t.id, {
     id: t.id, name: t.name,
@@ -8097,15 +5988,6 @@ async function insightsOverview(req, res, db, auth) {
         s.scheduled_30d++;
         if (b.status === 'cancelled') s.cancelled_30d++;
         else { s.jobs_30d++; if (b.status === 'completed') { s.completed_30d++; s.revenue_30d += Number(b.price) || 0; } }
-        // staff_late_notified_at (see _lib/tech-late.js), NOT otw_nudge_sent_ids:
-        // the nudge is a routine 10-min-before "you on your way?" check-in that
-        // fires on nearly every job — not lateness. staff_late_notified_at only
-        // gets set once, at Stage 3 — 30 minutes AFTER the scheduled start, and
-        // only if the tech still hasn't tapped on-the-way — that's a real
-        // confirmed-late event (owner: "I only care about confirmed late, not
-        // the warning"). No
-        // per-tech id on a two-tech job (the field is job-level), but none of
-        // this business's late jobs are two-tech, so that gap costs nothing today.
         if (b.metadata && b.metadata.staff_late_notified_at) s.late_30d++;
       }
       if (b.review_rating && b.reviewed_at) {
@@ -8115,9 +5997,6 @@ async function insightsOverview(req, res, db, auth) {
       }
     }
   }
-  // Headline totals are counted once per BOOKING. Summing the per-tech rows would
-  // count a two-tech job under both techs (full price twice) and leave out jobs
-  // with no tech or with a tech who has since been deactivated.
   const totals = { jobs_30d: 0, completed_30d: 0, revenue_30d: 0, late_30d: 0 };
   for (const b of bkRows || []) {
     if (new Date(b.scheduled_at).getTime() < cur30 || b.status === 'cancelled') continue;
@@ -8152,7 +6031,6 @@ async function insightsOverview(req, res, db, auth) {
     }
   }
 
-  // ── Estimate funnel (30 days): sent → opened → approved ──────────────────
   const { data: estRows, error: estErr } = await db.from('estimates')
     .select('status, texted_at, emailed_at, text_opened_at, email_opened_at, approved_at, created_at')
     .eq('business_id', biz.id).gte('created_at', new Date(now - 30 * DAY).toISOString());
@@ -8173,24 +6051,15 @@ async function insightsOverview(req, res, db, auth) {
 }
 const SEVERITY_ORDER = { high: 0, med: 1, low: 2, good: 3 };
 
-// Owner-only: it spends money on API calls, and it is the owner's tagging
-// decision to re-run, not the office's. Same underlying pass as the cron, so
-// it stays idempotent — an already-scanned photo is never looked at twice.
 async function photoLogoScan(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { scanLogoPhotos } = await import('./_lib/photo-logo-scan.js');
-  // Capped well under the function timeout: at ~5 concurrent and a couple of
-  // seconds each, 120 is roughly 45s of work. The client loops until the
-  // unscanned count reaches zero, so a big backfill just takes a few passes.
   const limit = Math.min(Number(body.limit) || 120, 200);
   const summary = await scanLogoPhotos({ limit });
   return res.status(200).json({ ok: true, ...summary });
 }
 
-// Move a photo between categories (New / To Post / Posted / Records). No-op-safe:
-// validates the target category and that the photo belongs to this business.
-// 'private' stays accepted so legacy photos can still be re-filed.
 const PHOTO_CATEGORIES = ['new', 'to_post', 'posted', 'records', 'private'];
 async function bookingPhotoSetStatus(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -8201,20 +6070,14 @@ async function bookingPhotoSetStatus(req, res, db, auth, body) {
   if (!PHOTO_CATEGORIES.includes(status)) {
     return res.status(400).json({ error: `status must be one of: ${PHOTO_CATEGORIES.join(', ')}` });
   }
-  // Cross-business (Joey on TidyHaus): the only move she's allowed is
-  // marking a To Post photo as Posted once she's actually posted it -- never
-  // New/Records/private, and never a photo that wasn't already in To Post
-  // (both directions checked: the target here, the current status below).
   if (crossBusinessToPostOnly && status !== 'posted') {
     return res.status(403).json({ error: 'Only marking a photo Posted is allowed here.' });
   }
   let q = db.from('booking_photos').update({ status }).eq('id', body.photo_id).eq('business_id', biz.id);
   if (crossBusinessToPostOnly) q = q.eq('status', 'to_post');
   const { data, error } = await q
-    .select('id, status').maybeSingle();   // 0 rows -> data:null (clean 404), not a PGRST116 throw
+    .select('id, status').maybeSingle();
   if (error) {
-    // CHECK violation (status_check) or missing column → the category migration
-    // (0043) hasn't been applied to this database yet.
     if (/status/i.test(error.message || '')) {
       return res.status(400).json({ error: 'Photo categories need the 0043 database update applied first.' });
     }
@@ -8224,16 +6087,11 @@ async function bookingPhotoSetStatus(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data.id, status: data.status });
 }
 
-// ── Customers (search) ───────────────────────────────────────────────────────
-// A booking counts toward "purchased GDS" if any of its line items is the
-// Guaranteed Dismount Service upsell — same name the confirmation-email
-// upsell button and gds_upsell_add() write (see GDS_LINE_NAME below).
 function jobHasGds(lineItems) {
   return (lineItems || []).some(li => /guaranteed dismount/i.test(li.name || li.description || ''));
 }
 
 async function customers(req, res, db, auth) {
-  // Joey sees every company's customers (owner 2026-10-07). Read-only; edits keep the normal gate.
   const allCos = isAllJobsViewer(auth) && req.query.all === '1';
   let biz = null;
   if (!allCos) { try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); } }
@@ -8246,22 +6104,12 @@ async function customers(req, res, db, auth) {
     const like = `%${term}%`;
     q = q.or(`name.ilike.${like},phone.ilike.${like},email.ilike.${like},address_line1.ilike.${like}`);
   }
-  // Alphabetical by name. Newest-first stopped being useful once the Zenbooker
-  // history landed: 7,000+ customers all created in the same import batch have
-  // no meaningful recency order, so the office could never find anyone.
   const { data, error } = await q.order('name', { ascending: true }).limit(200);
   if (error) throw error;
   const customerRows = data || [];
   if (allCos) for (const c of customerRows) { c.business_slug = c.business?.slug || ''; c.business_name = c.business?.name || ''; delete c.business; }
 
-  // One extra query for every customer's job history, aggregated here in JS
-  // (no per-customer round-trip) — this is what turns the list from a bare
-  // contact book into an actual CRM: jobs count, lifetime spend, GDS flag, and
-  // last-seen date shown right in the table, before ever opening a detail view.
   if (customerRows.length) {
-    // Paged fetch: PostgREST silently caps un-ranged selects at its max-rows
-    // setting (1000 by default), which would quietly undercount every stat
-    // once the 200 listed customers collectively pass that many bookings.
     const jobRows = [];
     const PAGE = 1000;
     for (let from = 0; ; from += PAGE) {
@@ -8284,8 +6132,6 @@ async function customers(req, res, db, auth) {
       if (j.status === 'cancelled') b.cancelled += 1;
       if (j.status === 'completed') { b.completed += 1; b.lifetime_value += Number(j.price) || 0; }
       if (j.scheduled_at && (!b.last_job_at || j.scheduled_at > b.last_job_at)) b.last_job_at = j.scheduled_at;
-      // "Purchased" must mean a sale that actually stands — a GDS line on a
-      // job the customer cancelled (or no-showed) never happened.
       if (!['cancelled', 'no_show'].includes(j.status) && jobHasGds(j.line_items)) b.has_gds = true;
       if (j.review_rating) b.ratings.push(j.review_rating);
     });
@@ -8303,12 +6149,6 @@ async function customers(req, res, db, auth) {
   return res.status(200).json({ customers: customerRows });
 }
 
-// Full history for one customer: every job (with tech/service/pay/review/GDS),
-// every estimate ever sent to them (matched by email or phone, since an
-// estimate is created before a customers row may even exist), and rollup
-// stats — the actual point of a CRM's customer tab.
-// The 2026-09-26 duplicate-customer merge removed extra copies. A screen still
-// holding a removed copy's id is sent to the customer that was kept.
 async function mergedCustomerId(db, id) {
   if (!id) return id;
   const { data } = await db.from('customer_merge_20260926_map').select('keeper_id').eq('loser_id', id).maybeSingle();
@@ -8332,8 +6172,6 @@ async function customerDetail(req, res, db, auth) {
               technician:technicians!technician_id ( name ),
               line_items:booking_line_items ( name, kind, quantity, unit_price, line_total )`)
     .eq('business_id', biz.id).eq('customer_id', id)
-    // nullsFirst:false — Postgres puts NULLs first on DESC by default, which
-    // would float a dateless draft booking to the top and null out last_job_at.
     .order('scheduled_at', { ascending: false, nullsFirst: false });
   if (jobsErr) throw jobsErr;
   const jobs = (jobRows || []).map(j => ({
@@ -8355,13 +6193,6 @@ async function customerDetail(req, res, db, auth) {
     line_items: (j.line_items || []).map(li => ({ name: li.name, quantity: li.quantity, unit_price: li.unit_price, line_total: li.line_total })),
   }));
 
-  // Estimates aren't linked by customer_id (an estimate can predate the
-  // customers row, or never convert into one) — match by email/phone instead,
-  // same identity signal the rest of the app uses for this customer. Two
-  // separate .eq() queries rather than one .or(): PostgREST's or= parser
-  // treats , ( ) as syntax, and phones are stored as "(303) 555-1234" — an
-  // interpolated .or() string would 400 on every such customer and silently
-  // show "No estimates on file". .eq() values are URL-encoded, so they're safe.
   const estSelect = 'id, status, service_label, line_items, approved_total, tax_rate, created_at, approved_at, contacted_at';
   const estQueries = [];
   if (customer.email) estQueries.push(db.from('estimates').select(estSelect).eq('business_id', biz.id).is('deleted_at', null).eq('customer_email', customer.email));
@@ -8401,9 +6232,6 @@ async function customerDetail(req, res, db, auth) {
     lifetime_value: Math.round(completedJobs.reduce((s, j) => s + (Number(j.price) || 0), 0) * 100) / 100,
     first_job_at: datedJobs.length ? datedJobs[datedJobs.length - 1].scheduled_at : null,
     last_job_at: datedJobs.length ? datedJobs[0].scheduled_at : null,
-    // "Purchased" = a GDS line on a job that actually stands. A cancelled/
-    // no-show job's GDS never happened, and an estimate merely OFFERING it
-    // (the detail view's own column is labeled "GDS Offered") isn't a sale.
     has_gds: jobs.some(j => j.has_gds && !['cancelled', 'no_show'].includes(j.status)),
     avg_rating: ratings.length ? Math.round((ratings.reduce((s, r) => s + r, 0) / ratings.length) * 10) / 10 : null,
     reviews_count: ratings.length,
@@ -8442,15 +6270,6 @@ async function customerUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Technicians ──────────────────────────────────────────────────────────────
-// Resolve which service area (metro) a zip falls in, so New Booking can show
-// only that metro's technicians. Returns { service_area_id, name } (nulls if the
-// zip isn't mapped — the form then shows all techs, unfiltered).
-// ── Moving TVs (phone script, owner 2026-10-09) ─────────────────────────────
-// Driving miles between the pickup and drop-off ZIPs, plus the drop-off city's
-// take-down minimum (widget_prices row 'move_takedown_min', editable in Widget
-// Pricing). Distance: Google Distance Matrix with the server key; if that is
-// unavailable, straight-line between ZIP centroids x 1.3, flagged approx.
 const MOVE_CITY_KEYS = [[/houston/i, 'houston'], [/austin/i, 'austin'], [/dfw|dallas|fort worth|arlington/i, 'dfw'],
   [/los angeles/i, 'los_angeles'], [/phoenix/i, 'phoenix'], [/san antonio/i, 'san_antonio'],
   [/oklahoma/i, 'oklahoma_city'], [/tulsa/i, 'tulsa']];
@@ -8474,7 +6293,6 @@ async function moveZipCentroid(db, key, zip) {
       if (loc && Number.isFinite(loc.lat)) return { lat: loc.lat, lng: loc.lng };
     } catch (_) { /* fall through */ }
   }
-  // Last resort: the average of our own customers' geocoded points in that ZIP.
   try {
     const { data } = await db.from('customers').select('lat, lng').eq('postal_code', zip).not('lat', 'is', null).limit(200);
     const pts = (data || []).filter(r => Number.isFinite(Number(r.lat)) && Number.isFinite(Number(r.lng)));
@@ -8523,10 +6341,6 @@ async function zipArea(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const postal = (req.query.postal_code || '').toString().trim();
   if (!postal) return res.status(200).json({ service_area_id: null, name: null, surcharge: 0 });
-  // Also return the per-zip surcharge so the manual New Booking form can auto-fill
-  // the Travel Fee the same way the public widget auto-applies it. Tolerate the
-  // surcharge column being absent on older DBs (degrade to 0), but never turn
-  // a failed price lookup into a successful zero-fee answer.
   let data = null;
   let hasSurcharge = true;
   try {
@@ -8548,10 +6362,6 @@ async function zipArea(req, res, db, auth) {
   if (data && hasSurcharge && (data.surcharge == null || data.surcharge === '' || !Number.isFinite(surcharge))) {
     throw new Error('Could not verify the travel fee. Please try again.');
   }
-  // Not served by THIS business? Check whether the OTHER company covers the zip
-  // (e.g. a Houston zip typed while the dashboard is on Dom's, which is
-  // Denver-only). The office was told "new area" with no hint that the zip is
-  // perfectly bookable one tab over — surface which business serves it instead.
   let other_business = null;
   if (!data) {
     try {
@@ -8580,14 +6390,6 @@ async function zipArea(req, res, db, auth) {
   });
 }
 
-// ── Address autocomplete (server-side proxy to Google Places) ────────────────
-// The dashboard draws its OWN suggestion dropdown; these two endpoints are the
-// only thing that talks to Google. Keeping the key server-side means: no key in
-// the browser, no HTTP-referrer allow-list to maintain, no Maps JavaScript API,
-// and — crucially — Google can never inject broken UI into the page (the failure
-// mode that broke the old in-browser widget). Requirement on the key: the
-// "Places API" enabled with billing on. If the key is missing or Google rejects
-// the request, we return an empty list and the field stays a plain text box.
 async function placesAutocomplete(req, res, auth) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   const input = (req.query.input || (req.body && req.body.input) || '').toString().trim();
@@ -8652,11 +6454,6 @@ async function placeDetails(req, res, auth) {
   }
 }
 
-// Every secretary sees every company's technicians (owner 2026-10-12; was
-// Joey-only since 10-07): name, phone, email, business, status, metro, zips,
-// weekly times, upcoming jobs, daily cap, bio. NEVER pay: the columns are an
-// explicit whitelist, and pay/deposit/PIN keys are deleted again before the
-// response, so nothing pay-related can leak even if columns get added later.
 const TECH_ALL_COLS = 'id, name, phone, email, status, active, color, service_area_id, service_zips, max_jobs_per_day, photo_url, bio_years, bio_blurb, booking_priority';
 const TECH_PAY_FIELDS = ['pin_hash', 'pending_deposit_amount', 'pending_deposit_date', 'manual_pay_amount', 'manual_pay_date', 'pay', 'pay_rate', 'payroll', 'earnings', 'bonus', 'bonuses', 'bank', 'bank_account', 'routing_number'];
 async function techniciansAllCompanies(req, res, db) {
@@ -8684,7 +6481,6 @@ async function techniciansAllCompanies(req, res, db) {
     }
   } catch { /* cosmetic */ }
   await addWeeklySummaries(db, techs);
-  // Upcoming jobs (next 7 days) per tech: count + the next one's time.
   for (const t of techs) { t.upcoming_jobs = 0; t.next_job_at = null; }
   try {
     const ids = techs.filter(t => t.active).map(t => t.id);
@@ -8712,8 +6508,6 @@ async function techniciansAllCompanies(req, res, db) {
   return res.status(200).json({ technicians: techs });
 }
 
-// Each tech's weekly times as a short summary ("Mon 11a-1p - Wed 8-10a, 11a-1p").
-// Shared by the per-business roster and the all-companies list. Best-effort.
 async function addWeeklySummaries(db, techs) {
   for (const t of techs) { t.weekly_slots = null; t.weekly_summary = null; }
   try {
@@ -8729,7 +6523,6 @@ async function addWeeklySummaries(db, techs) {
       for (const t of techs) {
         const rows = byTech.get(t.id) || [];
         t.weekly_slots = rows.length;
-        // Consecutive days with the same times collapse ("Mon-Fri 8-10a, 11a-1p").
         const WEEK = [1, 2, 3, 4, 5, 6, 0];
         const dayText = (d) => {
           const keys = rows.filter(r => r.day_of_week === d).map(r => r.slot_key).sort((x, y) => order.indexOf(x) - order.indexOf(y));
@@ -8749,13 +6542,8 @@ async function addWeeklySummaries(db, techs) {
 }
 
 async function technicians(req, res, db, auth) {
-  // Any secretary (Heather, Joey, Alex, Joe): every company's techs, no pay.
   if ((auth.role === 'secretary' || isAllJobsViewer(auth)) && req.query.all === '1') return await techniciansAllCompanies(req, res, db);
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
-  // service_area_id (0022) powers the New Booking metro filter; max_jobs_per_day
-  // (0034) is the per-tech daily cap; photo_url/bio_years/bio_blurb (0060) power
-  // the "Meet your tech" confirmation-email block. All optional — drop whichever
-  // column the DB doesn't have yet so the roster always loads.
   let cols = 'id, name, phone, email, status, active, service_area_id, max_jobs_per_day, pin_hash, photo_url, bio_years, bio_blurb, review_invite_sent_at, booking_priority';
   let data, error;
   for (let i = 0; i < 8; i++) {
@@ -8766,14 +6554,8 @@ async function technicians(req, res, db, auth) {
     break;
   }
   if (error) throw error;
-  // Never leak the hash; just say whether a PIN is set.
   const techs = (data || []).map(({ pin_hash, ...t }) => ({ ...t, pin_set: !!pin_hash }));
 
-  // Each tech's metro NAME rides along so every dropdown can read "Zach
-  // (Austin)" instead of a bare name. Before a zip is typed, the New Booking
-  // tech picker legitimately lists the whole roster (the metro isn't known
-  // yet), and an unlabeled list is how an Austin tech reads as pickable for a
-  // Denver caller. Best-effort: on any error the names just don't show.
   try {
     const areaIds = [...new Set(techs.map(t => t.service_area_id).filter(Boolean))];
     if (areaIds.length) {
@@ -8782,27 +6564,13 @@ async function technicians(req, res, db, auth) {
       for (const t of techs) {
         const a = areaOf.get(t.service_area_id);
         t.area_name = a ? a.name : null;
-        // A metro that isn't taking online bookings yet (unstaffed) never
-        // auto-assigns anyone, whatever their weekly times say.
         t.area_unstaffed = !!(a && a.unstaffed);
       }
     }
   } catch { /* labels are cosmetic, never fail the roster over them */ }
 
-  // Each tech's weekly times as a short summary for their card ("Mon 11a-1p ·
-  // Wed 8-10a, 11a-1p"). Before invite sign-ups (0111) staff set these by hand
-  // and knew them; now a tech picks their own on the join page, so the card has
-  // to show what they picked without opening the Availability editor, and a
-  // tech with NO weekly times (never auto-assigned) has to stand out.
-  // Best-effort: on any error the card just doesn't show the line.
   await addWeeklySummaries(db, techs);
 
-  // $100 review-program progress per tech, so the Technicians screen shows how
-  // far each one has got instead of only whether an invite went out. Counts
-  // only listings currently IN the program (an old 'doms' checkin from before
-  // Dom's was pulled must not inflate the count), matching the same rule the
-  // award itself uses in api/tech.js. Best-effort: on any error the roster
-  // still renders, just without progress.
   const REVIEW_PROGRAM_KEYS = ['ha-houston-1', 'ha-houston-2', 'ha-austin', 'ha-denver-1', 'ha-denver-2', 'ha-los-angeles', 'ha-fort-worth'];
   for (const t of techs) { t.review_done = 0; t.review_total = REVIEW_PROGRAM_KEYS.length; t.review_bonus_at = null; }
   try {
@@ -8823,10 +6591,6 @@ async function technicians(req, res, db, auth) {
     }
   } catch { /* migrations 0089/0090 not applied yet */ }
 
-  // Average rating per technician, in ONE batched query. This used to be a
-  // serial per-tech loop (N+1) fetching every reviewed booking one tech at a
-  // time — on a 10-tech roster that alone added ~10 round-trips to every New
-  // Booking modal open, which waits on this endpoint before showing.
   for (const tech of techs) tech.average_rating = null;
   try {
     const ids = techs.map(t => t.id);
@@ -8835,7 +6599,7 @@ async function technicians(req, res, db, auth) {
         .select('technician_id, review_rating')
         .in('technician_id', ids)
         .not('review_rating', 'is', null);
-      const agg = new Map();   // technician_id -> { sum, n }
+      const agg = new Map();
       for (const r of (ratings || [])) {
         const a = agg.get(r.technician_id) || { sum: 0, n: 0 };
         a.sum += r.review_rating; a.n++;
@@ -8851,38 +6615,20 @@ async function technicians(req, res, db, auth) {
   return res.status(200).json({ technicians: techs });
 }
 
-// ── Partner-company technicians (cross-company booking) ──────────────────────
-// The OTHER company's bookable technicians, so a secretary can fill a gap with a
-// partner tech when their own are full. Scope is enforced on the HOST business
-// (the caller's own) — only names + ids are returned for the picker.
-// When postal_code is provided, filters to techs in that service area.
 async function partnerTechnicians(req, res, db, auth) {
   const slug = (req.query.business || '').toString();
-  // Same scope check resolveBusiness does, run BEFORE either query fires — so
-  // an unauthorized caller can't trigger the partner lookup by racing it
-  // alongside resolveBusiness in Promise.all below.
   if (!slug) return bail(res, Object.assign(new Error('business is required'), { status: 400 }));
   if (!mayUseBusiness(auth, slug)) return bail(res, Object.assign(new Error('Forbidden for this business'), { status: 403 }));
   let partner, hostBiz;
   try {
-    // resolveBusiness still runs (confirms the business actually exists) but
-    // partnerBusiness only needs the slug string itself, not biz's DB row, so
-    // it doesn't have to wait for resolveBusiness to finish first.
     [hostBiz, partner] = await Promise.all([resolveBusiness(db, auth, slug), partnerBusiness(db, slug)]);
-    // TidyHaus DFW zip: the partner picker lists A1's DFW techs.
-    if (slug === 'handy-andy' && req.query.postal_code) {
+    if (slug === 'tidyhaus' && req.query.postal_code) {
       const ha = await serviceAreaIdFromPostal(db, hostBiz.id, req.query.postal_code.toString());
       if (ha && await isDfwArea(db, ha)) partner = await metroPartner(db, slug, ha);
     }
   } catch (e) { return bail(res, e); }
   if (!partner) return res.status(200).json({ partner: null, technicians: [] });
 
-  // Resolve the zip against the PARTNER's own service-area table, not the
-  // host's — each business has its own row per metro (Doms's Denver and Handy
-  // Andy's Denver are different service_area_id values), so filtering the
-  // partner's technicians by the host's id could never match anything. This
-  // silently returned zero cross-hire techs for every ZIP entered on either
-  // side (reported: no Doms techs offered as 2nd tech on any TidyHaus job).
   const postalCode = (req.query.postal_code || '').toString();
   let serviceAreaId = null;
   if (postalCode) {
@@ -8894,9 +6640,6 @@ async function partnerTechnicians(req, res, db, auth) {
   if (serviceAreaId) query = query.eq('service_area_id', serviceAreaId);
   const { data, error } = await query.order('name');
   if (error) throw error;
-  // Metro name per tech, same as the own-roster technicians endpoint: when no
-  // zip is entered yet this list is the partner's WHOLE roster, and unlabeled
-  // names are how an out-of-metro tech reads as a valid pick. Best-effort.
   const partnerTechs = data || [];
   try {
     const areaIds = [...new Set(partnerTechs.map(t => t.service_area_id).filter(Boolean))];
@@ -8912,20 +6655,12 @@ async function partnerTechnicians(req, res, db, auth) {
   });
 }
 
-// ── Send a receipt (or invoice) for one job ─────────────────────────────────
-// Secretary-facing: the booking modal's "Send receipt" button. One template
-// serves both documents (see receiptEmail in _lib/email.js) and WHICH one goes
-// out is decided here from the booking's real payment state, never from the
-// caller -- a client can't talk us into telling a customer they paid when they
-// haven't. Works on any job at any age, including a call months later asking
-// for a copy for taxes or an insurance claim.
 async function receiptSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   const id = (body.id || '').toString();
   if (!id) return res.status(400).json({ error: 'id required' });
 
-  // stripe_account is optional (older DBs); degrade rather than fail the send.
   const cols = (withAcct) => `id, scheduled_at, price, tip, amount_paid, amount_refunded, payment_status,
       payment_method, paid_at, ${withAcct ? 'stripe_account, ' : ''}stripe_payment_method_id, stripe_payment_intent_id,
       address_line1, city, state, postal_code,
@@ -8949,68 +6684,30 @@ async function receiptSend(req, res, db, auth, body) {
   const netPaid = Math.max(0, Math.round((paid - refunded) * 100) / 100);
   const amountDue = Math.max(0, Math.round((total + tip - netPaid) * 100) / 100);
 
-  // WHICH document to send is decided by payment_status, the same field the
-  // rest of the dashboard trusts (it gates the Charge / Refund buttons), NOT
-  // by comparing amount_paid to price. That arithmetic looks stricter but is
-  // wrong on real data: 7 live bookings are marked paid while amount_paid is
-  // short of price+tip, almost all because a tip was recorded on the booking
-  // without being charged through Stripe. Deciding by arithmetic would have
-  // emailed those already-paid customers a dunning invoice for the tip.
-  //
-  // Refunds are folded in separately because a refund never decrements
-  // amount_paid anywhere in this codebase (bookingPayment writes only
-  // payment_status + amount_refunded), so a fully refunded job would
-  // otherwise still satisfy any "was it paid" test and print a green PAID.
   const status = String(b.payment_status || '').toLowerCase();
-  // Everything that was collected has gone back to the customer.
   const allCollectedReturned = refunded > 0.005 && refunded + 0.005 >= paid;
-  // ...and the bill had actually been settled before that refund. Both must be
-  // true to call a job "refunded, nothing owed": a customer who paid only half
-  // and then got that half back still owes the whole bill, so that case has to
-  // fall through to an invoice for the full amount rather than a reassuring
-  // "nothing is owed" document.
   const wasSettled = paid > 0 && paid + 0.005 >= total + tip;
   const kind = (allCollectedReturned && wasSettled) ? 'refunded'
     : allCollectedReturned ? 'invoice'
     : (status === 'paid' ? 'receipt' : 'invoice');
 
-  // Never bill someone $0.00. A price-less job is a data problem, not a
-  // document, and an invoice for nothing only generates a confused phone call.
   if (kind === 'invoice' && total + tip <= 0) {
     return res.status(400).json({ error: 'This job has no price set, so there is nothing to invoice. Add the line items first.' });
   }
-  // An invoice must carry the pay link (owner 2026-09-30: Edwin's invoices had
-  // none). invoice_send builds the Stripe link and texts it too.
   if (kind === 'invoice') return invoiceSend(req, res, db, auth, body);
 
-  // Tax rides in the line items as its own row; split it out so the receipt
-  // shows a true subtotal + tax rather than burying tax among the services.
   const allLines = b.line_items || [];
   const isTax = (li) => /^tax\b/i.test(String(li.name || ''));
   const explicitTax = allLines.filter(isTax).reduce((s, li) => s + (Number(li.line_total) || 0), 0);
   const lines = allLines.filter(li => !isTax(li))
     .map(li => ({ label: li.name, qty: li.quantity, amount: li.line_total }));
 
-  // Make the document reconcile BY CONSTRUCTION. `price` is authoritative (it
-  // is what the customer was actually charged), but the itemization does not
-  // always sum to it: measured across every non-imported booking, 226 of 226
-  // jobs WITH a stored tax row reconcile exactly, while 29 jobs WITHOUT one
-  // sit ~8.96% under price -- that gap is tax that was folded into price and
-  // never written as its own line. So a positive gap is tax; a negative gap
-  // (an un-itemized discount, seen only on imported jobs) becomes a neutral
-  // "Adjustment" rather than being guessed at. Either way the customer never
-  // receives a receipt whose subtotal + tax does not equal its total.
   const subtotal = lines.reduce((s, li) => s + (Number(li.amount) || 0), 0);
   const gap = Math.round((total - (subtotal + explicitTax)) * 100) / 100;
-  // A positive gap is only callable "tax" when there is something to have
-  // taxed; with no itemization at all (not present in any live booking, but
-  // cheap to guard) it falls to the neutral Adjustment row instead of
-  // labelling the entire charge as tax.
   const gapIsTax = gap > 0 && subtotal > 0;
   const tax = explicitTax + (gapIsTax ? gap : 0);
   const adjustment = gapIsTax ? 0 : gap;
 
-  // Metro timezone, so the dates read correctly for a Houston/Austin job.
   const tz = b.service_area?.timezone || biz.timezone || 'Asia/Manila';
   const longDate = (iso) => {
     if (!iso) return '';
@@ -9018,13 +6715,6 @@ async function receiptSend(req, res, db, auth, body) {
     catch { return ''; }
   };
 
-  // How they paid, for the PAID stamp. The card claim is driven by
-  // stripe_payment_intent_id (an actual captured charge), NOT by the presence
-  // of a saved payment method: most card jobs leave payment_method null (122
-  // of 124 null-method paid jobs carry a real charge), while a cash job can
-  // still have a card sitting on file from booking time. Keying off the card
-  // on file would print "Visa ending 4242" on a job the customer paid in cash.
-  // When neither signal is present we say nothing rather than guess.
   let paymentLabel = '';
   if (kind === 'receipt') {
     const method = String(b.payment_method || '').toLowerCase();
@@ -9062,11 +6752,6 @@ async function receiptSend(req, res, db, auth, body) {
   const { from } = emailConfig(biz.slug);
   const result = await sendEmail({ slug: biz.slug, to: b.customer.email, subject, html, replyTo: from });
   if (!result.sent) return res.status(502).json({ error: 'Email failed to send: ' + (result.skipped || result.error || 'unknown error') });
-  // Leave a record on the job itself. A financial document going to a customer
-  // should be answerable later ("did anyone already send this?", "who sent
-  // it?"), and a booking note is the one place the office already looks.
-  // Best-effort: the document HAS been delivered by this point, so a failure
-  // to log it must never turn a successful send into an error.
   try {
     await db.from('booking_notes').insert({
       booking_id: b.id, business_id: biz.id,
@@ -9079,14 +6764,6 @@ async function receiptSend(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, kind, to: b.customer.email });
 }
 
-// ── Invoice send: email + SMS with a payable Stripe Checkout link ────────────
-// Distinct from receipt_send just above (which auto-detects receipt vs invoice
-// from payment state and only emails). This is the explicit "bill the
-// customer" action from the Line items card: it always sends an INVOICE
-// (refused only when nothing is actually owed), creates a real Stripe
-// Checkout Session so the customer can pay by card straight from the
-// email/text with no login, and sends BOTH channels the office has on file —
-// email is required, SMS is best-effort when there's a phone number.
 function escHtml(v) { return String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
 async function invoiceSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -9108,7 +6785,6 @@ async function invoiceSend(req, res, db, auth, body) {
   if (error) throw error;
   if (!b) return res.status(404).json({ error: 'Booking not found' });
   if (!b.customer?.email) return res.status(400).json({ error: 'No customer email on file for this job.' });
-  // Never bill a refunded or cancelled job (audit 2026-10-25).
   if (String(b.payment_status || '').toLowerCase() === 'refunded') return res.status(400).json({ error: 'This job was refunded. Nothing to invoice.' });
   if (b.status === 'cancelled') return res.status(400).json({ error: 'This job is cancelled. Nothing to invoice.' });
   if (!emailNotificationsOn()) return res.status(503).json({ error: 'Email notifications are turned off.' });
@@ -9119,8 +6795,6 @@ async function invoiceSend(req, res, db, auth, body) {
   const refunded = Number(b.amount_refunded) || 0;
   let netPaid = Math.max(0, Math.round((paid - refunded) * 100) / 100);
   let amountDue = Math.max(0, Math.round((total + tip - netPaid) * 100) / 100);
-  // A booking already marked PAID owes only the part of the raised ticket not yet
-  // collected (see balanceDueFor) — never the tip or the whole total again.
   let balanceInvoice = false;
   if (String(b.payment_status || '').toLowerCase() === 'paid') {
     try { amountDue = (await balanceDueFor(b, { account: b.stripe_account || null, slug: biz.slug })).dueCents / 100; }
@@ -9128,13 +6802,8 @@ async function invoiceSend(req, res, db, auth, body) {
     netPaid = Math.max(0, Math.round((total + tip - amountDue) * 100) / 100);
     balanceInvoice = true;
   }
-  // Never generate a payable link (or a text demanding money) for a job that
-  // doesn't actually owe anything — same guard as receipt_send's $0 invoice check.
   if (amountDue <= 0) return res.status(400).json({ error: 'Nothing is owed on this job — there is no balance to invoice.' });
 
-  // Same tax/adjustment reconciliation as receipt_send, so the itemization on
-  // an invoice always sums to the total actually billed. See the long comment
-  // in receiptSend above for why this can't just trust the stored line items.
   const allLines = b.line_items || [];
   const isTax = (li) => /^tax\b/i.test(String(li.name || ''));
   const explicitTax = allLines.filter(isTax).reduce((s, li) => s + (Number(li.line_total) || 0), 0);
@@ -9157,10 +6826,6 @@ async function invoiceSend(req, res, db, auth, body) {
   const brand = brandFor(biz.slug);
   const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
 
-  // The pay link is best-effort: a business with no Stripe account configured
-  // (or a live Stripe hiccup) must still be able to send the invoice itself —
-  // it just won't carry a "pay now" button, same as any invoice mailed before
-  // online payment existed.
   let payUrl = null;
   if (stripeConfigured(acct)) {
     try {
@@ -9179,15 +6844,11 @@ async function invoiceSend(req, res, db, auth, body) {
           'metadata[booking_id]': b.id,
           'metadata[business_slug]': biz.slug,
           ...(balanceInvoice ? { 'metadata[balance]': '1' } : {}),
-          // Paying before the tech starts: the bank verifies the cardholder
-          // (3-D Secure), which moves stolen-card chargebacks off us (owner 2026-10-23).
           ...(!(b.on_the_way_at || b.completed_at || b.status === 'on_the_way' || b.status === 'completed') ? { 'payment_method_options[card][request_three_d_secure]': 'any' } : {}),
         },
       });
       payUrl = session.url;
     } catch (e) {
-      // Stripe is set up but refused: send nothing and show the real reason, so a
-      // broken key never goes out as an unpayable bill (Martin Heid, 2026-10-25).
       console.error('[invoice] Stripe Checkout session failed, invoice not sent:', e.message);
       return res.status(502).json({ error: 'Stripe refused the pay link, so nothing was sent: ' + e.message });
     }
@@ -9206,18 +6867,16 @@ async function invoiceSend(req, res, db, auth, body) {
     payUrl,
   }, brand);
 
-  // Owner-only short note at the top (e.g. an apology), 2026-10-25.
   const invNote = auth.role === 'owner' ? String(body.note || '').trim().slice(0, 300) : '';
   const noteHtml = invNote ? `<div style="font-family:Arial,sans-serif;font-size:15px;color:#111;padding:14px 16px;margin:0 0 12px;background:#f8fafc;border-radius:8px;">${escHtml(invNote)}</div>` : '';
   const htmlOut = noteHtml ? (/<body[^>]*>/i.test(html) ? html.replace(/(<body[^>]*>)/i, '$1' + noteHtml) : noteHtml + html) : html;
   const { from } = emailConfig(biz.slug);
-  const emailResult = await sendEmail({ slug: biz.slug, to: b.customer.email, subject: `You have an invoice from ${brand.name || biz.name}`, html: htmlOut, replyTo: from }); // owner 2026-10-25
+  const emailResult = await sendEmail({ slug: biz.slug, to: b.customer.email, subject: `You have an invoice from ${brand.name || biz.name}`, html: htmlOut, replyTo: from });
   if (!emailResult.sent) return res.status(502).json({ error: 'Email failed to send: ' + (emailResult.skipped || emailResult.error || 'unknown error') });
 
   let smsResult = { ok: false, skipped: 'no_phone' };
   const invGate = b.customer.phone ? await staffTextGate(db, b.customer.phone, b.sms_consent === true) : null;
   if (b.customer.phone && !invGate.ok) {
-    // No approval, STOP or a blocked number: the invoice goes by email only.
     smsResult = { ok: false, skipped: 'no_sms_consent' };
   } else if (b.customer.phone) {
     const text = payUrl
@@ -9227,8 +6886,6 @@ async function invoiceSend(req, res, db, auth, body) {
     await logAutomatedMessage(db, { businessId: biz.id, customerPhone: b.customer.phone, body: text, result: smsResult });
   }
 
-  // Best-effort audit note, same pattern as receipt_send — a financial
-  // document going out must be answerable later without breaking the send.
   try {
     await db.from('booking_notes').insert({
       booking_id: b.id, business_id: biz.id,
@@ -9246,14 +6903,6 @@ async function invoiceSend(req, res, db, auth, body) {
   });
 }
 
-// ── "$100 review invite" text (Technicians screen) ───────────────────────────
-// Owner-only: texts a technician the review-program pitch with a magic link
-// that signs them into the tech app and lands directly on the Reviews tab.
-// The link carries a standard signed tech token (the exact shape login
-// issues), 14-day expiry. Same trust model as texting the tech their PIN,
-// since it goes only to the phone number on their own record. Stamps
-// technicians.review_invite_sent_at so the button shows who has been asked
-// and when; the owner sends these a few techs at a time on purpose.
 async function reviewInviteSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can send review invites' });
@@ -9278,25 +6927,10 @@ async function reviewInviteSend(req, res, db, auth, body) {
     return res.status(502).json({ error: `Text did not send${why}` });
   }
   const sentAt = new Date().toISOString();
-  // Stamp is cosmetic bookkeeping; never fail a sent text over it.
   try { await db.from('technicians').update({ review_invite_sent_at: sentAt }).eq('id', t.id); } catch { /* column may predate 0090 */ }
   return res.status(200).json({ ok: true, sent_at: sentAt });
 }
 
-// ── Technician sign-up invites (migration 0111) ──────────────────────────────
-// Owner-only, like the $100 review invite above: an invite decides who gets
-// paid work. "+ Invite a technician" on the Technicians tab creates a
-// single-use /join?c=<code> link for ONE metro of TidyHaus or Dom's and
-// optionally texts it. The tech opens it, creates their login, picks their
-// weekly times and taps Start (api/tech.js join_complete ->
-// app.claim_tech_invite), which makes them an active tech with availability,
-// so the booking engine starts handing them jobs.
-// Lead-gen brands are refused: they have no techs of their own and borrow
-// TidyHaus's roster by metro (PARTNER_SLUG, _lib/availability.js), so a tech
-// created under one would become that brand's host pool and never see Handy
-// Andy's own jobs.
-// Joey (Dom's secretary) may list pending invites and re-text one (owner
-// 2026-10-07); creating, copying the link and canceling stay owner-only.
 function isJoeyLogin(auth) { return !!auth && auth.role === 'secretary' && auth.name === 'Joey'; }
 async function techInvites(req, res, db, auth) {
   if (auth.role !== 'owner' && !isJoeyLogin(auth)) return res.status(403).json({ error: 'Only the owner can manage technician invites' });
@@ -9306,15 +6940,11 @@ async function techInvites(req, res, db, auth) {
   if (aErr) throw aErr;
   const { data: techs } = await db.from('technicians')
     .select('name, service_area_id').eq('business_id', biz.id).eq('active', true);
-  // Metros for the invite picker, with who already works each one, so the
-  // owner sees who a newcomer will share automatic jobs with.
   const metros = (areas || []).filter(a => a.active).map(a => ({
     id: a.id, name: a.name, unstaffed: !!a.unstaffed,
     techs: (techs || []).filter(t => t.service_area_id === a.id).map(t => t.name),
   }));
-  // Owner 2026-10-02: TidyHaus's picker also lists Dom's metros (OKC, Tulsa)
-  // so a Dom's hire can be invited without switching business.
-  if (biz.slug === 'handy-andy') {
+  if (biz.slug === 'tidyhaus') {
     const { data: domsBiz } = await db.from('businesses').select('id').eq('slug', 'doms').maybeSingle();
     if (domsBiz) {
       const [{ data: dAreas }, { data: dTechs }] = await Promise.all([
@@ -9332,13 +6962,9 @@ async function techInvites(req, res, db, auth) {
     .select('id, code, status, expires_at, invitee_name, invitee_phone, max_jobs_per_day, service_area_id, created_at, sent_at, send_count, last_sms_log_id, opened_at, open_count, joined_at, technician_id')
     .eq('business_id', biz.id).order('created_at', { ascending: false }).limit(60);
   if (error) throw error;
-  // Every live invite, plus finished ones from the last 30 days.
   const cutoff = Date.now() - 30 * 864e5;
   const recent = (rows || []).filter(r => r.status === 'pending' || new Date(r.created_at).getTime() >= cutoff);
 
-  // Delivery status of each invite's latest text (the Twilio status callback
-  // writes it, api/analytics.js sms_status kind 'tech_sms') and who joined.
-  // Best-effort annotations: a failed lookup blanks a field, never the list.
   const logById = new Map(), techById = new Map();
   try {
     const ids = recent.map(r => r.last_sms_log_id).filter(Boolean);
@@ -9360,8 +6986,6 @@ async function techInvites(req, res, db, auth) {
   const invites = recent.map(r => {
     const log = r.last_sms_log_id ? logById.get(r.last_sms_log_id) : null;
     const t = r.technician_id ? techById.get(r.technician_id) : null;
-    // An open invite into a metro that has since been switched off can never
-    // be used (claim_tech_invite refuses it), so list it as canceled.
     const st = inviteState(r);
     return {
       id: r.id, state: (st === 'open' && areaOff.has(r.service_area_id)) ? 'revoked' : st, link: inviteLink(r.code),
@@ -9369,13 +6993,11 @@ async function techInvites(req, res, db, auth) {
       max_jobs_per_day: r.max_jobs_per_day, expires_at: r.expires_at, created_at: r.created_at,
       sent_at: r.sent_at, send_count: r.send_count, opened_at: r.opened_at, open_count: r.open_count,
       joined_at: r.joined_at,
-      // A skip reason is a code ("notifications_off"); show the owner words.
       sms: log ? { status: log.status, error: log.error || (log.skip_reason ? smsFailReason({ skipped: log.skip_reason }) : null) } : null,
       technician: t ? { id: t.id, name: t.name, active: t.active } : null,
     };
   });
   if (auth.role !== 'owner') {
-    // Joey: open invites only, no link, no metro roster.
     return res.status(200).json({ invites: invites.filter(i => i.state === 'open').map(i => ({
       id: i.id, state: i.state, name: i.name, phone: i.phone, metro: i.metro, created_at: i.created_at,
       sent_at: i.sent_at, expires_at: i.expires_at, opened_at: i.opened_at, open_count: i.open_count, link: null,
@@ -9384,9 +7006,6 @@ async function techInvites(req, res, db, auth) {
   return res.status(200).json({ invites, metros });
 }
 
-// Text an invite and record the send on its row. Returns { ok } or
-// { ok:false, reason } in words the owner can act on. A failed text never
-// fails the invite: the link is still good and the owner can paste it himself.
 async function textTechInvite(db, biz, area, inv) {
   const message = inviteSmsText({
     brand: inviteBrand(biz.slug, biz.name), name: inv.invitee_name, metro: area.name,
@@ -9403,9 +7022,6 @@ async function techInviteCreate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can invite technicians' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
-  // Refuse only brands that BORROW a roster (they have a PARTNER_SLUG). A
-  // lead-gen slug with no partner — a1tvmounting, a real acquired DFW crew —
-  // staffs itself, so it must be able to invite.
   if (isLeadGenSlug(biz.slug) && PARTNER_SLUG[biz.slug]) {
     return res.status(400).json({ error: `${biz.name} uses TidyHaus's technicians. Switch to TidyHaus or Dom's to invite someone.` });
   }
@@ -9428,9 +7044,6 @@ async function techInviteCreate(req, res, db, auth, body) {
     cap = Math.max(0, Math.floor(Number(body.max_jobs_per_day)) || 0);
   }
 
-  // Catch a number that can't become a new login BEFORE a useless link goes
-  // out. claim_tech_invite re-checks at sign-up, since this can change within
-  // the week the link is live.
   if (phone) {
     const d10 = digits10(phone);
     const { data: owners, error: oErr } = await db.from('technicians')
@@ -9445,9 +7058,6 @@ async function techInviteCreate(req, res, db, auth, body) {
 
   const expiresAt = new Date(Date.now() + INVITE_TTL_DAYS * 864e5).toISOString();
   let inv = null;
-  // Re-inviting someone who already has a pending invite here updates that
-  // invite (new metro / cap, a fresh 7 days) and keeps its link, instead of
-  // stacking a second live link for the same person (uq_tech_invites_pending_phone).
   if (phone) {
     const { data: pend, error: pErr } = await db.from('tech_invites')
       .select('id, invitee_phone').eq('business_id', biz.id).eq('status', 'pending').not('invitee_phone', 'is', null);
@@ -9479,9 +7089,6 @@ async function techInviteCreate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, invite: { id: inv.id, expires_at: inv.expires_at }, link: inviteLink(inv.code), sms });
 }
 
-// Re-text a pending invite (they lost the text), or just extend a link-only
-// one. Either way the SAME link gets a fresh 7 days, so an old text they
-// still have starts working again too.
 async function techInviteSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const joey = auth.role !== 'owner';
@@ -9496,11 +7103,7 @@ async function techInviteSend(req, res, db, auth, body) {
   if (inv.status !== 'pending') return res.status(409).json({ error: inv.status === 'joined' ? 'They already signed up.' : 'This invite was canceled.' });
   if (joey && !inv.invitee_phone) return res.status(400).json({ error: 'No phone on this invite.' });
   const { data: area } = await db.from('service_areas').select('name, timezone, active').eq('id', inv.service_area_id).maybeSingle();
-  // claim_tech_invite refuses a switched-off metro, so don't revive or re-text
-  // a link that can never be used.
   if (area && area.active === false) return res.status(409).json({ error: 'That metro is switched off, so this link can never be used. Cancel it.' });
-  // Extend FIRST, so Copy link always hands out a working link, even when the
-  // text below is refused by the cap.
   const { data: upd, error: uErr } = await db.from('tech_invites')
     .update({ expires_at: new Date(Date.now() + INVITE_TTL_DAYS * 864e5).toISOString() })
     .eq('id', inv.id).eq('status', 'pending')
@@ -9508,7 +7111,6 @@ async function techInviteSend(req, res, db, auth, body) {
   if (uErr) throw uErr;
   if (!upd) return res.status(409).json({ error: 'This invite was just used or canceled.' });
   if (!upd.invitee_phone) return res.status(200).json({ ok: true, sms: null, expires_at: upd.expires_at, link: inviteLink(upd.code) });
-  // A cap so a stuck button or a mis-tap loop can't spam a stranger.
   if ((upd.send_count || 0) >= 5) {
     return res.status(200).json({ ok: false, sms: { ok: false, reason: 'already texted 5 times' }, expires_at: upd.expires_at, link: joey ? null : inviteLink(upd.code) });
   }
@@ -9522,9 +7124,6 @@ async function techInviteRevoke(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can cancel technician invites' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   if (!body.id) return res.status(400).json({ error: 'id required' });
-  // Conditional on still-pending. claim_tech_invite holds this row's lock while
-  // it runs, so a cancel racing a sign-up either wins cleanly or finds the
-  // invite already joined; it can never undo an account that was created.
   const { data, error } = await db.from('tech_invites')
     .update({ status: 'revoked', revoked_at: new Date().toISOString(), revoked_by: adminAuthorName(auth) })
     .eq('id', String(body.id)).eq('business_id', biz.id).eq('status', 'pending').select('id');
@@ -9548,18 +7147,13 @@ async function technicianUpdate(req, res, db, auth, body) {
   if (body.email !== undefined) patch.email = body.email || null;
   if (body.color !== undefined) patch.color = body.color || null;
   if (body.active !== undefined) patch.active = !!body.active;
-  // Daily job cap — OWNER ONLY (secretaries can open the Technicians tab but must
-  // not set it). Empty/blank = no limit; otherwise a non-negative whole number.
   if (auth.role === 'owner' && body.max_jobs_per_day !== undefined) {
     const v = body.max_jobs_per_day;
     patch.max_jobs_per_day = (v === '' || v == null) ? null : Math.max(0, Math.floor(Number(v)) || 0);
   }
-  // Booking priority — owner only. Higher = offered new online bookings first.
   if (auth.role === 'owner' && body.booking_priority !== undefined) {
     patch.booking_priority = Math.min(9, Math.max(0, Math.floor(Number(body.booking_priority)) || 0));
   }
-  // Bio for the "Meet your tech" confirmation-email block. bio_years is a
-  // non-negative whole number or null (blank = don't show a years claim).
   if (body.bio_years !== undefined) {
     const v = body.bio_years;
     patch.bio_years = (v === '' || v == null) ? null : Math.max(0, Math.floor(Number(v)) || 0);
@@ -9567,12 +7161,7 @@ async function technicianUpdate(req, res, db, auth, body) {
   if (body.bio_blurb !== undefined) patch.bio_blurb = (body.bio_blurb || '').toString().trim().slice(0, 400) || null;
   if (Object.keys(patch).length) {
     const { error } = await db.from('technicians').update(patch).eq('id', id).eq('business_id', biz.id);
-    // uq_technicians_active_phone10 (0111): one ACTIVE tech per phone number,
-    // because login matches a phone in any business. Hit by Set phone or
-    // Activate on a number someone else now holds; say so instead of a raw 500.
     if (error && error.code === '23505') {
-      // Two unique rules can fire here: the active-phone index above, or the
-      // original (business_id, phone), which also covers INACTIVE profiles.
       const activeClash = /uq_technicians_active_phone10/.test(`${error.message || ''} ${error.details || ''}`);
       return res.status(409).json({ error: activeClash
         ? 'That phone number is already on another active technician.'
@@ -9581,7 +7170,6 @@ async function technicianUpdate(req, res, db, auth, body) {
     if (error) throw error;
   }
 
-  // PIN is hashed via a SECURITY DEFINER RPC so we never store it in plaintext.
   if (body.pin) {
     if (!/^\d{4}$/.test(String(body.pin))) return res.status(400).json({ error: 'PIN must be 4 digits' });
     const { error } = await db.rpc('set_technician_pin', { p_id: id, p_pin: String(body.pin) });
@@ -9590,10 +7178,6 @@ async function technicianUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Upload/replace a technician's profile photo — used by the "Meet your tech"
-// confirmation-email block. Reuses the same booking-photos storage bucket as
-// job photos. POST { business, id, image } (image = data URL from the browser,
-// already resized client-side).
 async function technicianPhotoUpload(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -9608,9 +7192,6 @@ async function technicianPhotoUpload(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, photo_url: up.url });
 }
 
-// ── Technician weekly availability ───────────────────────────────────────────
-// Read one tech's selected slots (+ the fixed slot/day definitions). The tech
-// must belong to the requested business (scope already enforced on it).
 async function techAvailability(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const techId = (req.query.tech_id || '').toString();
@@ -9637,8 +7218,6 @@ async function techAvailability(req, res, db, auth) {
   });
 }
 
-// Replace one tech's availability (full replace). Only the five fixed slots on
-// days 0–6 are accepted; anything else is rejected by normalizeSlots().
 async function techAvailabilitySet(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -9661,8 +7240,6 @@ async function techAvailabilitySet(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, count: rows.length });
 }
 
-// Set a one-time, date-specific override for a tech (admin acting on their
-// behalf). Same diff-against-recurring model as the tech app.
 async function techAvailabilityExceptionSet(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -9692,41 +7269,19 @@ async function techAvailabilityExceptionSet(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, date, count: rows.length });
 }
 
-// ── Shared shaping ───────────────────────────────────────────────────────────
-// The 0019 migration (secondary_technician_id / needs_lifting / tv_size_category)
-// may not be applied yet on every DB. Select those columns optimistically; if the
-// DB doesn't have them, flip this flag off and the reads fall back gracefully so
-// the dashboard never goes down waiting on a migration.
 let bookingLiftCols = true;
-// extra_slots (migration 0052) — same optimistic pattern. When the column isn't
-// applied yet, flip off and every occupancy read omits it (a booking then blocks
-// only its main slot, never breaking the schedule while the migration lands).
 let extraSlotsCol = true;
-const esCol = () => (extraSlotsCol ? ', extra_slots' : '');            // append to a raw select
+const esCol = () => (extraSlotsCol ? ', extra_slots' : '');
 const esOf = (b) => (extraSlotsCol && Array.isArray(b && b.extra_slots)) ? b.extra_slots : [];
 const isExtraSlotsErr = (e) => /extra_slots/.test((e && e.message) || '');
-// amount_refunded (migration 0061) — same optimistic pattern, so the dashboard
-// never breaks reading bookings while that migration hasn't landed yet.
 let amountRefundedCol = true;
 const arCol = () => (amountRefundedCol ? ', amount_refunded' : '');
 const isAmountRefundedErr = (e) => /amount_refunded/.test((e && e.message) || '');
-// booking_line_items.sort_order (migration 0071) — same optimistic pattern, so
-// reads never break while that migration hasn't landed yet (falls back to
-// whatever order the DB naturally returns, same as before this feature existed).
 let sortOrderCol = true;
 const isSortOrderErr = (e) => /sort_order/.test((e && e.message) || '');
-// Migration 0075 — same optimistic pattern as every other column above: assume
-// present, flip false and retry without it the first time a read reports it
-// missing. review_sms_*/review_email_* (migration 0063) are already selected
-// unconditionally elsewhere in this file (reviewCalls), so those are treated
-// as long-since-applied and don't need their own flag.
 let confirmationEmailCol = true;
 const isConfirmationEmailErr = (e) => /confirmation_email_status|confirmation_email_sent_at/.test((e && e.message) || '');
 function bookingSelect() {
-  // The technician embeds are disambiguated by FK column (technician_id /
-  // secondary_technician_id) because bookings has TWO foreign keys to
-  // technicians once migration 0019 is applied; without the hint PostgREST
-  // can't tell which relationship to follow and the read errors.
   const base = `id, status, source, metadata, scheduled_at, scheduled_end, duration_minutes, price, subtotal, tip, payment_status, paid_at, on_the_way_at, completed_at, amount_paid, stripe_payment_intent_id, payment_method, sms_consent,
           notes, customer_notes, review_rating, review_text, technician_id, service_area_id, business_id, updated_at, created_at, zenbooker_job_number${esCol()}${arCol()},
           on_the_way_sms_status, on_the_way_sms_sent_at, on_the_way_sms_delivered_at,
@@ -9745,12 +7300,7 @@ function bookingSelect() {
           secondary_technician:technicians!secondary_technician_id ( id, name, status, color, business_id, business:businesses ( name ) )`
     : base;
 }
-// Run a bookings read, retrying once without the 0019 columns if they're missing.
-// makeQuery receives the select string and returns a fresh (awaitable) query.
 async function fetchBookingRows(makeQuery) {
-  // Order embedded line items by sort_order (migration 0071) so a dragged-into-
-  // order edit round-trips correctly on the next read, everywhere a booking is
-  // fetched — degrades to the DB's natural order if the column isn't there yet.
   const run = () => {
     let q = makeQuery(bookingSelect());
     if (sortOrderCol) q = q.order('sort_order', { ascending: true, foreignTable: 'booking_line_items' });
@@ -9768,18 +7318,6 @@ async function fetchBookingRows(makeQuery) {
   return { data, error };
 }
 
-// Slim projection of bookingSelect() for PURE ECONOMICS MATH (profit /
-// predicted-income sums in summary()) — no customer info, no photo/note
-// counts, no display-only technician/business fields. Every field here is
-// actually read somewhere in the profit chain: computeJobEconomics itself
-// (price, subtotal, tip, postal_code, technician/secondary_technician name),
-// classifyService (notes, service name, line items), and the payroll engine's
-// computeJobPay (notes for payroll-override/Assurion detection,
-// zenbooker_job_number for pay overrides, service name for special-service
-// detection, line items for the whole pay walk). Dropping a field here would
-// silently change a computed profit number rather than error, so this list
-// was built by tracing every job.* / b.* read in that call chain — don't trim
-// further without re-checking api/_lib/payroll.js.
 function economicsSelect() {
   const base = `id, status, payment_status, payment_method, amount_paid, price, subtotal, tip, notes, customer_notes${arCol()},
           zenbooker_job_number, scheduled_at, created_at, postal_code, service_area_id,
@@ -9790,13 +7328,6 @@ function economicsSelect() {
     ? `${base}, secondary_technician:technicians!secondary_technician_id ( name )`
     : base;
 }
-// Run a bookings read for economicsSelect(), same missing-column degrade as
-// fetchBookingRows. Gate note: economicsSelect's conditional piece is an
-// EMBED (technicians!secondary_technician_id), and PostgREST reports a
-// missing embed relationship with a PGRST-prefixed code, not Postgres 42703
-// (42703 is what a missing RAW column returns) — so accept either code
-// family, still requiring the column name in the message so an unrelated
-// error can never flip the flag (the repair #11 rule).
 async function fetchEconomicsRows(makeQuery) {
   let { data, error } = await makeQuery(economicsSelect());
   const codeOk = (e) => e.code === '42703' || String(e.code || '').startsWith('PGRST');
@@ -9804,9 +7335,6 @@ async function fetchEconomicsRows(makeQuery) {
     bookingLiftCols = false;
     ({ data, error } = await makeQuery(economicsSelect()));
   }
-  // amount_refunded (migration 0061) is optional here for the same reason it is
-  // everywhere else: degrade to the pre-0061 shape rather than break the whole
-  // dashboard. Profit then reads gross (the old behaviour) instead of net.
   if (error && codeOk(error) && isAmountRefundedErr(error)) {
     amountRefundedCol = false;
     ({ data, error } = await makeQuery(economicsSelect()));
@@ -9820,38 +7348,22 @@ function shapeBooking(b) {
     cash_paid: b.payment_status === 'paid' && b.payment_method === 'cash' && !b.stripe_payment_intent_id,
     status: b.status,
     source: b.source,
-    // Who booked it: 'Admin' / 'Heather' / 'Joey' (stored at create), or null on
-    // older/widget bookings (the client falls back to source for "Booking widget").
     booked_by: b.metadata?.booked_by || null,
     created_at: b.created_at || null,
-    // Optimistic-lock revision for the line-items editor — the editor sends it
-    // back on save so two people can never blindly overwrite each other's
-    // ticket edits (see bookingLineItemsSave).
     li_rev: Number(b.metadata?.li_rev) || 0,
-    // Set when a reschedule (office or customer self-service) actually moved
-    // the time. Shown as a small note under Date & time on the job card.
     rescheduled_from: b.metadata?.rescheduled_from || null,
-    // Publishable key for the "Change card" UI, by the booking's business.
     stripe_pk: bookingStripePk(b.business?.slug || null),
     scheduled_at: b.scheduled_at,
     scheduled_end: b.scheduled_end,
     duration_minutes: b.duration_minutes,
-    // Additional slot keys this big job reserves (migration 0052). The main slot
-    // comes from scheduled_at; these are the extra ones the office blocked.
     extra_slots: esOf(b),
     price: b.price,
-    // Gratuity the customer added at charge time (100% to the tech). Kept so the
-    // schedule card can show the true total the customer paid (price + tip).
     tip: b.tip,
     payment_status: b.payment_status,
     amount_paid: b.amount_paid != null ? Number(b.amount_paid) : null,
     paid_by_card: !!b.stripe_payment_intent_id,
     amount_refunded: amountRefundedCol ? (b.amount_refunded || null) : null,
     paid_at: b.paid_at,
-    // Full notification timeline — admin/secretary dashboard only, never sent to
-    // the tech app's own booking read (that's a separate query in tech.js).
-    // Whether the customer may be texted at all — explains every skipped row
-    // in the notification log. null only when the read didn't select it.
     sms_consent: typeof b.sms_consent === 'boolean' ? b.sms_consent : null,
     confirmation_email_status: b.confirmation_email_status || null,
     confirmation_email_sent_at: b.confirmation_email_sent_at || null,
@@ -9874,12 +7386,9 @@ function shapeBooking(b) {
     tv_size_category: b.tv_size_category,
     service_area_id: b.service_area_id,
     business_id: b.business_id,
-    // Cross-company: the assigned tech's home business differs from this booking's.
-    // partner_company is that tech's company name (e.g. "Doms") for a clear tag.
     cross_company: !!(b.technician?.business_id && b.business_id && b.technician.business_id !== b.business_id),
     partner_company: b.technician?.business?.name || null,
     address: formatAddress(b),
-    // Raw address parts so the office can edit the service address after booking.
     address_line1: b.address_line1 || '',
     address_line2: b.address_line2 || '',
     city: b.city || '',
@@ -9887,9 +7396,6 @@ function shapeBooking(b) {
     postal_code: b.postal_code || '',
     customer: b.customer || null,
     technician: b.technician ? { id: b.technician.id, name: b.technician.name, status: b.technician.status, color: b.technician.color } : null,
-    // Second technician (large-TV lifts / cross-company helpers). Carries the
-    // company name + a cross-company flag so the dashboard can label a partner
-    // helper (e.g. "Gregory · Doms") without exposing it to the customer.
     secondary_technician: b.secondary_technician ? {
       id: b.secondary_technician.id, name: b.secondary_technician.name,
       status: b.secondary_technician.status, color: b.secondary_technician.color,
@@ -9897,8 +7403,6 @@ function shapeBooking(b) {
       cross_company: !!(b.secondary_technician.business_id && b.business_id && b.secondary_technician.business_id !== b.business_id),
     } : null,
     service: b.service || null,
-    // Normalize the stored columns (name/unit_price) to the {label, price} shape
-    // the dashboard renders. line_total is the per-line subtotal (unit × qty).
     line_items: Array.isArray(b.line_items) ? b.line_items.map(li => ({
       option_id: li.option_id || null,
       label: li.name,
@@ -9912,15 +7416,12 @@ function shapeBooking(b) {
   };
 }
 
-// ── Review submission (customer review link) ────────────────────────────────
-// Public endpoint: no auth required (token validates the booking).
 async function review(req, res, body) {
   if (req.method === 'GET') return reviewCheck(req, res, body);
   if (req.method === 'POST') return reviewSubmit(req, res, body);
   return res.status(405).json({ error: 'Method not allowed' });
 }
 
-// Google review (GMB) routing lives in _lib/google-review-url.js.
 
 async function reviewCheck(req, res, body) {
   const token = req.query.token || '';
@@ -9929,13 +7430,8 @@ async function reviewCheck(req, res, body) {
   const reviewToken = verifyToken(token);
   if (!reviewToken || !reviewToken.booking_id) return res.status(401).json({ error: 'Invalid token' });
 
-  // Review-email tester (public/review-email-tester.html): a real, fully-live
-  // token that carries the sentinel booking_id 'TEST' instead of a real
-  // booking, so clicking the button/stars in a test email exercises the
-  // ACTUAL review_click -> review.html -> review flow end to end, without
-  // ever touching (or requiring) a real booking row.
   if (reviewToken.booking_id === 'TEST') {
-    const slug = reviewToken.business_slug === 'doms' ? 'doms' : 'handy-andy';
+    const slug = reviewToken.business_slug === 'doms' ? 'doms' : 'tidyhaus';
     const reviewUrl = resolveGoogleReviewUrl({ slug, techName: 'Kregg', areaName: '', bookingId: 'TEST' });
     return res.status(200).json({
       booking_id: 'TEST', already_reviewed: false, review_url: reviewUrl,
@@ -9951,16 +7447,11 @@ async function reviewCheck(req, res, body) {
 
   if (error || !booking) return res.status(404).json({ error: 'Booking not found' });
 
-  // Reaching this page means the customer CLICKED a review link — count it even
-  // when they arrived via an old direct link that skipped the review_click
-  // redirect. Channel unknown here, so only stamp the time. Best-effort; never
-  // block the page load.
   db.from('bookings').update({ review_clicked_at: new Date().toISOString() })
     .eq('id', booking.id).is('review_clicked_at', null)
     .then(() => {}, () => {});
 
-  const slug = booking.business?.slug || 'handy-andy';
-  // A business's own settings.review_url (e.g. client brands like MillerTime) wins.
+  const slug = booking.business?.slug || 'tidyhaus';
   const reviewUrl = (booking.business?.settings && booking.business.settings.review_url) || resolveGoogleReviewUrl({
     slug,
     techName: booking.technician?.name || '',
@@ -9989,14 +7480,10 @@ async function reviewSubmit(req, res, body) {
   const reviewToken = verifyToken(token);
   if (!reviewToken || !reviewToken.booking_id) return res.status(401).json({ error: 'Invalid token' });
 
-  // Review-email tester — see the matching branch in reviewCheck. A no-op
-  // "success" so the test flow completes end to end, but nothing is ever
-  // written anywhere (there's no real booking to write to).
   if (reviewToken.booking_id === 'TEST') return res.status(200).json({ ok: true, test: true });
 
   const db = serviceClient();
 
-  // Fetch booking + business + customer info
   const { data: booking, error: bErr } = await db.from('bookings')
     .select(`
       id, reviewed_at, customer_id, business_id, status, service_area_id,
@@ -10011,7 +7498,6 @@ async function reviewSubmit(req, res, body) {
   if (bErr || !booking) return res.status(404).json({ error: 'Booking not found' });
   if (booking.reviewed_at) return res.status(409).json({ error: 'Already reviewed' });
 
-  // Update booking with review
   const now = new Date().toISOString();
   const { error: uErr } = await db.from('bookings').update({
     review_rating: rating,
@@ -10021,14 +7507,10 @@ async function reviewSubmit(req, res, body) {
 
   if (uErr) throw uErr;
 
-  // Submitting a review is proof the customer clicked through — backfill the
-  // click time if the redirect stamp never landed, so a real review can never
-  // read "link not clicked". Best-effort.
   db.from('bookings').update({ review_clicked_at: now })
     .eq('id', booking.id).is('review_clicked_at', null)
     .then(() => {}, () => {});
 
-  // Send email if rating ≤ 4 and feedback exists
   if (rating <= 4 && feedback && booking.business?.feedback_email) {
     await sendFeedbackEmail({
       to: booking.business.feedback_email,
@@ -10042,14 +7524,6 @@ async function reviewSubmit(req, res, body) {
     }).catch(err => console.warn('[review] email send failed:', err));
   }
 
-  // Send SMS to technician: a poor review warns them, a 5-star congratulates
-  // them. The 5-star text existed once, was removed, and is back by owner
-  // request (Aug 2026): a tech who earns a perfect rating should hear about it,
-  // not only the bad ones. Applies to every tech with a phone on file, both
-  // businesses (this handler is shared). This covers the CRM review itself;
-  // if the customer then also posts to Google, the review-email sync
-  // (migrate.js googleReviewSync, fed by the bracket-tracker Action every 15
-  // minutes) sends its own separate text when that lands, by design.
   if (booking.technician?.phone && rating <= 4) {
     const techName = booking.technician.name || 'Technician';
     const msg = `${techName} you just received a bad review... Please check your profile to view.`;
@@ -10057,13 +7531,10 @@ async function reviewSubmit(req, res, body) {
   } else if (booking.technician?.phone && rating === 5) {
     const techName = booking.technician.name || 'Technician';
     const who = booking.customer?.name || 'A customer';
-    // "5-star" spelled out, not the star glyph: the glyph forces the whole SMS
-    // into UCS-2 encoding (70 chars/segment instead of 160) for no benefit.
     const msg = `${techName}, ${who} just left you a 5-star review on ${booking.business?.name || 'the CRM'}! Nice work.`;
     await sendSMS(booking.technician.phone, msg).catch(err => console.warn('[review] tech SMS send failed:', err));
   }
 
-  // Send SMS to owner if rating ≤ 4
   if (rating <= 4) {
     const ownerPhone = process.env.OWNER_PHONE_NUMBER;
     if (ownerPhone) {
@@ -10076,9 +7547,6 @@ async function reviewSubmit(req, res, body) {
   return res.status(200).json({ ok: true, review_rating: rating });
 }
 
-// Per-business transactional email config (Resend) now lives in ./_lib/email.js
-// (imported above) so the booking, estimate and review flows share one source
-// of truth for keys and from-addresses.
 
 async function sendFeedbackEmail(params) {
   const contactBlock = await recipientContactBlock('email', params.to);
@@ -10120,11 +7588,6 @@ async function sendFeedbackEmail(params) {
   }
 }
 
-// ── Reviews list (admin dashboard reviews tab) ──────────────────────────────
-// Review-request tracking: every completed job with a full per-channel
-// Sent → Delivered → Opened pipeline (email + SMS), newest first, paginated —
-// plus a 30-day email-vs-SMS engagement scoreboard computed independently of
-// the page window so it stays accurate regardless of which page is showing.
 const REVIEW_TRACK_COLS = `review_email_sent_at, review_email_count, review_email_id,
       review_email_delivered_at, review_email_status, review_email_clicked_at,
       review_sms_sent_at, review_sms_delivered_at, review_sms_status, review_sms_clicked_at,
@@ -10146,18 +7609,10 @@ async function reviewRequests(req, res, db, auth) {
   const cols = (t) => `id, scheduled_at, completed_at, review_rating, review_text, reviewed_at, review_token, metadata, sms_consent,
       ${t ? REVIEW_TRACK_COLS + ', ' : ''}
       customer:customers(name, email, phone), technician:technicians!technician_id(name)`;
-  // Ordered by scheduled_at (ALWAYS set), not completed_at: dashboard-completed
-  // jobs had completed_at NULL until 2026-09-06, and Postgres sorts NULLs first
-  // on a DESC order — so dozens of old null-stamped jobs pinned the top of the
-  // list and a job completed yesterday sat pages down where nobody saw it.
   let hasTrack = true;
   let { data, error, count } = await db.from('bookings').select(cols(true), { count: 'exact' })
     .eq('business_id', biz.id).eq('status', 'completed')
     .order('scheduled_at', { ascending: false }).range(from, to);
-  // Any tracking column missing (migrations 0033/0062/0063 not applied) →
-  // re-select without them; the bookings.metadata stamps carry the sent-at
-  // data as fallback (delivered/status/per-channel-opened have no metadata
-  // fallback — they're new bonus signals, not core functionality).
   if (error && /review_(email|sms|click)/.test(error.message || '')) {
     hasTrack = false;
     ({ data, error, count } = await db.from('bookings').select(cols(false), { count: 'exact' })
@@ -10170,24 +7625,13 @@ async function reviewRequests(req, res, db, auth) {
     const hasEmail = !!b.customer?.email;
     const emailSentAt = (hasTrack ? b.review_email_sent_at : null) || b.metadata?.review_email_sent_at || null;
     const smsSentAt = (hasTrack ? b.review_sms_sent_at : null) || b.metadata?.review_sms_sent_at || null;
-    // A text that already went out stays visible even if the office later turns
-    // texts off for this customer; the resend gate (reviewResend) still enforces consent.
     const hasSms = !!b.customer?.phone && (!!b.sms_consent || !!smsSentAt);
-    // Per-channel opened: prefer the 0063 per-channel column; fall back to the
-    // 0062 shared "first click" column when it matches this channel (covers
-    // clicks recorded before 0063 was applied).
     const emailOpenedAt = (hasTrack ? b.review_email_clicked_at : null)
       || b.metadata?.review_email_clicked_at
       || ((hasTrack ? b.review_click_channel : b.metadata?.review_click_channel) === 'email' ? (b.review_clicked_at || b.metadata?.review_clicked_at) : null) || null;
     const smsOpenedAt = (hasTrack ? b.review_sms_clicked_at : null)
       || b.metadata?.review_sms_clicked_at
       || ((hasTrack ? b.review_click_channel : b.metadata?.review_click_channel) === 'sms' ? (b.review_clicked_at || b.metadata?.review_clicked_at) : null) || null;
-    // Channel-UNKNOWN open: the customer provably clicked through (the review
-    // page stamped review_clicked_at, or they outright left a review) but
-    // neither channel recorded the click — legacy kindless tokens skipped the
-    // channel-stamping redirect (see api/book.js review_click). Without this,
-    // a card could show a 5-star review sitting above "Not opened" on both
-    // channels, which reads as the system contradicting itself.
     const openedUnknownAt = (!emailOpenedAt && !smsOpenedAt)
       ? ((hasTrack ? b.review_clicked_at : null) || b.metadata?.review_clicked_at || b.reviewed_at || null)
       : null;
@@ -10199,8 +7643,6 @@ async function reviewRequests(req, res, db, auth) {
       has_email: hasEmail,
       email_count: hasTrack ? (b.review_email_count || 0) : (emailSentAt ? 1 : 0),
       email: channelState(hasEmail, emailSentAt, hasTrack ? b.review_email_delivered_at : null, hasTrack ? b.review_email_status : null, emailOpenedAt),
-      // A 'skipped_*' stamp (no consent / no phone at completion) is not a send
-      // state — treat it as "never sent" here so the tab doesn't show a bogus pill.
       sms: channelState(hasSms, smsSentAt, hasTrack ? b.review_sms_delivered_at : null, hasTrack && !/^skipped_/.test(b.review_sms_status || '') ? b.review_sms_status : null, smsOpenedAt),
       opened_unknown_at: openedUnknownAt,
       rating: b.review_rating || null,
@@ -10214,9 +7656,6 @@ async function reviewRequests(req, res, db, auth) {
   return res.status(200).json({ requests: rows, page, limit, total: count || rows.length, scoreboard });
 }
 
-// 30-day email-vs-SMS engagement scoreboard — computed over ALL completed
-// jobs in the window, independent of reviewRequests' pagination, so it's
-// always the true last-30-days number regardless of which page is showing.
 async function reviewScoreboard(db, businessId, hasTrack) {
   const windowDays = 30;
   if (!hasTrack) return { windowDays, email: null, sms: null };
@@ -10224,9 +7663,6 @@ async function reviewScoreboard(db, businessId, hasTrack) {
   const { data, error } = await db.from('bookings')
     .select('review_email_sent_at, review_email_delivered_at, review_email_clicked_at, review_sms_sent_at, review_sms_delivered_at, review_sms_clicked_at, review_clicked_at, review_click_channel')
     .eq('business_id', businessId).eq('status', 'completed')
-    // scheduled_at, not completed_at — same reason as reviewRequests above:
-    // dashboard-completed jobs with a NULL completed_at silently fell out of
-    // the 30-day tally.
     .gte('scheduled_at', sinceISO);
   if (error || !data) return { windowDays, email: null, sms: null };
 
@@ -10249,10 +7685,6 @@ async function reviewScoreboard(db, businessId, hasTrack) {
   };
 }
 
-// Resend the "How did we do?" email for one completed job.
-// One-time loyalty discount text (owner 2026-09-27): Joey offers it on the
-// review call, then taps a button to text it. The wording and code live on the
-// booking (metadata.loyalty_offer); the review link is this job's own.
 async function reviewOfferSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -10282,20 +7714,9 @@ async function reviewResend(req, res, db, auth, body) {
   const id = body.id;
   if (!id) return res.status(400).json({ error: 'id required' });
 
-  // Review Calls is deliberately CROSS-BUSINESS: Joey follows up with customers
-  // from both companies. Her token is scoped to 'doms' though, so resolving the
-  // business from body.business made resolveBusiness throw 403 on every Handy
-  // Andy card — the review request, which is the entire point of the call,
-  // could never be sent for half the queue.
-  //
-  // When the request comes from that queue, the business is resolved FROM THE
-  // BOOKING instead. That is strictly TIGHTER than the normal path, because the
-  // client no longer gets to name the business at all; it only names a booking
-  // it was already shown. The gate is the same one reviewCallLog uses, so
-  // exactly the accounts that can work the queue can send from it.
   let biz;
   if (body.from_review_call) {
-    if (auth.scope === 'handy-andy') return res.status(403).json({ error: 'Review Calls is not available on this account.' });
+    if (auth.scope === 'tidyhaus') return res.status(403).json({ error: 'Review Calls is not available on this account.' });
     const { data: row } = await db.from('bookings')
       .select('id, business:businesses ( id, slug, name )').eq('id', id).maybeSingle();
     if (!row || !row.business) return res.status(404).json({ error: 'Booking not found' });
@@ -10308,9 +7729,6 @@ async function reviewResend(req, res, db, auth, body) {
     .select('id, technician_id, review_token, metadata, sms_consent, review_sms_sent_at, review_sms_status, customer:customers(name, email, phone)')
     .eq('id', id).eq('business_id', biz.id).single();
   if (error || !b) return res.status(404).json({ error: 'Booking not found' });
-  // Mint the link on demand instead of refusing — this button was the office's
-  // only way to reach a customer whose job was created without a token, and it
-  // used to be the one path that couldn't help them either.
   await ensureReviewToken(db, b);
   if (!b.review_token) return res.status(500).json({ error: 'Could not create a review link for this job. Try again.' });
 
@@ -10319,13 +7737,7 @@ async function reviewResend(req, res, db, auth, body) {
   if (channel === 'sms') {
     if (!b.customer?.phone) return res.status(400).json({ error: 'No phone number on file for this job.' });
     if (gateRefuse(res, await staffTextGate(db, b.customer.phone, b.sms_consent === true))) return;
-    // The SMS Terms promise ONE post-service follow-up by text (A2P 10DLC). A
-    // second is allowed only when the first never reached them; otherwise the
-    // reminder goes by email.
     const smsSentAt = b.review_sms_sent_at || b.metadata?.review_sms_sent_at || null;
-    // Owner 2026-09-28: a customer who says YES on a review call ("would you
-    // mind if I send you something?") may get the text again -- it's a reply
-    // to their request, not an unrequested follow-up. Recorded on the job.
     const customerAsked = !!(body.from_review_call && body.customer_asked === true);
     if (smsSentAt && !customerAsked && !['failed', 'undelivered'].includes(String(b.review_sms_status || ''))) {
       return res.status(409).json({ error: 'The review text was already sent for this job, and we only text it once. Send it by email instead.' });
@@ -10333,7 +7745,6 @@ async function reviewResend(req, res, db, auth, body) {
     if (!smsNotificationsOn()) return res.status(503).json({ error: 'Text notifications are turned off.' });
     const smsClickUrl = `${baseUrl}/api/book?action=review_click&token=${encodeURIComponent(b.review_token)}&ch=sms`;
     const smsStatusCallback = `${baseUrl}/api/analytics?action=sms_status&token=${encodeURIComponent(b.review_token)}`;
-    // Wording lives in _lib/review-token.js, shared with both completion senders.
     const msg = reviewRequestSms({ slug: biz.slug, name: biz.name, token: b.review_token, clickUrl: smsClickUrl, techName: await reviewTechName(db, b) });
     const r = await sendSMSResult(b.customer.phone, msg, { statusCallback: smsStatusCallback });
     await logAutomatedMessage(db, { businessId: biz.id, customerPhone: b.customer.phone, body: msg, result: r });
@@ -10341,9 +7752,6 @@ async function reviewResend(req, res, db, auth, body) {
 
     const now = new Date().toISOString();
     await db.from('bookings').update({ metadata: { ...(b.metadata || {}), review_sms_sent_at: now, ...(customerAsked ? { review_sms_customer_asked_at: now, review_sms_customer_asked_by: auth.name || null } : {}) } }).eq('id', id);
-    // Best-effort tracking-column bump — same fresh-delivery-attempt reset as
-    // the email path below (Twilio's status callback matches by review_token,
-    // not message sid, so there's no id column to re-point here).
     try {
       await db.from('bookings').update({
         review_sms_sent_at: now, review_sms_status: 'sent', review_sms_delivered_at: null,
@@ -10367,11 +7775,6 @@ async function reviewResend(req, res, db, auth, body) {
 
   const now = new Date().toISOString();
   await db.from('bookings').update({ metadata: { ...(b.metadata || {}), review_email_sent_at: now } }).eq('id', id);
-  // Best-effort tracking-column bump (no-op if migration 0033 isn't applied).
-  // A resend is a fresh delivery attempt — reset status to 'sent' and re-point
-  // review_email_id at the NEW Resend message so the delivery webhook matches
-  // the right send (the old id, if it never got picked up by the webhook,
-  // simply goes stale).
   try {
     const { data: cur } = await db.from('bookings').select('review_email_count').eq('id', id).single();
     const next = (Number(cur?.review_email_count) || 0) + 1;
@@ -10384,12 +7787,6 @@ async function reviewResend(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Resend a customer notification from the booking detail's notification log ──
-// Covers the notifications review_resend doesn't: the initial booking-confirmation
-// email, a technician's "you got a job" text, and the "on the way" text. Each
-// rebuilds the exact same message the customer originally got, from the booking's
-// current saved state (so an edited address/price/tech is reflected) — never
-// creates a new booking or changes the appointment itself.
 async function notificationResend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -10404,8 +7801,6 @@ async function notificationResend(req, res, db, auth, body) {
       line_items:booking_line_items ( name, quantity, unit_price, line_total )`)
     .eq('id', id).eq('business_id', biz.id).single();
   if (error || !b) return res.status(404).json({ error: 'Booking not found' });
-  // The JOB's metro time zone (OKC/Tulsa = Central), never the business default
-  // (Dom's = Denver) -- else an OKC 2-4 PM job resends as "1:00 PM".
   const tz = await areaTimezone(db, b.service_area_id || await serviceAreaIdFromPostal(db, biz.id, b.postal_code), biz.timezone || 'Asia/Manila');
 
   if (kind === 'confirmation_email') {
@@ -10460,8 +7855,6 @@ async function notificationResend(req, res, db, auth, body) {
     if (!b.customer?.phone) return res.status(400).json({ error: 'No phone number on file for this customer.' });
     if (gateRefuse(res, await staffTextGate(db, b.customer.phone, b.sms_consent === true))) return;
     if (!smsNotificationsOn()) return res.status(503).json({ error: 'Text notifications are turned off.' });
-    // Wording comes from _lib/en-route.js so this manual resend, the tech app's
-    // "On My Way" button and the one-tap nudge link all say the same thing.
     const etaMinutes = Number(body.eta_minutes) || DEFAULT_ETA_MINUTES;
     const msg = enRouteMessage(b.technician?.name, biz.name, etaMinutes, biz.slug);
     const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
@@ -10480,28 +7873,11 @@ async function notificationResend(req, res, db, auth, body) {
   return res.status(400).json({ error: 'Unknown notification kind.' });
 }
 
-// ── Inbound calls: the office's Calls tab ───────────────────────────────────
-// Cross-business like the review-call queue: the phone system is shared, and a
-// secretary needs to see the voicemails on THEIR extensions regardless of which
-// company the caller was asking about.
 const CALL_OPEN_STATUSES = ['new', 'calling', 'called_back'];
-// What the call auditor's token may read through this API (see the gate in
-// handler()). All GET, all about calls. Add here to widen her portal.
 const AUDITOR_ADMIN_ACTIONS = new Set(['private_cal', /* pipeline removed from Jiyah (owner 2026-10-08) */ 'calls', 'call_recording', 'call_summary', 'call_analytics', 'call_numbers', 'call_day_detail', 'call_ticket', 'auditor_notes_sent', 'note_photo',
-  // Read-only text threads (owner rule 2026-09-23: "add the messages tab to
-  // jiyahs portal"). Deliberately NOT messages_send/messages_block/
-  // messages_read -- she reads what was said, the office still owns replying
-  // to customers and clearing unread.
   'messages_list', 'messages_thread', 'notes_active', 'vip_phones',
-  // Jiyah's QA Dashboard (2026-10-05): call counts + audit rows, no money.
   'audit_dashboard',
-  // Secretaries Performance page (owner 2026-10-18): each secretary's own
-  // My Call Performance screen, picked via ?person=&business=. Read-only.
   'my_call_performance', 'estimate_check', 'secretary_roster']);
-// QA Dashboard data for the auditor portal. Read-only. Returns the number of
-// calls in [from,to) (same kinds the Calls tab lists), the graded audits whose
-// audit_date is in [d1,d2], and -- with ?q= -- calls/audits matching a phone,
-// call id, caller name or agent. Never selects prices, pay or payment fields.
 const AUDIT_DASH_COLS = 'id, audit_date, call_id, occurred_at, time_local, direction, handled_by, service, caller_name, caller_phone, caller_zip, answers, flagged, notes, ratings, complaint, complaint_serious, listen_reason, owner_note, owner_note_at, grasshopper_number, call_outcome, answer_notes, findings, version, business:businesses ( slug )';
 async function auditDashboard(req, res, db, auth) {
   if (auth.role !== 'owner' && !auth.auditor) return res.status(403).json({ error: 'Not allowed' });
@@ -10540,15 +7916,7 @@ async function auditDashboard(req, res, db, auth) {
   if (aud.error) throw aud.error;
   return res.status(200).json({ calls: cnt.count || 0, audits: aud.data || [] });
 }
-// Owner rule 2026-09-23: "jiyah can block callers if she wants" -- one narrow,
-// deliberate exception to the GET-only rule below. Not call_unblock: that
-// stays owner-only (callUnblock's own auth.role check), and isn't on this list
-// at all, so her token never even reaches it.
 const AUDITOR_WRITE_ACTIONS = new Set(['call_block', 'auditor_note_send', 'auditor_note_edit', 'auditor_note_delete', 'notes_photo', 'notes_read', 'auditor_reply_ack', 'auditor_thread_post', 'auditor_note_pin']);
-// How long a claim ("I am ringing this person now") stays hot. Long enough to
-// cover dialing, a conversation and writing a note; short enough that a claim
-// someone forgot to close does not hide a customer forever. After this the card
-// goes back to being freely callable, with the stale claim still shown.
 const CALL_CLAIM_MINUTES = 15;
 function claimIsHot(row) {
   if (!row.claimed_at || !row.claimed_by) return false;
@@ -10556,9 +7924,6 @@ function claimIsHot(row) {
 }
 async function calls(req, res, db, auth) {
   const limit = Math.min(200, Math.max(1, parseInt(req.query.limit, 10) || 100));
-  // Optional date window for the "organized by number" view on the Calls
-  // tab (Today/Yesterday/Last 7 days) — the plain "Needs callback" queue
-  // still calls this with neither set, unchanged from before.
   const from = (req.query.from || '').toString().trim();
   const to = (req.query.to || '').toString().trim();
   let q = db.from('calls')
@@ -10573,27 +7938,10 @@ async function calls(req, res, db, auth) {
     .order('occurred_at', { ascending: false }).limit(limit);
   if (from) q = q.gte('occurred_at', from);
   if (to) q = q.lt('occurred_at', to);
-  // Grasshopper tracking was retired (owner call, 2026-08-26) — its rows
-  // (kind 'voicemail'/'missed', from the now-disabled call_ingest) stay in the
-  // table as history but never surface anywhere again. Twilio rows are kind
-  // 'inbound'; the Take a Call wizard's own rows are kind 'live'.
   q = q.not('kind', 'in', '(voicemail,missed,sms)');
-  // Analytics -> LA asks for LA lines only: filter in the query, not after the limit.
   if (req.query.la === '1' && auth.role === 'owner') { const la = ['0000000000', '0000000000', '0000000000']; q = q.in('grasshopper_number', [...la, ...la.map(p => '+1' + p)]); }
-  // Owner rule (2026-08-26): the WHOLE list — business names, missed calls,
-  // history — is scoped to the businesses this person actually runs, not just
-  // the interruption banner (which was fixed first, separately, below). Joey
-  // and Heather each see their own home business plus their six assigned
-  // lead-gen brands (api/_lib/staff-access.js). Review Calls is untouched —
-  // it lives in a different action (reviewCalls/renderReviewCalls) with its
-  // own cross-company-by-design query, never this one.
-  const viewerSlugs = allowedSlugsFor(auth);   // null = owner, no filter
-  // Speed (owner 2026-09-30: the Calls tab took ~5s). Everything below used to
-  // run one query after another (~15 round trips). Now: the viewer's business
-  // ids are looked up ONCE, and every lookup that doesn't depend on another
-  // runs at the same time. Same response shape as before.
+  const viewerSlugs = allowedSlugsFor(auth);
   const NONE = '00000000-0000-0000-0000-000000000000';
-  // A failed side lookup reads as "no data" -- never fail the list over a nicety.
   const safe = (p) => Promise.resolve(p).then((r) => r || { data: null }, () => ({ data: null }));
   const staffP = safe(db.from('staff_users').select('name, phone').eq('active', true));
   const linesP = safe(db.from('tracking_numbers').select('phone, display_name, label'));
@@ -10601,20 +7949,12 @@ async function calls(req, res, db, auth) {
   if (viewerSlugs) {
     const { data: viewerBiz } = await db.from('businesses').select('id').in('slug', viewerSlugs);
     vids = (viewerBiz || []).map(b => b.id);
-    // No matching business rows would mean an unfiltered query (Supabase
-    // treats an empty .in() array as "no restriction"), which is exactly
-    // backwards for an access boundary — an empty allow-list must return
-    // nothing, never everything.
     q = q.in('business_id', vids.length ? vids : [NONE]);
   }
   const inVids = (qq) => (vids ? qq.in('business_id', vids.length ? vids : [NONE]) : qq);
   const { data: rows, error } = await q;
   if (error) throw error;
 
-  // Self-healing "did this call become a job?": a booking made AFTER ingest
-  // cannot have been linked at ingest time. Rather than coupling booking
-  // creation to the call log, unlinked calls are re-checked on read, in ONE
-  // batched query for the whole page. Runs alongside the lookups below.
   const relinkP = (async () => {
     const needLink = (rows || []).filter(r => r.customer_id && !r.booking_id);
     if (!needLink.length) return;
@@ -10632,9 +7972,6 @@ async function calls(req, res, db, auth) {
         r.booking_id = hit.id;
         r.booking = { id: hit.id, scheduled_at: hit.scheduled_at, status: hit.status, price: hit.price, technician: hit.technician };
         patch.push({ id: r.id, booking_id: hit.id, wasOpen: CALL_OPEN_STATUSES.includes(r.status) });
-        // Booking the customer IS the follow-up. Once a job exists there is
-        // nothing left to return, and leaving it in the queue is exactly how a
-        // second person ends up ringing someone who already booked. Clear it.
         if (CALL_OPEN_STATUSES.includes(r.status)) {
           r.status = 'resolved';
           r.handled_by = 'Booked';
@@ -10643,8 +7980,6 @@ async function calls(req, res, db, auth) {
         }
       }
     }
-    // Persist so the next read does not repeat the work (all at once, not one
-    // by one). Best-effort: the list is already correct in memory either way.
     const nowIso = new Date().toISOString();
     await Promise.all(patch.map((p) => {
       const upd = { booking_id: p.booking_id };
@@ -10655,21 +7990,13 @@ async function calls(req, res, db, auth) {
 
   const me = auth.name || auth.role || 'office';
 
-  // Per caller number: is it blocked (sitewide, one shared list), and how many
-  // texts have passed between us in the last 60 days. The Calls screen folds
-  // every call from one number into ONE card and shows what we hold from that
-  // person: a recording, a voicemail, a text. Counts only, no message bodies.
-  // Plus the customer history per caller number (owner rule 2026-09-24): jobs,
-  // estimates, script quotes, the owner's review and texts, matched on the
-  // caller's phone and limited to the businesses this viewer can see.
   const callerDigits = (p) => String(p || '').replace(/\D/g, '').slice(-10);
   const callerPhones = [...new Set((rows || []).map(r => callerDigits(r.caller_phone)).filter(p => p.length === 10))];
   const blockedSet = new Set();
-  const textInfo = new Map();          // digits -> { total, inbound, last }
-  const historyBy = new Map();         // digits -> { jobs, completed, spent, last_job, upcoming, estimates, last_estimate }
+  const textInfo = new Map();
+  const historyBy = new Map();
   const EMPTY = Promise.resolve({ data: null });
   const has = callerPhones.length > 0;
-  // lite=1 (the nav badge poll): counts and banner only, no customer history.
   const hist = has && req.query.lite !== '1';
   const pretty = p => `(${p.slice(0, 3)}) ${p.slice(3, 6)}-${p.slice(6)}`;
   const forms2 = callerPhones.flatMap(p => [p, '+1' + p]);
@@ -10678,7 +8005,6 @@ async function calls(req, res, db, auth) {
     .in('customer_phone', forms2).gte('created_at', new Date(Date.now() - 60 * 86400000).toISOString()).limit(3000);
   if (vids) mq60 = mq60.or(vids.length ? `business_id.in.(${vids.join(',')}),business_id.is.null` : 'business_id.is.null');
   const custP = hist ? safe(inVids(db.from('customers').select('id, phone').in('phone', forms))) : EMPTY;
-  // Bookings wait only on the customers lookup.
   const bksP = custP.then(({ data: custs }) => {
     const ids = (custs || []).map(c => c.id);
     return ids.length ? safe(db.from('bookings').select('id, customer_id, scheduled_at, created_at, status, price, metadata, services(name), business:businesses(name, slug), customer:customers(name)')
@@ -10692,12 +8018,9 @@ async function calls(req, res, db, auth) {
     hist ? bksP : EMPTY,
     hist ? safe(inVids(db.from('estimates').select('id, customer_phone, customer_name, created_at, status, approved_at, service_label, texted_at, emailed_at, text_opened_at, email_opened_at, line_items, tax_rate, business:businesses(name)').in('customer_phone', forms)
       .order('created_at', { ascending: false }).limit(2000))) : EMPTY,
-    // What each secretary priced in the call script (the live row's notes)
-    // and the owner's review of this caller, for the side-by-side card.
     hist ? safe(inVids(db.from('calls').select('caller_phone, occurred_at, handled_by, notes, quoted_total, resolution, business:businesses(name)')
-      .eq('kind', 'live').in('caller_phone', forms).not('notes', 'is', null).order('occurred_at', { ascending: false }).limit(500))) : EMPTY,   // scoped to the viewer's businesses
+      .eq('kind', 'live').in('caller_phone', forms).not('notes', 'is', null).order('occurred_at', { ascending: false }).limit(500))) : EMPTY,
     hist ? safe(db.from('caller_reviews').select('phone, data').in('phone', callerPhones)) : EMPTY,
-    // Texts per caller, with the company each one belongs to (owner 2026-09-28).
     hist ? safe(inVids(db.from('messages').select('customer_phone, created_at, direction, body, sent_by, business:businesses(name)')
       .in('customer_phone', forms).order('created_at', { ascending: false }).limit(1500))) : EMPTY,
     staffP,
@@ -10709,7 +8032,6 @@ async function calls(req, res, db, auth) {
     const d = callerDigits(m.customer_phone);
     const t = textInfo.get(d) || { total: 0, inbound: 0, last: null };
     t.total++; if (m.direction === 'in' || m.direction === 'inbound') t.inbound++;
-    // our_phone of the newest message = the thread the Calls card's Text box opens.
     if (!t.last || m.created_at > t.last) { t.last = m.created_at; t.our = m.our_phone; }
     textInfo.set(d, t);
   }
@@ -10726,16 +8048,13 @@ async function calls(req, res, db, auth) {
         id: b.id, customer_name: b.customer?.name || null };
       (x.booking_list || (x.booking_list = [])).length < 15 && x.booking_list.push(j);
       if (b.customer?.name && !x.name) x.name = b.customer.name;
-      // Which brand they most recently booked with (owner 2026-09-28: a
-      // caller who rang Dom's and TidyHaus must show where they booked).
       if (!x.latest_booking || (b.created_at || '') > (x.latest_booking.created_at || '')) x.latest_booking = j;
       if (b.scheduled_at > nowIso && b.status !== 'completed') { if (!x.upcoming || b.scheduled_at < x.upcoming.at) x.upcoming = j; }
-      else if (!x.last_job) x.last_job = j;   // rows arrive newest first
+      else if (!x.last_job) x.last_job = j;
     }
     for (const e of (estR.data || [])) {
       const x = h(callerDigits(e.customer_phone));
       x.estimates++;
-      // Every quote per company, openable on the call card (owner 2026-09-28).
       if (!x.estimate_list) x.estimate_list = [];
       if (x.estimate_list.length < 15) {
         const items = (Array.isArray(e.line_items) ? e.line_items : []).map((li) => ({ name: String((li && (li.description || li.name)) || 'Item'), qty: Number(li && (li.qty ?? li.quantity)) || 1, price: Number(li && li.unit_price) || 0 }));
@@ -10746,7 +8065,6 @@ async function calls(req, res, db, auth) {
       }
       if (e.customer_name && !/^\+?\d[\d\s().-]+$/.test(e.customer_name) && !/@/.test(e.customer_name) && !x.name) x.name = e.customer_name;
       if (!x.last_estimate) {
-        // Quote sent / opened / approved for the call card (owner, 2026-09-26).
         const total = (Array.isArray(e.line_items) ? e.line_items : []).reduce((t, li) => t + (Number(li && li.unit_price) || 0) * (Number(li && li.qty) || 1), 0);
         x.last_estimate = { at: e.created_at, status: e.approved_at ? 'approved' : e.status, service: e.service_label || null,
           sent_at: e.texted_at || e.emailed_at || null, total: Math.round(total * 100) / 100,
@@ -10767,36 +8085,21 @@ async function calls(req, res, db, auth) {
     for (const x of historyBy.values()) x.spent = Math.round(x.spent * 100) / 100;
   } catch (e) { /* history is a nicety; never fail the call list over it */ }
 
-  // Who answers each forwarding number, so a card can say "routed to Joey"
-  // instead of ten digits nobody memorises. Matched on digits alone: the
-  // tracking rows store E.164 (+1XXXXXXXXXX) while staff_users stores bare
-  // 10-digit numbers. An unknown number keeps showing as a number.
   const staffByPhone = new Map();
   for (const s of staffR.data || []) {
     const d = String(s.phone || '').replace(/\D/g, '').slice(-10);
     if (d.length === 10 && s.name) staffByPhone.set(d, s.name);
   }
 
-  // What LINE this call actually came in on (migration 0132's display_name),
-  // e.g. "HA Golden" or "HA Greenway" — not the business name, which several
-  // of TidyHaus's lead-gen city lines share, and not tracking_label, which
-  // is the recording-consent sentence, not a name. Matched by the dialed
-  // number's last 10 digits.
   const lineNameByPhone = new Map();
   for (const l of lineR.data || []) {
     const d = String(l.phone || '').replace(/\D/g, '').slice(-10);
     if (d.length === 10) lineNameByPhone.set(d, l.display_name || null);
   }
 
-  // Owner 2026-09-29: a forward that the handset's OWN voicemail picked up
-  // reaches Twilio as "answered" (the carrier answered it). The transcript
-  // opens with the voicemail greeting, so that is what gives it away. Those
-  // calls are missed calls with a voicemail, not conversations.
   const VM_GREETING = /(leave (me )?(a |your )?(brief |short )?(voice ?)?message|not available|unavailable|at the tone|after the (tone|beep)|record your message|voice ?mail|mailbox|sorry (I|we) missed your call|can't (come to|take) (the|your) (phone|call))/i;
   const phoneVoicemail = (r) => {
     if (r.answered !== true || r.kind === 'live' || !r.transcript) return false;
-    // The first two things "Staff" said (a greeting can be split by a
-    // caller's "hello?", and can start 30+ seconds in after a long ring).
     const staff = String(r.transcript).split(/\r?\n/).filter(l => /^Staff:/.test(l));
     return VM_GREETING.test(staff.slice(0, 2).join(' '));
   };
@@ -10805,31 +8108,10 @@ async function calls(req, res, db, auth) {
     caller_display: r.customer?.name || prettyPhone(r.caller_phone),
     caller_pretty: prettyPhone(r.caller_phone),
     is_new_caller: !r.customer_id,
-    // The person behind forwarded_to, when we know them. null keeps the client
-    // on the formatted number.
     routed_to_name: staffByPhone.get(String(r.forwarded_to || '').replace(/\D/g, '').slice(-10)) || null,
     line_name: lineNameByPhone.get(String(r.grasshopper_number || '').replace(/\D/g, '').slice(-10)) || r.business?.name || null,
-    // Someone is on this call right now. `claimed_by_me` lets the UI show "you
-    // are on this" rather than warning a person about their own claim.
     claim_active: claimIsHot(r),
     claimed_by_me: claimIsHot(r) && r.claimed_by === me,
-    // The four streamlined-card indicators (owner spec, 2026-08-26). Computed
-    // once here so the client stays dumb and every reader (card, Missed tab,
-    // any future report) agrees on the same definition.
-    //   contacted: we answered the call live, or we called back (durable —
-    //     see called_back_at / migration 0100, NOT the live `status` field,
-    //     which gets overwritten the moment the row is later marked Done).
-    //     A Take a Call wizard row (kind 'live') is always contacted by
-    //     definition — it exists because a secretary is on the phone with the
-    //     customer right now, or was.
-    //   left_voicemail: the caller reached voicemail AND actually said
-    //     something — an unanswered call where they hung up with no message
-    //     did not "leave a voicemail" in any useful sense.
-    //   recorded_message: there is audio to play, full stop — this is
-    //     broader than left_voicemail on purpose: with record_calls on, an
-    //     ANSWERED conversation is recorded too (record-from-answer-dual in
-    //     api/analytics.js handleVoiceInbound), and that recording is exactly
-    //     as real as a voicemail's.
     contacted: r.kind === 'live' || r.answered === true || r.called_back_at != null,
     left_voicemail: r.answered === false && !!(r.recording_url || r.transcript),
     recorded_message: !!r.recording_url,
@@ -10840,16 +8122,10 @@ async function calls(req, res, db, auth) {
     text_in: (textInfo.get(callerDigits(r.caller_phone)) || {}).inbound || 0,
     text_last_at: (textInfo.get(callerDigits(r.caller_phone)) || {}).last || null,
   }));
-  // Owner, 2026-09-25: TidyHaus's Los Angeles lines stay out of Heather's
-  // and Joey's Calls until he says otherwise. Owner still sees them.
-  // Owner 2026-10-02: LA lines are off the Calls tab for everyone; the owner
-  // sees them only in Analytics -> LA (this same action with la=1).
   const LA_LINES = ['0000000000', '0000000000', '0000000000'];
   const isLA = (r) => LA_LINES.includes(String(r.grasshopper_number || '').replace(/\D/g, '').slice(-10));
   const laOnly = req.query.la === '1' && auth.role === 'owner';
   const shown = laOnly ? mapped.filter(isLA) : mapped.filter(r => !isLA(r));
-  // A call-back from the portal (call_attempts) returns a missed call, even
-  // if the customer didn't pick up (owner 2026-10-02).
   try {
     const missedRows = shown.filter(r => r.answered === false && r.kind !== 'live' && !r.called_back_at);
     const nums = [...new Set(missedRows.map(r => callerDigits(r.caller_phone)).filter(d => d.length === 10))];
@@ -10858,9 +8134,6 @@ async function calls(req, res, db, auth) {
       const { data: atts, error: attErr } = await db.from('call_attempts').select('phone, started_at, staff_name, staff_status, talked')
         .in('phone', nums).gte('started_at', oldest).order('started_at');
       if (attErr) throw attErr;
-      // Same rule as the Pipeline's noRing (pipeline.js): her own phone never
-      // connected, so the customer was never dialed -- not a call-back. Manual
-      // log_attempt rows (no staff_status) and her "Yes" tap always count.
       const rang = (atts || []).filter(x => !x.staff_status || x.staff_status === 'completed' || x.talked === true);
       for (const r of missedRows) {
         const a = rang.find(x => callerDigits(x.phone) === callerDigits(r.caller_phone) && x.started_at > r.occurred_at);
@@ -10869,33 +8142,7 @@ async function calls(req, res, db, auth) {
     }
   } catch (e) { console.warn('[calls] call-back lookup failed:', e.message); }
   const open = shown.filter(r => CALL_OPEN_STATUSES.includes(r.status));
-  // A live-call row is created the INSTANT "Take a Call" opens (callLiveStart),
-  // before anything about the customer is known, on purpose, so an abandoned
-  // call still shows up here instead of vanishing. But if the secretary never
-  // reaches the resolution step, it sits at status:'new' forever with no
-  // caller_phone and no transcript — nothing was ever left, and there is no
-  // number to return. The banner/badge previously could not tell that apart
-  // from a real customer voicemail, so an abandoned intake screen could
-  // permanently occupy the interruptive banner announcing "X left a voicemail,
-  // return their call" with no X and no number to call. It still appears in
-  // the Calls tab's own open list (with Booked/Estimate/Declined to close it
-  // out) — only the banner and badge, which exist to interrupt someone about a
-  // WAITING CUSTOMER, exclude it.
   const openVoicemails = open.filter(r => r.kind === 'inbound' && r.answered === false && !r.called_back_at);
-  // Whether THIS viewer should be interrupted (banner/red badge) about a call,
-  // layered on top of the business scoping above. Every row already belongs to
-  // a business this person is allowed to see, but for a TRACKING-NUMBER call
-  // that isn't enough: several people can share access to the same lead-gen
-  // brand's calls while only one of them holds the ringing phone, and only
-  // that person should be interrupted about it. Heather started getting "you
-  // missed a call" nags for tracking lines that ring Joey's phone before this.
-  //   - Tracking-number calls interrupt only whoever's handset the call was
-  //     actually routed to (forwarded_to matched to staff_users.phone). A line
-  //     pointing at a phone no staff row owns interrupts nobody — nobody was
-  //     supposed to answer it, so nobody should be yanked to it.
-  //   - Grasshopper voicemails interrupt anyone who can see them — the query
-  //     above already means that's only people covering that business.
-  //   - The owner is never filtered: 'all' scope sees every interruption.
   const interruptsMe = (r) => {
     if (viewerSlugs === null) return true;
     if (r.source === 'twilio') {
@@ -10904,15 +8151,11 @@ async function calls(req, res, db, auth) {
     }
     return true;
   };
-  // Returned = a later call with the same number was answered (either way) or
-  // logged as called back (owner 2026-10-02: the badge counts only missed
-  // calls nobody returned).
   const returnedLater = (r) => {
     const d = callerDigits(r.caller_phone);
     if (r.called_back_at) return true;
     return shown.some(x => x !== r && callerDigits(x.caller_phone) === d && x.occurred_at > r.occurred_at && (x.kind === 'live' || x.answered === true || x.called_back_at));
   };
-  // Today only, Denver work day (owner 2026-10-02).
   const denverDayStartIso = (() => {
     const now = new Date();
     const ymd = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -10921,8 +8164,6 @@ async function calls(req, res, db, auth) {
     const hh = m ? `${m[1]}${m[2].padStart(2, '0')}:${m[3] || '00'}` : '-07:00';
     return new Date(`${ymd}T00:00:00${hh}`).toISOString();
   })();
-  // Caller booked after the call = handled (2026-10-22). The badge poll runs
-  // lite (no history), so look it up here for today's candidates only.
   const bookedAfter = new Map();
   try {
     const cand = openVoicemails.filter(r => r.occurred_at >= denverDayStartIso);
@@ -10942,22 +8183,12 @@ async function calls(req, res, db, auth) {
   return res.status(200).json({
     open,
     handled: shown.filter(r => !CALL_OPEN_STATUSES.includes(r.status)),
-    // The sidebar badge and the banner both count only what is genuinely
-    // waiting on THIS person: not the ones someone is already ringing, not the
-    // ones that already turned into a booking, not an abandoned live-call
-    // session with no customer to call back, and not another secretary's lines.
     open_count: interrupting.length,
-    // The newest thing worth interrupting someone about, for the banner.
     banner: interrupting.sort((a, b) => (a.occurred_at < b.occurred_at ? 1 : -1))[0] || null,
     me,
   });
 }
 
-// Proxies one Twilio call recording so it can be played from the browser.
-// Twilio's Recording media URLs require HTTP Basic Auth (Account SID +
-// Auth Token) — dropping recording_url straight into <audio src> 401s, so
-// this fetches server-side with the same credentials analytics.js already
-// uses for signature verification and streams the bytes back.
 async function callRecording(req, res, db, auth) {
   const id = (req.query.id || '').toString();
   if (!id) return res.status(400).json({ error: 'Missing id' });
@@ -10975,7 +8206,6 @@ async function callRecording(req, res, db, auth) {
   const buf = Buffer.from(await upstream.arrayBuffer());
   res.setHeader('Content-Type', 'audio/mpeg');
   res.setHeader('Cache-Control', 'private, max-age=3600');
-  // Range support so the player can seek/drag (owner, 2026-09-27).
   res.setHeader('Accept-Ranges', 'bytes');
   const m = /^bytes=([0-9]*)-([0-9]*)$/.exec((req.headers.range || '').toString());
   if (m && buf.length) {
@@ -10990,10 +8220,6 @@ async function callRecording(req, res, db, auth) {
   return res.status(200).send(buf);
 }
 
-// Claim a voicemail ("I am ringing this person now") so nobody else rings them
-// too. Returns 409 with who holds it when someone else got there first — the UI
-// turns that into a "call anyway?" confirmation rather than a hard block, since
-// there are legitimate reasons to double up and the office should decide.
 async function callClaim(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = body.id;
@@ -11004,8 +8230,6 @@ async function callClaim(req, res, db, auth, body) {
     .select('id, status, claimed_by, claimed_at, booking_id').eq('id', id).single();
   if (e0 || !cur) return res.status(404).json({ error: 'Call not found' });
 
-  // Someone else already claimed this callback. Report it instead of silently
-  // stealing the claim.
   if (!body.force && claimIsHot(cur) && cur.claimed_by !== me) {
     const mins = Math.max(1, Math.round((Date.now() - new Date(cur.claimed_at).getTime()) / 60000));
     return res.status(409).json({
@@ -11015,8 +8239,6 @@ async function callClaim(req, res, db, auth, body) {
   }
 
   const now = new Date().toISOString();
-  // Compare the snapshot as part of the write: two simultaneous readers must
-  // not both claim successfully and then each dial the same customer.
   let claim = db.from('calls')
     .update({ claimed_by: me, claimed_at: now, status: 'calling', updated_at: now })
     .eq('id', id).eq('status', cur.status);
@@ -11028,13 +8250,7 @@ async function callClaim(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, claimed_by: me });
 }
 
-// Mark a call called-back / resolved / ignored, or attach a note. Also used by
-// the "Take a Call" wizard (kind='live') to fill in what a voicemail row gets
-// for free at ingest — service/market/caller_phone as the secretary learns
-// them, then a resolution once the call is over.
 const CALL_RESOLUTIONS = ['booked', 'estimate_sent', 'refused', 'other'];
-// True when an estimate tied to this call (or its caller, within 6h after the
-// call) was texted or emailed.
 async function callHasSentEstimate(db, callId) {
   const { data: call } = await db.from('calls').select('id, caller_phone, occurred_at, inbound_call_id').eq('id', callId).maybeSingle();
   if (!call) return false;
@@ -11061,24 +8277,13 @@ async function callUpdate(req, res, db, auth, body) {
       return res.status(400).json({ error: 'Unknown status' });
     }
     patch.status = body.status;
-    // Closing or reopening a call releases the claim, so a card never sits
-    // showing "Heather is calling" after Heather already finished with it.
     if (body.status !== 'calling') { patch.claimed_by = null; patch.claimed_at = null; }
-    // Stamp WHO handled it and when, so the follow-up list is auditable the
-    // same way the review-call queue is.
     if (body.status !== 'new') {
       patch.handled_by = auth.name || auth.role || 'office';
       patch.handled_at = new Date().toISOString();
     } else {
       patch.handled_by = null; patch.handled_at = null;
     }
-    // Durable "we called back" marker (migration 0100) — stamped once and
-    // never overwritten by a LATER status change. `status` itself gets
-    // overwritten the moment this row is next marked "Done" (-> 'resolved'),
-    // so deriving Contacted from "status is currently 'called_back'" would
-    // flip the badge back off the instant the call is closed out. Reopening
-    // (status -> 'new') clears it, matching handled_at's own reset — a
-    // reopened call is meant to be dealt with fresh.
     if (body.status === 'called_back') patch.called_back_at = new Date().toISOString();
     else if (body.status === 'new') patch.called_back_at = null;
   }
@@ -11088,13 +8293,9 @@ async function callUpdate(req, res, db, auth, body) {
   if (body.caller_phone !== undefined) patch.caller_phone = String(body.caller_phone || '').replace(/\D/g, '').slice(-10) || null;
   if (body.customer_id !== undefined) patch.customer_id = body.customer_id || null;
   if (body.booking_id !== undefined) patch.booking_id = body.booking_id || null;
-  // Resolution ends the call: "how did it end" IS the terminal status, so
-  // resolving always also closes it out, same stamping as any other close.
   if (body.resolution !== undefined) {
     const r = String(body.resolution || '').trim();
     if (r && !CALL_RESOLUTIONS.includes(r)) return res.status(400).json({ error: 'Unknown resolution' });
-    // Owner rule 2026-09-27: "Estimate sent" only when a real estimate was
-    // actually sent for this call -- never on the secretary's word alone.
     if (r === 'estimate_sent' && !(await callHasSentEstimate(db, id))) {
       return res.status(400).json({ error: 'No estimate was sent for this call. Send the estimate first (Send estimate button), then mark it.' });
     }
@@ -11112,13 +8313,6 @@ async function callUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Block a caller number business-wide (owner call, 2026-08-29 — scammer/
-// robocall volume on the tracking lines). Blocks by NUMBER, not by call row,
-// so it also covers every other tracking line the same scammer tries next —
-// see handleVoiceInbound in api/analytics.js, which rejects a blocked number
-// before it ever rings anyone. Same auth model as callUpdate/callClaim above
-// (any signed-in office login, no extra business gate) since every call this
-// screen shows is already scoped to businesses that login can see.
 async function callBlock(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = body.id;
@@ -11131,8 +8325,6 @@ async function callBlock(req, res, db, auth, body) {
     phone, call_id: id, blocked_by: auth.name || auth.role || 'office', reason: (body.reason || '').toString().slice(0, 200) || null,
   }, { onConflict: 'phone', ignoreDuplicates: false });
   if (error) throw error;
-  // A blocked number is a scammer: any callback still waiting on it, in ANY
-  // business, is closed out so nobody rings them back.
   try {
     await db.from('calls')
       .update({ status: 'ignored', handled_by: 'Blocked number', handled_at: new Date().toISOString() })
@@ -11141,8 +8333,6 @@ async function callBlock(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, phone });
 }
 
-// Lift a block (owner only: a block is a scammer verdict, so undoing one is the
-// owner's call, not something every login can do).
 async function callUnblock(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -11153,14 +8343,6 @@ async function callUnblock(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, phone });
 }
 
-// A minimal, read-only "ticket" view of a call's linked booking -- for Jiyah's
-// Calls page (owner rule 2026-09-23: "if she wants she can see the ticket
-// too... but only if she wants. she will rarely use that"). Deliberately NOT
-// the full `bookings` action/shapeBooking(): this is scoped down to what a
-// call audit actually needs to see -- what was booked, where, when, for how
-// much, with whom -- not payment method, tech pay, or internal notes. GET
-// only, on AUDITOR_ADMIN_ACTIONS (not the write list), so any admin login can
-// read it but the auditor token can never write through it.
 async function callTicket(req, res, db, auth) {
   const id = (req.query.id || '').toString();
   if (!id) return res.status(400).json({ error: 'id required' });
@@ -11179,10 +8361,6 @@ async function callTicket(req, res, db, auth) {
   return res.status(200).json({ ticket: { ...b, line_items: lineItems || [] } });
 }
 
-// Permanently remove a call row from the log (owner call, 2026-08-29 — cleaning
-// up spam/scam entries, not something a normal missed-call resolution covers).
-// Owner-only: unlike blocking (reversible, additive) this is destructive and
-// every secretary shares the same Calls tab, so a wider gate here matters.
 async function callDelete(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -11193,32 +8371,14 @@ async function callDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Start a "Take a Call" live intake: logs the call the moment the secretary
-// picks up, before anything about the customer is known, so an abandoned or
-// interrupted call still shows up in the Calls tab instead of vanishing.
 async function callLiveStart(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
-  // The owner is not on the phones -- when he opens the script it is to check
-  // that it still works, and those runs were landing in Call Performance as a
-  // person with a 0% booking rate, dragging the real conversion number down
-  // (21 of 43 calls in one week were his). Logging nothing at all, rather than
-  // logging-then-filtering, means there is no test data to keep excluding
-  // later. The wizard itself is unaffected: every call-logging path on the
-  // client already no-ops when there is no id (cwTrack returns early, the
-  // call_update calls are .catch()'d), so the script runs start to finish and
-  // can still open a real booking -- it just leaves no call record behind.
   if (auth.role === 'owner') {
     return res.status(200).json({ ok: true, id: null, untracked: true });
   }
   const callId = body.call_id == null ? null : String(body.call_id);
   if (callId && !PHONE_REQUEST_UUID.test(callId)) return res.status(400).json({ error: 'call_id must be a UUID' });
-  // Pipeline link (owner rule 2026-09-24): which inbound Twilio call this
-  // script is for, and the caller's number, so the conversation lands on the
-  // right card instead of being guessed from timing later. Sent by the
-  // script when it was opened from a card (inbound_call_id / caller_phone);
-  // otherwise the call that just rang this person's own handset. Best-effort:
-  // it never blocks the script from starting.
   const link = await inboundForLiveStart(db, auth, body);
   const now = new Date().toISOString();
   const { data, error } = await db.from('calls').insert({
@@ -11231,8 +8391,6 @@ async function callLiveStart(req, res, db, auth, body) {
     ...(link.inbound_call_id ? { inbound_call_id: link.inbound_call_id } : {}),
     ...(link.caller_phone ? { caller_phone: link.caller_phone } : {}),
   }).select('id').single();
-  // The client keeps this UUID for the entire call. A retry after a lost
-  // response must recover the original row without resetting its outcome.
   if (error?.code === '23505' && callId) {
     const { data: existing, error: readError } = await db.from('calls')
       .select('id').eq('id', callId).eq('business_id', biz.id).eq('kind', 'live').maybeSingle();
@@ -11245,33 +8403,10 @@ async function callLiveStart(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data.id });
 }
 
-// ── Click-to-call bridge (owner-approved, 2026-09-15) ────────────────────────────
-// Real click-to-call for the two "Call" surfaces that used to be either a
-// plain tel: link (dials from whoever CLICKED it, on their own phone/line —
-// the customer saw the clicking staff member's own number) or, on the Needs
-// callback queue, a claim that never actually dialed. Two-leg bridge via
-// Twilio's REST Calls API, the standard small-business click-to-call pattern:
-//   1. callStart (below) creates a Twilio Call: To the LOGGED-IN staff
-//      member's own phone, From the tracking number for this conversation.
-//   2. Once she answers, Twilio fetches callConnect (below) for TwiML that
-//      Dials the customer with that SAME tracking number as callerId — the
-//      part the customer's phone actually shows.
-// No voicemail/retry for v1 — if she never picks up her own phone, the call
-// just ends. Confirmed acceptable to the owner: two real billed PSTN legs
-// instead of free tel: dialing, and a brief "her phone rings, then it dials
-// out" delay before the customer's phone starts ringing.
-const CALL_START_TTL_S = 120;        // the connect token is consumed within seconds of her picking up
-const CALL_START_TIMEOUT_MS = 15000; // just OUR request to Twilio's REST API, not the ring itself
-// Every bridge call is logged as an app.call_attempts row (Pipeline, owner
-// rule 2026-09-24: "2 failed callback tries" needs the tries on record).
-// Twilio reports back on two signed links: the staff leg's StatusCallback
-// fires when the whole call ends (ring + conversation), the customer leg's
-// <Dial action> when that leg ends.
+const CALL_START_TTL_S = 120;
+const CALL_START_TIMEOUT_MS = 15000;
 const CALL_ATTEMPT_STATUS_TTL_S = 6 * 3600;
 const CALL_ATTEMPT_DONE_TTL_S = 3 * 3600;
-// The customer leg counts as a conversation automatically only at 30 s or
-// more (a voicemail greeting runs about that long); the card still asks
-// "Did you talk to them?" to confirm.
 const CALL_ATTEMPT_TALK_SEC = 30;
 function callStartTimeoutSignal() {
   const c = new AbortController();
@@ -11280,25 +8415,10 @@ function callStartTimeoutSignal() {
   return c.signal;
 }
 
-// A plausible US number, E.164-shaped. This is THE security boundary for
-// callConnect: everything else about that request (who signed the token,
-// whether it has expired) is already checked by the time this runs, but a
-// value riding inside a token is still just a string until it is shape-
-// checked before it touches TwiML or a Twilio API call.
 function isPlausibleUsE164(s) {
   return typeof s === 'string' && /^\+1\d{10}$/.test(s);
 }
 
-// Which phone rings for whoever is actually logged in and clicking the
-// button right now — Heather, Joey, or the owner, whichever session this is
-// — NOT a fixed per-business number (that's the different lookup
-// api/_lib/tech-late.js already keeps, keyed by business slug rather than by
-// person: it rings whoever owns a brand's escalations, not whoever happens
-// to be signed in). Looked up by display name on staff_users, the same table
-// calls() already reads to put a name on forwarded_to (matched the same way:
-// exact name, active only). Falls back to the existing secretary/owner phone
-// constants — never a new fallback convention — when that row is missing,
-// inactive, or has no phone on file.
 async function staffOwnPhoneFor(db, auth) {
   const me = (auth.name || '').trim();
   if (me) {
@@ -11310,35 +8430,16 @@ async function staffOwnPhoneFor(db, auth) {
   return toE164(secretaryPhoneFor(auth.scope) || process.env.OWNER_PHONE_NUMBER || '');
 }
 
-// Cheap loop guards. Nothing else in this codebase rate-limits (confirmed by
-// reading through it), and these deliberately stay that simple: plain
-// in-memory maps are enough to stop a broken/looping client — or a leaked
-// staff bearer token — from spamming real, billed Twilio calls, without
-// building a whole new rate-limiting system for one new action. Not exact
-// across cold starts or multiple server instances — they don't need to be;
-// they only need to catch a double-click, a stuck retry loop, or a script
-// that varies the destination number to dodge a same-number check.
-//
-// Two separate guards, because they catch two different failure shapes:
-//   - _recentCallStarts: refuses a second call to the SAME customer number
-//     within CALL_START_DEDUPE_MS (a double-click, a stuck retry).
-//   - _staffCallStarts: caps how many calls ANY ONE staff identity can start
-//     per rolling window, regardless of which customer number each one
-//     targets — the same secretary calling many DIFFERENT numbers in a tight
-//     loop costs exactly as much as looping the same number, and the
-//     per-number map alone never sees it.
-const _recentCallStarts = new Map(); // customerPhone (E.164) -> ms timestamp
+const _recentCallStarts = new Map();
 const CALL_START_DEDUPE_MS = 15000;
-const _staffCallStarts = new Map(); // staff key -> array of ms timestamps within the window
+const _staffCallStarts = new Map();
 const STAFF_CALL_WINDOW_MS = 60000;
-const STAFF_CALL_MAX_PER_WINDOW = 6; // generous for a real run of callbacks; tight enough to stop a loop
+const STAFF_CALL_MAX_PER_WINDOW = 6;
 
 function staffCallBudgetKey(auth) {
   return (auth && (auth.name || auth.role)) || 'unknown';
 }
 
-// True (and records this attempt) if this staff identity still has budget
-// left in the current rolling window; false if she's already used it up.
 function checkStaffCallBudget(auth) {
   const key = staffCallBudgetKey(auth);
   const now = Date.now();
@@ -11352,18 +8453,7 @@ function checkStaffCallBudget(auth) {
   return true;
 }
 
-// POST ?action=call_start — places the bridge call described above.
-// `source` names which screen this came from and IS the access-control
-// boundary: the caller never gets to hand this action an arbitrary phone
-// number and tracking number of her choosing (that would place a free, to
-// her, call to anywhere, cloaked in a business's caller ID) — every number
-// that ends up on the call is re-derived here from a database row she is
-// already allowed to see, the same way every other business-scoped action in
-// this file (messagesSend, callClaim) scopes itself.
 
-// POST ?action=transcribe_recent (owner): start Twilio transcripts for recent
-// recorded calls that have none, and pull in any that finished but whose
-// webhook was missed. Safe to run again; each call is started once.
 async function transcribeRecent(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const days = Math.min(30, Math.max(1, parseInt(req.query.days, 10) || 7));
@@ -11382,10 +8472,6 @@ async function transcribeRecent(req, res, db, auth) {
   return res.status(200).json(out);
 }
 
-// Booking card Text / Email buttons (owner, 2026-09-26: "all without leaving
-// the screen"). op 'line': which of our numbers to text this customer from
-// (their latest thread, else the toll-free every automated text uses).
-// op 'email': send a plain message from the booking's own brand address.
 async function bookingContact(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = String(body.booking_id || '');
@@ -11420,14 +8506,9 @@ async function bookingContact(req, res, db, auth, body) {
   return res.status(400).json({ error: 'Unknown op' });
 }
 
-// Owner "call this customer back" banners (2026-10-08, migration 0188).
-// GET: open requests for this login (owner sees all; staff only when named in
-// targets). A request closes itself once any staff bridge call (call_attempts)
-// to that phone starts after it was made. POST op create / dismiss: owner only.
 async function callbackRequests(req, res, db, auth, body) {
   const isOwner = auth.role === 'owner';
   if (req.method === 'POST') {
-    // Staff may dismiss the auto "Call promise" ones (owner 2026-10-22: sales calls stuck on screen).
     if (body.op === 'dismiss') {
       let q = db.from('callback_requests').update({ done_at: new Date().toISOString(), done_by: auth.name || 'Owner', done_how: 'dismissed' })
         .eq('id', String(body.id || '')).is('done_at', null);
@@ -11476,22 +8557,11 @@ async function callStart(req, res, db, auth, body) {
   const source = (body.source || '').toString();
   if (auth.offToday && source !== 'pipeline') return res.status(403).json({ error: 'Off today', off_today: true });
 
-  // attemptBizId: the brand the call_attempts row is filed under.
   let customerPhone, trackingNumber, attemptBizId = null, attemptProspectId = null;
   if (source === 'message_thread') {
-    // The Messages thread's Call pill: dial the customer this open thread is
-    // with, From the tracking number this conversation is actually on.
     const customer = digitsOf(body.customer);
     if (!customer) return res.status(400).json({ error: 'customer is required' });
-    // Same gate messagesSend already goes through for this exact thread — a
-    // secretary can dial only a conversation she's allowed to open.
     let ctx; try { ctx = await businessForOurPhone(db, auth, body.our, customer); } catch (e) { return bail(res, e); }
-    // Must be a conversation that actually exists — otherwise a secretary
-    // with access to a real tracking number could hand this action any
-    // made-up "customer" number and place a free call anywhere, cloaked in
-    // that business's caller ID. Any row (in or out) counts: a customer who
-    // has only ever received an automated confirmation text is still a real
-    // customer worth calling back.
     const { data: existing, error: existErr } = await db.from('messages').select('id')
       .eq('our_phone', ctx.ourPhone).eq('customer_phone', customer).limit(1);
     if (existErr) return res.status(503).json({ error: "Couldn't verify this conversation. Try again in a moment." });
@@ -11500,9 +8570,6 @@ async function callStart(req, res, db, auth, body) {
     trackingNumber = toE164(ctx.ourPhone);
     attemptBizId = (ctx.biz && ctx.biz.id) || null;
   } else if (source === 'call_claim') {
-    // The Needs callback queue's big green button — dials only AFTER the
-    // claim itself already succeeded (the client sequences this; see
-    // claimCallback() in admin.html), so this never re-litigates the claim.
     const id = (body.call_id || '').toString();
     if (!id) return res.status(400).json({ error: 'call_id is required' });
     const { data: call, error } = await db.from('calls')
@@ -11517,24 +8584,12 @@ async function callStart(req, res, db, auth, body) {
     trackingNumber = toE164(call.grasshopper_number);
     attemptBizId = call.business_id || null;
   } else if (source === 'pipeline') {
-    // The Pipeline card's Call button (owner rule 2026-09-24). A card can be
-    // born from a web booking or an estimate, with no call row or text thread
-    // to dial from, so the card hands over only the customer's number and its
-    // brand. Neither is trusted: pipelineCallTarget checks the number already
-    // sits on a call, text, estimate or booking in a business this login may
-    // use, and re-derives the line to ring From (latest inbound call's line
-    // -> latest text thread's line -> the brand's first forwarded line ->
-    // the toll-free).
     let target;
     try { const anyBiz = auth.role === 'secretary' && await isReviewCardFor(db, body.card_key, body.phone); target = await pipelineCallTarget(db, auth, body.phone, body.business ? String(body.business) : null, anyBiz); } catch (e) { return bail(res, e); }
     customerPhone = toE164(target.phone);
     trackingNumber = toE164(target.line);
     attemptBizId = target.businessId || null;
   } else if (source === 'prospect') {
-    // Prospects cold call (owner 2026-10-08): number + TidyHaus line come
-    // only from the prospect row (lock, do-not-call, customer and calling-hours
-    // checks live in prospectCallTarget). The bridge never records, so these
-    // calls are never transcribed or summarized.
     let target;
     try { target = await prospectCallTarget(db, auth, body.prospect_id); } catch (e) { return bail(res, e); }
     customerPhone = toE164(target.phone);
@@ -11542,9 +8597,6 @@ async function callStart(req, res, db, auth, body) {
     attemptBizId = target.businessId || null;
     attemptProspectId = target.prospectId;
   } else if (source === 'red_alert') {
-    // Red alert step's Call button (owner 2026-10-09, migration 0191). Only
-    // the alert + step ids come from the browser: the number is the one the
-    // owner wrote on that step, on an alert this login can see.
     let target;
     try { target = await redAlertCallTarget(db, auth, body.alert_id, body.step_id); } catch (e) { return bail(res, e); }
     customerPhone = toE164(target.phone);
@@ -11557,7 +8609,6 @@ async function callStart(req, res, db, auth, body) {
   if (!customerPhone) return res.status(400).json({ error: 'Bad customer phone number' });
   if (!trackingNumber) return res.status(400).json({ error: 'Bad tracking number' });
 
-  // Rate/loop guards — cheapest checks first, before any DB lookup or Twilio call.
   if (!checkStaffCallBudget(auth)) {
     return res.status(429).json({ error: 'Too many calls placed in the last minute — give it a moment and try again.' });
   }
@@ -11573,10 +8624,6 @@ async function callStart(req, res, db, auth, body) {
     return res.status(500).json({ error: 'Calling is not configured (Twilio credentials missing).' });
   }
 
-  // Log the try BEFORE dialing, from every screen (Calls tab, Messages,
-  // Pipeline), so the Pipeline can count callback tries (owner rule
-  // 2026-09-24). Best-effort: a logging hiccup must never stop a callback
-  // from going out -- the call is simply untracked then.
   const cardKey = /^c_[0-9a-f-]{36}$/i.test(String(body.card_key || '')) ? String(body.card_key) : null;
   let attemptId = null;
   try {
@@ -11588,8 +8635,6 @@ async function callStart(req, res, db, auth, body) {
     if (attErr) throw attErr;
     attemptId = att.id;
   } catch (e) { console.error('[call_start] could not log the call attempt:', e.message); }
-  // The request to Twilio itself failed: nothing rang, so it isn't a try at
-  // the customer (the Pipeline skips staff legs that never connected).
   const attemptFailed = async () => {
     if (!attemptId) return;
     try {
@@ -11606,9 +8651,6 @@ async function callStart(req, res, db, auth, body) {
   formData.append('To', staffPhone);
   formData.append('From', trackingNumber);
   formData.append('Url', connectUrl);
-  // 25s: long enough for a real ring, short enough that a genuinely-missed
-  // first leg doesn't sit open forever — there's no voicemail/retry in v1,
-  // so past this the call just ends.
   formData.append('Timeout', '25');
   if (attemptId) {
     const statusToken = signToken({ kind: 'ctc_status', attempt_id: attemptId }, CALL_ATTEMPT_STATUS_TTL_S);
@@ -11647,12 +8689,6 @@ async function callStart(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, sid, ringing: staffPhone, attempt_id: attemptId });
 }
 
-// POST ?action=call_connect — Twilio fetches this the instant the staff leg
-// above is answered. PUBLIC (no dashboard session — Twilio has none), but
-// gated two ways: Twilio's own request signature (this really is Twilio, not
-// a forged POST), and the signed, single-purpose, short-TTL token callStart
-// minted a moment earlier (this really is OUR bridge, not a replay or a token
-// borrowed from some other verifyToken() caller in this file).
 async function callConnect(req, res) {
   const token = (req.query.token || '').toString();
   const base = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
@@ -11666,17 +8702,10 @@ async function callConnect(req, res) {
   if (!claims || claims.kind !== 'ctc_connect') {
     return xml(res, '<Response><Say voice="Polly.Joanna">This call link has expired.</Say><Hangup/></Response>');
   }
-  // Nothing about the customer number is trusted from the request itself —
-  // only from this token, which this server signed moments ago in callStart.
-  // Still shape-checked before it goes anywhere near TwiML: a token proves WHO
-  // signed it, not that what's inside is well-formed.
   if (!isPlausibleUsE164(claims.customerPhone) || !isPlausibleUsE164(claims.trackingNumber)) {
     console.error('[call_connect] token carried a malformed number', claims);
     return xml(res, '<Response><Say voice="Polly.Joanna">Sorry, something went wrong placing this call.</Say><Hangup/></Response>');
   }
-  // A logged try (call_attempts) gets the customer leg's outcome back: Twilio
-  // requests the <Dial action> with DialCallStatus/DialCallDuration when that
-  // leg ends (callAttemptDone below). Its own signed, single-purpose token.
   let dialAction = '';
   if (claims.attempt_id && PHONE_REQUEST_UUID.test(String(claims.attempt_id))) {
     const doneToken = signToken({ kind: 'ctc_done', attempt_id: String(claims.attempt_id) }, CALL_ATTEMPT_DONE_TTL_S);
@@ -11685,9 +8714,6 @@ async function callConnect(req, res) {
   return xml(res, `<Response><Dial callerId="${xmlEsc(claims.trackingNumber)}"${dialAction}><Number>${xmlEsc(claims.customerPhone)}</Number></Dial></Response>`);
 }
 
-// Shared gate for the two bridge report-backs below: Twilio's signature over
-// the exact URL we handed it, then our own token of the expected kind naming
-// a well-formed attempt id. Returns { params, attemptId } or null.
 function callAttemptCallback(req, action, kind) {
   const token = (req.query.token || '').toString();
   const base = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
@@ -11704,14 +8730,8 @@ function callAttemptCallback(req, action, kind) {
   }
   return { params, attemptId: String(claims.attempt_id) };
 }
-// A staff member's own "Did you talk to them?" answer (talked_set_by = her
-// name) always outranks the automatic read.
 const setByPerson = (row) => !!(row && row.talked_set_by && row.talked_set_by !== 'auto');
 
-// POST ?action=call_attempt_status — the staff leg's StatusCallback (the
-// whole bridge call is over). If her own phone never connected (no-answer,
-// busy, failed, canceled) the customer was never dialed: talked=false, and
-// the Pipeline doesn't count it as a try at the customer. Always empty TwiML.
 async function callAttemptStatus(req, res) {
   const cb = callAttemptCallback(req, 'call_attempt_status', 'ctc_status');
   if (!cb) return xml(res, '<Response/>');
@@ -11733,10 +8753,6 @@ async function callAttemptStatus(req, res) {
   return xml(res, '<Response/>');
 }
 
-// POST ?action=call_attempt_done — the customer leg's <Dial action>. A real
-// conversation, automatically, = the customer picked up and it lasted
-// CALL_ATTEMPT_TALK_SEC or more; anything shorter reads as voicemail or a
-// hang-up. Empty TwiML ends the call.
 async function callAttemptDone(req, res) {
   const cb = callAttemptCallback(req, 'call_attempt_done', 'ctc_done');
   if (!cb) return xml(res, '<Response/>');
@@ -11761,38 +8777,13 @@ async function callAttemptDone(req, res) {
   return xml(res, '<Response/>');
 }
 
-// ── Inbound calls: Grasshopper ingestion — RETIRED 2026-08-26 ───────────────
-// Owner call: stop tracking Grasshopper calls entirely. The Gmail Apps Script
-// (docs/grasshopper-gmail-script.md) still POSTs here once a minute from the
-// owner's own Google account — turning THAT off requires deleting its
-// time-driven trigger in Google Apps Script directly; nothing server-side can
-// reach it. Until it's turned off there, every run now gets a fast, clear 410
-// instead of writing a row, which is strictly better than a 404/500 for
-// whoever eventually reads that script's execution log.
 async function callIngest(req, res) {
   return res.status(410).json({ error: 'Grasshopper call tracking has been retired. Delete the syncNow trigger in the Apps Script project to stop these requests.' });
 }
 
-// ── Review-call queue (Joey's daily outreach) ────────────────────────────────
-// Cross-business: customers from BOTH companies who had a non-cancelled job on
-// the schedule in the last `days` days (default 1 = yesterday, by scheduled_at so
-// imported / not-yet-marked-done jobs still count), haven't submitted a review
-// through our filter (reviewed_at null) and aren't a Google 4–5★, and haven't
-// been resolved (promised / complaint / do-not-contact). Available to any
-// signed-in office user — this is a calling tool, so it deliberately spans both
-// businesses regardless of the secretary's normal single-business scope.
 const REVIEW_CALL_STATUSES = ['called', 'voicemail', 'callback', 'reviewed', 'declined', 'do_not_contact', 'promised_review', 'complaint'];
-// Statuses that resolve a customer OFF the queue: they promised a review, said
-// no thanks to one ('declined' — the guided card's "They said no thanks"
-// button; without it here a customer who declined REAPPEARED on every reload
-// and got the same call again), raised a complaint (handled + logged), or
-// asked not to be contacted. 'voicemail' / 'callback' stay on the list so Joey
-// tries again. ('reviewed' kept for old data.)
-// 'voicemail' (No answer) is final too (owner 2026-09-28): email re-sent, no more calls.
 const REVIEW_CALL_RESOLVED = ['reviewed', 'declined', 'do_not_contact', 'promised_review', 'complaint', 'voicemail'];
 const RC_TZ = 'Asia/Manila';
-// NOTE: line_items lives in the booking_line_items TABLE (not a bookings
-// column) — it must be embedded as a relation, exactly like bookingSelect().
 const rcSelFor = (cc) => `id, status, completed_at, scheduled_at, review_rating, reviewed_at,
     review_email_opened_at, review_email_count, review_token, postal_code, sms_consent, review_sms_sent_at, review_sms_status, metadata, ${cc}
     customer:customers ( name, phone, email, postal_code ),
@@ -11802,36 +8793,23 @@ const rcSelFor = (cc) => `id, status, completed_at, scheduled_at, review_rating,
 const RC_CALL_COLS = 'review_call_status, review_call_at, review_call_by, review_call_notes,';
 function rcMapRow(row, b, zipTzMap) {
   const zip = row.postal_code || row.customer?.postal_code || null;
-  // Where THIS customer actually is, for "is it a good time to call them right
-  // now"; separate from business_timezone below, which is about the job's own
-  // calendar day, not the live clock. Falls back to the business default (Denver
-  // for both companies) when the zip isn't in service_area_zips, e.g. an
-  // imported job with no address on file.
   const zoned = (zip && zipTzMap && zipTzMap.get(zip)) || null;
   return {
     id: row.id,
     business_slug: b.slug,
     business_name: b.name,
-    // The card SPEAKS this job's day out loud ("...how your installation went
-    // yesterday"), and "yesterday" is only true in the job's own timezone. Sent
-    // so the browser stops computing it in whatever zone the office happens to
-    // be sitting in.
     business_timezone: b.timezone || RC_TZ,
     call_timezone: zoned ? zoned.tz : (b.timezone || RC_TZ),
     call_area: zoned ? zoned.area : null,
     customer_name: row.customer?.name || '—',
     phone: row.customer?.phone || null,
-    zip,   // booking zip first; imported customers often have it only on the booking
+    zip,
     has_email: !!row.customer?.email,
-    // One-time loyalty discount the owner set on this job (metadata.loyalty_offer).
     loyalty_offer: row.metadata?.loyalty_offer || null,
     has_sms: !!(row.customer?.phone && row.sms_consent),
-    // The review text goes out once: reviewResend refuses a second unless the
-    // first failed, so the queue must not offer the text again.
     review_sms_used: !!((row.review_sms_sent_at || row.metadata?.review_sms_sent_at) && !['failed', 'undelivered'].includes(String(row.review_sms_status || ''))),
     technician_name: row.technician?.name || '—',
     service_name: row.service?.name || 'Service',
-    // What they bought — so Joey can reference it on the call.
     line_items: (Array.isArray(row.line_items) ? row.line_items : [])
       .filter(li => li && (li.name || li.description))
       .map(li => ({ name: String(li.name || li.description), qty: Number(li.quantity || li.qty) || 1, price: Number(li.line_total != null ? li.line_total : li.unit_price) || 0 })),
@@ -11839,7 +8817,7 @@ function rcMapRow(row, b, zipTzMap) {
     is_completed: row.status === 'completed',
     email_opened: !!row.review_email_opened_at,
     email_count: row.review_email_count || 0,
-    rating: row.review_rating || null,          // 1–3 = they gave us negative feedback (handle with care)
+    rating: row.review_rating || null,
     has_review_link: !!row.review_token,
     reviewed: row.reviewed_at != null || Number(row.review_rating) >= 4,
     call_status: row.review_call_status || null,
@@ -11848,18 +8826,8 @@ function rcMapRow(row, b, zipTzMap) {
     call_notes: row.review_call_notes || null,
   };
 }
-// Which review_call_status values live in each browsable folder — 'voicemail'
-// and 'callback' both mean "left a message, try again," so they share a folder.
 const RC_STATUS_TO_FOLDER = { complaint: 'complaint', promised_review: 'promised_review', voicemail: 'voicemail', callback: 'voicemail', do_not_contact: 'do_not_contact', declined: 'declined' };
 
-// Zip -> {tz, area} for one business, batched (two queries total, not one per
-// row). TidyHaus spans Mountain (Denver) and Central (Houston/Austin/DFW/San
-// Antonio) under a SINGLE business.timezone value, which is why Joey calling a
-// Houston customer at "2pm" by the office clock was actually reaching them at
-// 3pm; the real per-metro zone lives on service_areas, keyed to a zip through
-// service_area_zips, so this reads the same two tables the booking flow itself
-// uses to price a job by zip (serviceAreaIdFromPostal / areaTimezone above),
-// just batched instead of looked up one row at a time.
 async function zipTimezoneMap(db, businessId) {
   const map = new Map();
   const { data: areas } = await db.from('service_areas').select('id, name, timezone').eq('business_id', businessId);
@@ -11873,14 +8841,11 @@ async function zipTimezoneMap(db, businessId) {
 }
 
 async function reviewCalls(req, res, db, auth) {
-  // Joey's (Doms) outreach tool — not part of Heather's (TidyHaus) platform.
-  if (auth.scope === 'handy-andy') return res.status(403).json({ error: 'Review Calls is not available on this account.' });
+  if (auth.scope === 'tidyhaus') return res.status(403).json({ error: 'Review Calls is not available on this account.' });
   const folder = (req.query.folder || 'to_call').toString();
   const { data: bizs, error: businessError } = await db.from('businesses').select('id, slug, name, timezone').eq('active', true);
   if (businessError) throw businessError;
   const warnings = [];
-  // One zipTimezoneMap() per business for the whole request, not per row; both
-  // branches below (folder browsing and the to_call queue) share it.
   const zipTzCache = new Map();
   const zipTzFor = async (bb) => {
     if (zipTzCache.has(bb.id)) return zipTzCache.get(bb.id);
@@ -11890,16 +8855,12 @@ async function reviewCalls(req, res, db, auth) {
   };
 
   if (folder !== 'to_call') {
-    // Folder browsing (Complaints / Promised review / Voicemail / Do not
-    // contact) — grouped by the calendar week (Sun–Sat) the call was LOGGED
-    // (review_call_at), not the job's scheduled date, so resolved calls are
-    // still reachable weeks later instead of disappearing once handled.
     if (!['complaint', 'promised_review', 'voicemail', 'do_not_contact', 'declined'].includes(folder)) {
       return res.status(400).json({ error: 'Invalid folder' });
     }
     let weekOffset = parseInt(req.query.week_offset);
     if (!isFinite(weekOffset)) weekOffset = 0;
-    weekOffset = Math.max(-520, Math.min(0, weekOffset));   // up to ~10 years back, never the future
+    weekOffset = Math.max(-520, Math.min(0, weekOffset));
     const weekBase = new Date(Date.now() + weekOffset * 7 * 86400000);
     const weekStart = startOfWeekUTC(RC_TZ, weekBase);
     const weekEnd = localDayStartUTC(RC_TZ, 7, weekStart);
@@ -11934,13 +8895,8 @@ async function reviewCalls(req, res, db, auth) {
     });
   }
 
-  // Owner rule 2026-09-28: the to-call list is ALWAYS the last 7 days. It was
-  // "yesterday" by default, so a skipped day meant those customers were never
-  // called. Everyone in the window who hasn't reviewed us anywhere stays on it.
   const days = 7;
   const out = [];
-  // Google reviews count too (owner rule): matched to the job directly, or by
-  // the customer's name on the same business in the last 60 days.
   const gByBooking = new Set(), gByName = new Set();
   try {
     const { data: gr } = await db.from('google_reviews').select('booking_id, reviewer_name, business_id')
@@ -11954,35 +8910,25 @@ async function reviewCalls(req, res, db, auth) {
   } catch (e) { console.warn('[review_calls] google reviews check failed:', e.message); }
   await Promise.all((bizs || []).map(async b => {
     const tz = b.timezone || RC_TZ;
-    const winStart = localDayStartUTC(tz, -days);   // start of (today − days), that business's local day
-    const winEnd = localDayStartUTC(tz, 0);          // start of today — give them the day of the job to review first
-    // Base the window on scheduled_at (ALWAYS set) rather than completed_at — the
-    // latter is null for imported jobs and for any job the tech didn't tap
-    // "complete" on. Include every non-cancelled booking that was on the schedule
-    // that day: a job scheduled yesterday happened, whether or not it's marked done.
+    const winStart = localDayStartUTC(tz, -days);
+    const winEnd = localDayStartUTC(tz, 0);
     const run = (cc) => db.from('bookings').select(rcSelFor(cc))
       .eq('business_id', b.id)
       .in('status', ['confirmed', 'assigned', 'on_the_way', 'arrived', 'in_progress', 'completed'])
       .gte('scheduled_at', winStart.toISOString()).lt('scheduled_at', winEnd.toISOString())
       .order('scheduled_at', { ascending: false }).limit(500);
     let { data, error } = await run(RC_CALL_COLS);
-    if (error && /review_call_/.test(error.message || '')) ({ data, error } = await run(''));   // migration 0049 not applied yet
+    if (error && /review_call_/.test(error.message || '')) ({ data, error } = await run(''));
     if (error) { console.warn('[review_calls]', b.slug, error.message); warnings.push(`${b.name}: ${error.message}`); return; }
     const tzMap = await zipTzFor(b);
     for (const row of (data || [])) {
-      // Skip anyone who already left us a rating through our review filter:
-      // reviewed_at is stamped whenever a customer submits ANY 1–5★ (Google-routed
-      // 4–5★ or private 1–3★), so it's the precise "they rated us in the CRM"
-      // signal. Plus a >= 4 backstop. A job that merely carries a stale imported
-      // rating (no submission → no reviewed_at) stays callable.
       if (row.reviewed_at != null || Number(row.review_rating) >= 4) continue;
       if (gByBooking.has(row.id)) continue;
       if (typeof gNorm === 'function' && row.customer?.name && gByName.has(b.id + '|' + gNorm(row.customer.name))) continue;
-      if (REVIEW_CALL_RESOLVED.includes(row.review_call_status)) continue;   // handled by Joey — find it under its folder tab now
+      if (REVIEW_CALL_RESOLVED.includes(row.review_call_status)) continue;
       out.push(rcMapRow(row, b, tzMap));
     }
   }));
-  // Not-yet-called first, OLDEST first: those are about to drop off the 7 days.
   out.sort((a, c) => {
     const au = a.call_status ? 1 : 0, cu = c.call_status ? 1 : 0;
     if (au !== cu) return au - cu;
@@ -12001,19 +8947,13 @@ async function reviewCalls(req, res, db, auth) {
   });
 }
 
-// Owner's view of the review-call program: what Joey actually logged, not the
-// queue she works from. Reads the same review_call_* columns the queue writes,
-// rolled up by day, by person, by outcome and by complaint tag, plus the full
-// list of calls so the owner can read every note. 'Backlog' is how many
-// customers from the last 7 days still have no outcome at all, which is the
-// one number that says whether the calls are being made.
 async function reviewCallReport(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const days = Math.max(1, Math.min(Number(req.query.days) || 7, 90));
   const { data: bizs } = await db.from('businesses').select('id, slug, name, timezone').eq('active', true);
   const bizIds = (bizs || []).map(b => b.id);
   const bizById = new Map((bizs || []).map(b => [b.id, b]));
-  const winStart = localDayStartUTC(RC_TZ, -(days - 1));   // today counts as day 1
+  const winStart = localDayStartUTC(RC_TZ, -(days - 1));
   const winEnd = localDayStartUTC(RC_TZ, 1);
   const sel = `id, business_id, scheduled_at, review_call_status, review_call_at, review_call_by, review_call_notes, review_rating, reviewed_at,
     customer:customers ( name, phone ),
@@ -12064,8 +9004,6 @@ async function reviewCallReport(req, res, db, auth) {
       rating: row.review_rating || null, reviewed: row.reviewed_at != null || Number(row.review_rating) >= 4,
     });
   }
-  // Every day in the window, zero-filled, oldest first, so a day Joey made no
-  // calls shows as an empty bar instead of silently vanishing.
   const daily = [];
   for (let i = days - 1; i >= 0; i--) {
     const dk = dayKey(localDayStartUTC(RC_TZ, -i).getTime() + 12 * 3600000);
@@ -12074,8 +9012,6 @@ async function reviewCallReport(req, res, db, auth) {
     daily.push(d);
   }
 
-  // Backlog: finished jobs from the last 7 days with no outcome logged at all.
-  // Same filter as the queue so the number matches what Joey sees.
   let backlog = 0;
   for (const b of (bizs || [])) {
     const tz = b.timezone || RC_TZ;
@@ -12098,13 +9034,6 @@ async function reviewCallReport(req, res, db, auth) {
   });
 }
 
-// What Joey has actually logged TODAY, across both businesses — real history,
-// not a browser-session counter. The old hero stats reset to zero on every
-// page load, so a morning's worth of real calls looked like "nothing was
-// recorded" the moment the tab was refreshed. 'Reached' excludes voicemail
-// (nobody picked up); 'good' is promised_review or declined, since 'declined'
-// only exists as the "no thanks" button on an already-great call, never a
-// bad one. Best-effort: an error here degrades to zeros, never fails the page.
 async function rcTodayStats(db, bizIds) {
   const stats = { today: 0, reached: 0, good: 0, issues: 0 };
   if (!bizIds.length) return stats;
@@ -12131,11 +9060,6 @@ async function rcTodayStats(db, bizIds) {
   return stats;
 }
 
-// Attach any voicemail THE CUSTOMER left us to their review-call card, so
-// whoever is about to ring them can read what they said first. Someone chasing
-// a review should not be the last to know the customer already called asking
-// about a problem. One batched query for the whole page, keyed on the phone
-// number (the review-call rows and the call log share no id).
 async function attachInboundVoicemails(db, rows) {
   try {
     const byPhone = new Map();
@@ -12150,14 +9074,10 @@ async function attachInboundVoicemails(db, rows) {
     const { data } = await db.from('calls')
       .select('id, caller_phone, transcript, transcript_summary, occurred_at, market, status, recording_url')
       .in('caller_phone', [...byPhone.keys()])
-      // Real calls only: a customer's TEXT is not a voicemail (owner 2026-09-30,
-      // Matt Seigler's "2 people" text showed as one).
       .not('kind', 'in', '(sms,live)')
       .order('occurred_at', { ascending: false });
     for (const c of (data || [])) {
       for (const r of (byPhone.get(c.caller_phone) || [])) {
-        // Newest voicemail only — the list is already sorted, so the first one
-        // seen for a number wins.
         if (!r.inbound_voicemail) {
           r.inbound_voicemail = {
             id: c.id, transcript: c.transcript, transcript_summary: c.transcript_summary || null, occurred_at: c.occurred_at, market: c.market, status: c.status,
@@ -12167,14 +9087,10 @@ async function attachInboundVoicemails(db, rows) {
       }
     }
   } catch (e) {
-    // The calls table may not exist on an older deploy — the review-call queue
-    // must keep working regardless.
     console.warn('[review_calls] voicemail attach skipped:', e.message);
   }
 }
 
-// Folder cards (owner 2026-10-04): the job's photos, one batched query for the
-// page. Up to 6 thumbs per job plus the full count.
 async function attachJobPhotos(db, rows) {
   try {
     const ids = rows.map(r => r.id).filter(Boolean);
@@ -12194,19 +9110,15 @@ async function attachJobPhotos(db, rows) {
   } catch (e) { console.warn('[review_calls] photo attach skipped:', e.message); }
 }
 
-// Log the outcome of a review call (Joey). Cross-business: resolve by id.
 async function reviewCallLog(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  if (auth.scope === 'handy-andy' && !body?.from_pipeline) return res.status(403).json({ error: 'Review Calls is not available on this account.' });
+  if (auth.scope === 'tidyhaus' && !body?.from_pipeline) return res.status(403).json({ error: 'Review Calls is not available on this account.' });
   if (auth.offToday && !body?.from_pipeline) return res.status(403).json({ error: 'Off today', off_today: true });
   const id = body && body.id;
   const status = ((body && body.status) || '').toString().trim();
   if (!id) return res.status(400).json({ error: 'id required' });
   if (status && !REVIEW_CALL_STATUSES.includes(status)) return res.status(400).json({ error: 'Invalid status' });
 
-  // Enough of the job to describe it in the owner's complaint alert below. The
-  // read is the same round trip that already had to happen to prove the booking
-  // exists, so this costs nothing on the calls that are not complaints.
   const { data: bk } = await db.from('bookings')
     .select(`id, scheduled_at, status, paid_at,
       business:businesses ( slug, name ),
@@ -12229,9 +9141,6 @@ async function reviewCallLog(req, res, db, auth, body) {
     review_call_by: status ? (auth.name || displayNameFor(auth.scope)) : null,
   };
   if (typeof body.notes === 'string') patch.review_call_notes = body.notes.trim().slice(0, 500) || null;
-  // What the customer actually said, as countable tags. Free text cannot be
-  // rolled up into "how did we do"; these can (unnest over review_call_tags).
-  // Bounded and de-duplicated so a stuck client can never write an unbounded array.
   if (Array.isArray(body.tags)) {
     const tags = [...new Set(body.tags
       .map(t => String(t == null ? '' : t).trim().slice(0, 60))
@@ -12240,10 +9149,6 @@ async function reviewCallLog(req, res, db, auth, body) {
   }
 
   let { error } = await db.from('bookings').update(patch).eq('id', id);
-  // The tags column is newer than the rest of the review-call columns, so a
-  // database that has 0049 but not the tags migration must still be able to log
-  // an outcome — the tags are dropped and the call is saved, rather than the
-  // whole outcome failing because of the one newest field.
   if (error && /review_call_tags/.test(error.message || '')) {
     delete patch.review_call_tags;
     ({ error } = await db.from('bookings').update(patch).eq('id', id));
@@ -12254,10 +9159,6 @@ async function reviewCallLog(req, res, db, auth, body) {
   }
   if (error) throw error;
 
-  // A complaint is the one outcome the owner has to hear about the same day.
-  // Awaited, not fire-and-forget: on Vercel an un-awaited send is killed the
-  // moment this handler responds, and it would fail silently with no log line.
-  // Never allowed to fail the save — the complaint is already recorded.
   if (status === 'complaint') {
     const when = (() => {
       try { return new Date(bk.scheduled_at).toLocaleDateString('en-US', { timeZone: RC_TZ, weekday: 'long', month: 'short', day: 'numeric' }); }
@@ -12312,11 +9213,6 @@ async function reviews(req, res, db, auth) {
   return res.status(200).json({ reviews: formatted });
 }
 
-// ── Applicant screenings (migration 0114) ───────────────────────────────────
-// Every /apply.html quiz attempt, pass or fail, plus a per-question breakdown
-// so the owner can see which questions actually filter applicants vs. which
-// ones everyone misses (a bad question, not a bad applicant). Owner-only,
-// same as the other Analytics tabs.
 async function applicants(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { data: rows, error } = await db.from('applicant_screenings')
@@ -12331,9 +9227,6 @@ async function applicants(req, res, db, auth) {
     created_at: r.created_at,
   }));
 
-  // Per-question correct rate across every attempt that has that key in its
-  // answers array (a bad/missing key just doesn't count toward that
-  // question's denominator, rather than skewing it as wrong).
   const stats = new Map(APPLY_QUESTIONS.map(q => [q.key, { key: q.key, prompt: q.prompt, attempts: 0, correct: 0 }]));
   for (const r of rows || []) {
     for (const a of Array.isArray(r.answers) ? r.answers : []) {
@@ -12359,11 +9252,6 @@ async function applicants(req, res, db, auth) {
   });
 }
 
-// ── Google Business Profile reviews ─────────────────────────────────────────
-// Reviews ingested from the Google review-notification emails (migration 0042).
-// Degrades to an empty list if the table isn't applied yet.
-// Review rate by tech, last 30 days (owner only). Asked = in-person ask 'now'
-// or 'later' (0231) out of completed jobs; Google = google_reviews credited to the tech.
 async function reviewAskRate(req, res, db, auth) {
   if (!auth || auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
@@ -12391,8 +9279,6 @@ async function googleReviews(req, res, db, auth) {
     .eq('business_id', biz.id)
     .order('created_at', { ascending: false })
     .limit(100);
-  // Pre-0065 database: dismissed_at doesn't exist yet — retry without it so the
-  // list still works (nothing can be dismissed until the migration is applied).
   if (error && /dismissed_at/.test(error.message || '')) {
     ({ data: rows, error } = await db.from('google_reviews')
       .select(`id, reviewer_name, rating, review_text, review_date, seen, created_at, technician_id, booking_id,
@@ -12421,9 +9307,6 @@ async function googleReviews(req, res, db, auth) {
   });
 }
 
-// Dismiss the "new Google review" banner (seen=true), permanently hide it from
-// the Reviews tab list (dismissed=true), or re-attribute it to a technician.
-// Scoped to the caller's business.
 async function googleReviewUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const biz = await resolveBusiness(db, auth, body.business || '');
@@ -12432,20 +9315,11 @@ async function googleReviewUpdate(req, res, db, auth, body) {
   const patch = {};
   if (body.seen !== undefined) patch.seen = !!body.seen;
   if (body.dismissed !== undefined) patch.dismissed_at = body.dismissed ? new Date().toISOString() : null;
-  // Kept from the assignment branch so a NEWLY attributed tech can be texted
-  // after the update lands (owner's rule: a tech hears about every review of
-  // theirs, however it reaches them). `newTech` carries name+phone; `priorTid`
-  // is who held the review before, so re-saving the same tech, or a plain
-  // seen/dismiss tap, never re-texts anyone.
   let newTech = null, priorTid;
   if (body.technician_id !== undefined) {
     const tid = (body.technician_id || '').toString() || null;
     if (tid) {
       let { data: t } = await db.from('technicians').select('id, name, phone').eq('id', tid).eq('business_id', biz.id).maybeSingle();
-      // A review can legitimately credit a cross-hire tech from the partner
-      // company (e.g. a Dom's tech who helped on a TidyHaus job) — the
-      // dropdown already offers them (public/admin.html renderReviews), so
-      // the same id must be accepted here instead of 404ing.
       if (!t) {
         const partner = await partnerBusiness(db, biz.slug);
         if (partner) {
@@ -12462,8 +9336,6 @@ async function googleReviewUpdate(req, res, db, auth, body) {
   }
   if (!Object.keys(patch).length) return res.status(400).json({ error: 'nothing to update' });
   let { error } = await db.from('google_reviews').update(patch).eq('id', id).eq('business_id', biz.id);
-  // Pre-0065 database: dismissed_at doesn't exist yet — drop it and retry so
-  // seen/technician updates still work even before the migration is applied.
   if (error && /dismissed_at/.test(error.message || '') && 'dismissed_at' in patch) {
     delete patch.dismissed_at;
     if (!Object.keys(patch).length) return res.status(503).json({ error: 'Dismiss not available yet — migration 0065 not applied.' });
@@ -12471,13 +9343,6 @@ async function googleReviewUpdate(req, res, db, auth, body) {
   }
   if (error) throw error;
 
-  // Text a NEWLY attributed tech about the review they just got credited with.
-  // The auto-match at ingest (migrate.js googleReviewSync) only texts when the
-  // reviewer's name matched a booking; a review that arrived unmatched and was
-  // hand-assigned here later would otherwise reach the tech's profile without
-  // the tech ever hearing about it. Same message rule as everywhere else:
-  // every rating texts, only a 5 congratulates. Best-effort, after the update
-  // has already succeeded, so a Twilio hiccup can never fail the attribution.
   if (newTech && newTech.phone && newTech.id !== priorTid) {
     try {
       const { data: rev } = await db.from('google_reviews')
@@ -12494,18 +9359,7 @@ async function googleReviewUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Bad-review alerts (1-star reviews in the last 24h) ──────────────────────
-// Powers the red "ATTENTION" banner at the top of the dashboard. Scope-aware:
-//   owner      -> 1-star reviews across ALL active businesses
-//   secretary  -> only their own business (Heather=TidyHaus, Joey=Doms)
-// A review auto-drops off the banner 24h after it was submitted. Each alert
-// carries enough to display (tech, customer name/phone, appointment date) and
-// the booking id so the dashboard can open the exact job on click.
 async function badReviews(req, res, db, auth) {
-  // Email-scan health rides along on this poll (owner only). Computed first and
-  // on its own so a lib exception can never blank the review alerts; a failed
-  // read is reported as { error } so the dashboard shows "could not read"
-  // rather than silently nothing.
   let sync_health = null;
   if (auth.role === 'owner') {
     try {
@@ -12516,7 +9370,6 @@ async function badReviews(req, res, db, auth) {
       sync_health = { error: String((e && e.message) || e).slice(0, 120) };
     }
   }
-  // Businesses this token may see. The list itself enforces the scoping.
   let bizQ = db.from('businesses').select('id, slug, name').eq('active', true);
   const badReviewAllowed = allowedSlugsFor(auth);
   if (badReviewAllowed) bizQ = bizQ.in('slug', badReviewAllowed);
@@ -12556,8 +9409,6 @@ async function badReviews(req, res, db, auth) {
   return res.status(200).json({ alerts, sync_health });
 }
 
-// The X on a bad-review banner. Stamps the booking so the alert stays gone on
-// every device, instead of waiting out the 24h window.
 async function badReviewDismiss(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -12572,19 +9423,13 @@ async function badReviewDismiss(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Estimates (customer quote requests from the public estimate page) ────────
-// Avg ticket per business over a fixed preset window: 7 days (matches the
-// dashboard's own default avg_by_slug computation, so that preset never needs
-// a fetch — see avgTicketBoxHtml on the client), 30 days, or all time (no
-// lower bound at all, every completed ticket the business has ever had).
-// Same underlying math as the dashboard's avg_by_slug either way. Owner-only.
 async function avgTicketRange(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const tz = biz.timezone || 'Asia/Manila';
   const range = (req.query.range || '7d').toString();
   const RANGE_DAYS = { '7d': 7, '30d': 30 };
-  const days = RANGE_DAYS[range] || null;   // null = all time, no lower bound
+  const days = RANGE_DAYS[range] || null;
   const end = localDayStartUTC(tz, 1);
   const start = days ? localDayStartUTC(tz, -(days - 1)) : null;
   const { data: allBiz } = await db.from('businesses').select('id, slug').eq('active', true);
@@ -12596,7 +9441,7 @@ async function avgTicketRange(req, res, db, auth) {
       .eq('status', 'completed');
     if (start) q = q.gte('scheduled_at', start.toISOString());
     const { data: rows } = await q;
-    const real = (rows || []).filter(x => Number(x.price) > 0);   // drop $0/free tickets
+    const real = (rows || []).filter(x => Number(x.price) > 0);
     const count = real.length;
     const total = Math.round(real.reduce((n, x) => n + Number(x.price || 0), 0) * 100) / 100;
     bySlug[bb.slug] = { avg: count ? Math.round(total / count) : null, count, total };
@@ -12605,24 +9450,12 @@ async function avgTicketRange(req, res, db, auth) {
   return res.status(200).json({ avg_by_slug: bySlug, range_label: rangeLabel, range });
 }
 
-// Google Search Console data for a business's site (free — see api/_lib/gsc.js).
-// Best-effort: this is a bonus data source layered onto Website Analytics, so a
-// missing/misconfigured credential degrades to empty lists with an explanatory
-// `error` string rather than breaking the page. Two API calls cover four views:
-//   - dimensions=['query'] (up to 500 rows) -> top queries, striking-distance
-//     keywords (position 11-20), and the branded/non-branded click split
-//   - dimensions=['query','page'] -> which landing page each query lands on
 async function gscQueries(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
-  // gsc_domain (app.businesses.analytics_config, migration 0106) is the source
-  // of truth now; GSC_DOMAIN_BY_SLUG stays only as a fallback for a business
-  // whose config row predates the migration having run against it.
   const { data: bizCfg } = await db.from('businesses').select('analytics_config').eq('slug', biz.slug).maybeSingle();
   const domain = (bizCfg && bizCfg.analytics_config && bizCfg.analytics_config.gsc_domain) || GSC_DOMAIN_BY_SLUG[biz.slug];
   if (!domain) return res.status(200).json({ rows: [], strikingDistance: [], queryPages: [], brandSplit: null, error: `No Search Console domain configured for ${biz.slug}` });
   const days = Math.max(1, Math.min(Number(req.query.days) || 28, 480));
-  // Search Console data lags ~2-3 days behind real time, so end a few days
-  // back instead of "today" — otherwise the freshest days come back empty.
   const end = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000);
   const start = new Date(end.getTime() - days * 24 * 60 * 60 * 1000);
   const fmt = (d) => d.toISOString().split('T')[0];
@@ -12635,15 +9468,11 @@ async function gscQueries(req, res, db, auth) {
     const queryRows = byQuery.rows.map(r => ({ query: r.keys[0] || '', clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }));
     const rows = [...queryRows].sort((a, b) => b.clicks - a.clicks).slice(0, 25);
 
-    // Striking distance: page-2-ish rankings with real impressions behind them
-    // — small on-page work here has the best odds of moving the needle.
     const strikingDistance = queryRows
       .filter(r => r.position >= 11 && r.position <= 20 && r.impressions >= 10)
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 25);
 
-    // Branded vs non-branded — how much of this traffic already knew the
-    // business name vs. genuine new discovery through search.
     const brandTerms = GSC_BRAND_TERMS[biz.slug] || [];
     const isBranded = (q) => brandTerms.some(t => q.toLowerCase().includes(t));
     const brandedClicks = queryRows.filter(r => isBranded(r.query)).reduce((s, r) => s + r.clicks, 0);
@@ -12661,23 +9490,6 @@ async function gscQueries(req, res, db, auth) {
   }
 }
 
-// ── City landing-page monitoring ────────────────────────────────────────────
-// Started as 6 hardcoded Dallas/Arlington/Fort Worth paths the owner wanted
-// watched closely; generalized (migration 0106) to any business's own set of
-// city landing pages, read from analytics_config.city_pages instead of a
-// literal array — today that's only TidyHaus (9 pages: Denver, Austin x2,
-// and the original DFW six), because it's the one business whose own site
-// covers multiple metros from one domain; every other business here already
-// IS a single city, so this tab simply doesn't apply to them. Reads directly
-// from public.web_events (the same table the external website-analytics
-// backend itself reads — see webBackend() in admin.html) rather than adding
-// another endpoint over there, since this needs per-path filtering the
-// site-wide endpoints don't offer.
-//
-// A visit to a city page from outside US timezones is unusual enough to flag —
-// not proof of a bot, but worth a second look. Kept intentionally short (just
-// the zones real US visitors would plausibly show) rather than an exhaustive
-// exclude-list, so anything odd defaults to "flagged", not "trusted".
 const US_TIMEZONES = new Set(['Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'Asia/Manila', 'America/Anchorage', 'Pacific/Honolulu']);
 
 function cityPagePath(url) {
@@ -12698,9 +9510,6 @@ async function cityPagesAnalytics(req, res, db, auth) {
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
 
   const pub = serviceClientPublic();
-  // Pulled unfiltered-by-path and filtered in JS below (small volume — these
-  // pages are brand new) so session-level math (dwell time, bounce, referrer
-  // chains) can be computed once from one dataset instead of N round trips.
   const { data, error } = await pub.from('web_events')
     .select('event_type, page_url, session_id, referrer, metadata, created_at')
     .gte('created_at', since)
@@ -12708,8 +9517,6 @@ async function cityPagesAnalytics(req, res, db, auth) {
     .limit(8000);
   if (error) throw error;
 
-  // USA-only traffic: a session counts only if one of its page views reported a
-  // US timezone (only page_view rows carry it, so it is decided per session).
   const usSessions = new Set();
   for (const r of (data || [])) {
     if (r.event_type === 'page_view' && isUsTimezone(r.metadata && r.metadata.timezone)) usSessions.add(r.session_id);
@@ -12719,7 +9526,6 @@ async function cityPagesAnalytics(req, res, db, auth) {
     .map(r => ({ ...r, path: cityPagePath(r.page_url) }))
     .filter(r => cityPages.includes(r.path));
 
-  // Per-page rollup.
   const perPage = {};
   for (const p of cityPages) perPage[p] = { path: p, views: 0, sessions: new Set(), clicks: 0, dwellBySession: {}, scrollBySession: {}, devices: {}, referrers: {} };
   for (const r of rows) {
@@ -12735,12 +9541,6 @@ async function cityPagesAnalytics(req, res, db, auth) {
     } else if (r.event_type === 'click') {
       bucket.clicks++;
     } else if (r.event_type === 'time_on_page') {
-      // Fires repeatedly (30s ticks) per session — keep the MAX per session as
-      // that session's real dwell time on this page, not the sum of every tick.
-      // Capped at 10 minutes: an idle tab left open in the background keeps
-      // ticking indefinitely with zero real engagement (confirmed against real
-      // data — one session pinged for 5.5 hours straight, which would otherwise
-      // blow the page's average dwell time out to something meaningless).
       const MAX_DWELL_SECS = 600;
       const secs = Math.min(MAX_DWELL_SECS, Number(r.metadata && r.metadata.seconds) || 0);
       bucket.dwellBySession[r.session_id] = Math.max(bucket.dwellBySession[r.session_id] || 0, secs);
@@ -12765,9 +9565,6 @@ async function cityPagesAnalytics(req, res, db, auth) {
     };
   });
 
-  // Per-session summary across ALL 6 pages, for the "who's actually visiting"
-  // feed and the non-US-timezone flag — grouped independently of the per-page
-  // rollup above since one session can touch multiple pages.
   const bySession = {};
   for (const r of rows) {
     if (!bySession[r.session_id]) {
@@ -12809,12 +9606,9 @@ async function cityPagesAnalytics(req, res, db, auth) {
   return res.status(200).json({ days, pages, sessions, totalSessions, flaggedSessions, generatedAt: new Date().toISOString() });
 }
 
-// Estimate statuses (owner 2026-10-22, migration 0234):
-//   unsent, sent, approved, booked, lost, expired, out_of_area.
 const EST_STATUSES = ['unsent', 'sent', 'approved', 'booked', 'lost', 'expired', 'out_of_area'];
 const EST_CLOSED = ['lost', 'expired', 'booked', 'out_of_area'];
 const UNSENT_CLOSED = ['lost', 'expired', 'booked', 'out_of_area'];
-// Old names from a cached page map onto the new ones.
 const EST_LEGACY = { new: 'unsent', contacted: 'sent', scheduled: 'approved', declined: 'out_of_area', archived: 'lost', closed: 'lost' };
 function estStatusName(s) {
   const v = String(s || '').trim();
@@ -12826,25 +9620,14 @@ async function estimates(req, res, db, auth) {
   if (isAllJobsViewer(auth) && req.query.all === '1') return await estimatesAllCompanies(req, res, db);
   const biz = await resolveBusiness(db, auth, req.query.business || '');
   const status = (req.query.status || '').toString();
-  // Select with the full column set; if an optional column (e.g. customer_zip
-  // from a not-yet-applied migration) is missing from the schema cache, drop it
-  // and retry so the Estimates list still loads instead of erroring outright.
-  // Auto-close (unsent 7d -> expired, sent 3d -> lost) runs in the
-  // estimate_followup_check cron now (api/_lib/estimate-autoclose.js).
 
-  // customer_address/city/state: shown on the card and carried into convert-to-job.
-  // source: distinguishes a website contact-form lead from a real estimate request.
   let cols = 'id, service_label, customer_name, customer_phone, customer_email, customer_zip, customer_address, customer_city, customer_state, description, photo_url, preferred_slots, status, sms_consent, notes, source, line_items, tax_rate, upsells, accepted_upsells, approved_total, approved_at, created_at, customer_note, contacted_at, contacted_by, texted_at, texted_by, emailed_at, emailed_by, text_opened_at, email_opened_at, followup_emailed_at, followup_sent_by, closed_reason, technician_id, broker_company_name, broker_sub_price, broker_sell_price, broker_booked_at, broker_spread';
   const runQuery = () => {
     let q = db.from('estimates').select(cols)
       .eq('business_id', biz.id).is('deleted_at', null)
       .order('created_at', { ascending: false })
       .limit(200);
-    // 'website' is a SOURCE filter, not a status: the Website messages tab shows
-    // every contact-form lead regardless of how far the office has worked it.
     if (status === 'website') return q.eq('source', 'website_form').not('status', 'in', `(${EST_CLOSED.join(',')})`);
-    // A specific status filters to it; 'all' hides closed ones (lost, expired,
-    // booked, out of area). Booked customers leave Estimates (owner 2026-10-18).
     const st = estStatusName(status);
     if (st && st !== 'booked') q = q.eq('status', st);
     else q = q.not('status', 'in', `(${EST_CLOSED.join(',')})`);
@@ -12860,9 +9643,6 @@ async function estimates(req, res, db, auth) {
   }
   if (error) throw error;
 
-  // Office notes (owner 2026-09-29): staff-only notes on an estimate. The
-  // customer never sees them -- nothing that renders for the customer reads
-  // this table.
   try {
     const ids = (data || []).map((e) => e.id);
     if (ids.length) {
@@ -12873,18 +9653,11 @@ async function estimates(req, res, db, auth) {
     }
   } catch (e) { console.warn('[admin] estimates: office notes failed:', e.message); }
 
-  // Flag which rows get the "Get this estimate filled" button. Keyed off
-  // service_areas.unstaffed (DFW / Los Angeles / Phoenix / San Antonio today),
-  // never a city list, so staffing a market removes the button by itself.
-  // Best-effort: a lookup failure must not take down the Estimates screen.
   try {
     const isUnstaffed = await unstaffedZipMatcher(db, biz.id, biz.slug);
     for (const e of (data || [])) e.broker_eligible = isUnstaffed(e.customer_zip);
   } catch (e) { console.warn("[admin] estimates: unstaffed check failed:", e.message); }
 
-  // An approved estimate auto-books its job (bookEstimateAppointment stamps
-  // metadata.source_estimate_id), so hand the card the booking id to open
-  // instead of offering to "convert" a job that already exists. Best-effort.
   try {
     const ids = (data || []).filter(e => e.status === 'approved' || e.status === 'booked').map(e => e.id);
     if (ids.length) {
@@ -12895,8 +9668,6 @@ async function estimates(req, res, db, auth) {
     }
   } catch (e) { console.warn('[admin] estimates: booking lookup failed:', e.message); }
 
-  // Needs sending (owner 2026-10-22): never texted or emailed, still open.
-  // Same rule as the unsent alarm (api/_lib/estimate-escalation.js).
   let unsent = [];
   try {
     const { data: un } = await db.from('estimates')
@@ -12910,9 +9681,6 @@ async function estimates(req, res, db, auth) {
   return res.status(200).json({ estimates: data || [], unsent });
 }
 
-// Joey sees every company's estimates (owner 2026-10-07): last 3 days by
-// default; a search covers every estimate ever. Read-only; writes keep the
-// normal per-business gate. Deleted estimates are hard-deleted, so never show.
 async function estimatesAllCompanies(req, res, db) {
   const status = (req.query.status || '').toString();
   const q = (req.query.q || '').toString().replace(/[,()*%\\]/g, ' ').trim().slice(0, 80);
@@ -12967,23 +9735,16 @@ async function estimateUpdate(req, res, db, auth, body) {
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   if (!body.id) return res.status(400).json({ error: 'id required' });
 
-  // Confirm the estimate belongs to this business before touching it.
   const { data: existing } = await db.from('estimates')
     .select('id, photo_path, customer_email, approved_at, external_key, source, booked_booking_id').eq('id', body.id).eq('business_id', biz.id).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'Estimate not found' });
 
-  // No hard delete (owner 2026-10-22): delete hides the row (deleted_at) and
-  // keeps it, with a reason. Website/widget leads can't be deleted at all,
-  // only merged or closed, so their source and ad click survive.
   if (body.op === 'delete') {
     if (existing.source === 'website_form' || existing.source === 'widget') {
       return res.status(409).json({ error: 'Website leads can\'t be deleted. Close it instead.', code: 'web_lead' });
     }
     const reason = String(body.reason || '').trim().slice(0, 200);
     if (!reason) return res.status(400).json({ error: 'Reason required', code: 'reason_required' });
-    // A website lead is re-filed from the mailbox on every sync unless its key
-    // is remembered (migration 0157). Written BEFORE the delete so a sync
-    // running at the same moment can't slip it back in.
     if (existing.external_key) {
       const { error: tombErr } = await db.from('deleted_lead_keys')
         .upsert({ external_key: existing.external_key, deleted_by: auth.name || adminAuthorName(auth) });
@@ -13001,7 +9762,6 @@ async function estimateUpdate(req, res, db, auth, body) {
     const st = estStatusName(body.status);
     if (!st) return res.status(400).json({ error: 'Invalid status' });
     patch.status = st;
-    // Booked: the job exists (convert-to-job passes its id).
     if (st === 'booked' && body.booking_id && PHONE_REQUEST_UUID.test(String(body.booking_id))) {
       patch.booked_booking_id = String(body.booking_id);
       patch.booked_at = new Date().toISOString();
@@ -13009,19 +9769,10 @@ async function estimateUpdate(req, res, db, auth, body) {
     if (st === 'approved' && existing.booked_booking_id) patch.status = 'booked';
     if (st === 'lost' || st === 'expired') patch.closed_reason = String(body.reason || '').trim().slice(0, 200) || (auth.name || adminAuthorName(auth));
     if (st === 'booked' && !existing.approved_at) patch.approved_at = new Date().toISOString();
-    // Manually flipping the status dropdown to "Estimate sent" is the same
-    // real-world event as the Send email/text buttons (markEstimateContacted) —
-    // stamp who/when the same way, so the card always shows it regardless of
-    // which path got it there. The missing-column degrade below (stripAndRetry)
-    // already drops these two if the migration isn't applied yet.
     if (st === 'sent') {
       patch.contacted_at = new Date().toISOString();
       patch.contacted_by = auth.name || adminAuthorName(auth);
     }
-    // Same real-world event as estimate_approve's own approved_at stamp (a
-    // phone approval converted via "Convert to job" or a secretary manually
-    // picking "Estimate approved" from the dropdown) -- don't overwrite an
-    // approval that already happened through the customer's own approve link.
     if (st === 'approved' && !existing.approved_at) {
       patch.approved_at = new Date().toISOString();
     }
@@ -13029,26 +9780,9 @@ async function estimateUpdate(req, res, db, auth, body) {
   if (typeof body.notes === 'string') patch.notes = body.notes.trim() || null;
   if (typeof body.service_label === 'string') patch.service_label = body.service_label.trim() || null;
   if (typeof body.description === 'string') patch.description = body.description.trim();
-  // Shown to the customer on the approve page and in the quote email (0118).
-  // Capped so a pasted wall of text can't blow up the email.
   if (typeof body.customer_note === 'string') patch.customer_note = body.customer_note.trim().slice(0, 1500) || null;
-  // The address the quote gets emailed to. Editable because the office often
-  // has to create the estimate BEFORE the full scope is known (Joey typed a
-  // placeholder so she could add a TV dismount, then had no way to correct it
-  // before sending). estimate_send_email re-reads this column at send time, so
-  // fixing it here is genuinely enough -- there is no cached copy to miss.
-  // Validated rather than trusted: a malformed address fails silently at the
-  // provider, and the office would think the quote went out when it never did.
   if (typeof body.customer_email === 'string') {
     const em = body.customer_email.trim();
-    // The modal posts this field on EVERY save, prefilled from the row, so an
-    // unchanged value must never be able to fail. Nothing has ever validated
-    // this column on the way in (the public widget, estimateCreate and the
-    // legacy importer all store it raw), so addresses like "mikeb@gmail" with
-    // no TLD are already sitting in the table. Validating those on save would
-    // 400 the whole request -- losing the line items and price the office just
-    // typed -- over a field they never touched. Only a CHANGED value is
-    // checked; leaving a bad one alone is not an error.
     if (em !== ((existing.customer_email || '').trim())) {
       if (em && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) {
         return res.status(400).json({ error: 'That does not look like a valid email address.' });
@@ -13056,8 +9790,6 @@ async function estimateUpdate(req, res, db, auth, body) {
       patch.customer_email = em || null;
     }
   }
-  // Which technician this quote is for (0122). Blank = any tech. A named tech
-  // must be active; they may belong to the partner company (cross-company).
   if (body.technician_id !== undefined) {
     const tid = body.technician_id == null ? '' : String(body.technician_id).trim();
     if (!tid) patch.technician_id = null;
@@ -13072,18 +9804,11 @@ async function estimateUpdate(req, res, db, auth, body) {
   if (body.tax_rate !== undefined) patch.tax_rate = normalizeTaxRate(body.tax_rate);
   if (!Object.keys(patch).length) return res.status(400).json({ error: 'Nothing to update' });
 
-  // Same sanity ceiling as booking_create/line_items_save — an estimate a
-  // customer approves converts straight into a real booking (see
-  // estimate_approve), so an absurd quoted line here has the same real-world
-  // consequence as an absurd booking price.
   if (patch.line_items && body.confirm_high_price !== true) {
     const issue = priceSanityIssue({ lines: patch.line_items });
     if (issue) return res.status(409).json({ error: issue, code: 'high_price_confirm_required' });
   }
 
-  // line_items / tax_rate / upsells come from not-yet-applied migrations on some
-  // databases. If the missing column is one of those, drop it and retry so the
-  // rest of the update still lands (upsells silently no-ops until 0048 is applied).
   const stripAndRetry = async () => {
     let { error } = await db.from('estimates').update(patch).eq('id', body.id).eq('business_id', biz.id);
     for (let i = 0; error && i < 3; i++) {
@@ -13104,8 +9829,6 @@ async function estimateUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Clamp a tax rate to a sane fraction (0 .. 0.25). Accepts 8.75 (percent) or
-// 0.0875 (fraction); values > 1 are treated as a percentage.
 function normalizeTaxRate(raw) {
   let r = Number(raw);
   if (!Number.isFinite(r) || r < 0) r = 0;
@@ -13114,20 +9837,8 @@ function normalizeTaxRate(raw) {
   return Math.round(r * 100000) / 100000;
 }
 
-// Tax rate for estimates created from the NEW BOOKING modal's "Send estimate"
-// branch (its only consumer). Must equal the modal's own TAX_RATE (8.25%,
-// public/admin.html) — this used to be 8.75%, so the emailed/texted estimate
-// total never matched what the secretary saw on screen, nor what the booking
-// would charge after conversion. The Estimates-tab quote builder keeps its own
-// separate default (EST_TAX_RATE in admin.html) and per-estimate tax_rate.
 const DEFAULT_EST_TAX_RATE = 0.0825;
 
-// Normalize quote line items to the stored shape: { description, qty, unit_price }.
-// Drops blank rows, clamps to sane numbers, caps the list so a bad client can't
-// bloat a row. qty is coerced non-negative; unit_price may be NEGATIVE (discount/
-// coupon lines like "Multi-TV discount" are legitimate here — this list only
-// ever comes from an authenticated office user's own nb selections, never raw
-// public input) but is clamped to a sane floor so a typo can't wipe out a quote.
 function sanitizeLineItems(items) {
   return (Array.isArray(items) ? items : [])
     .slice(0, 50)
@@ -13138,7 +9849,6 @@ function sanitizeLineItems(items) {
       if (!Number.isFinite(qty) || qty < 0) qty = 0;
       if (!Number.isFinite(unit_price)) unit_price = 0;
       if (unit_price < -5000) unit_price = -5000;
-      // round qty to 2 decimals (allows "1.5 hrs"), price to cents
       qty = Math.round(qty * 100) / 100;
       unit_price = Math.round(unit_price * 100) / 100;
       return { description, qty, unit_price };
@@ -13146,13 +9856,6 @@ function sanitizeLineItems(items) {
     .filter(it => it.description || it.unit_price !== 0);
 }
 
-// Normalize the recommended-add-on menu the office attaches to an estimate.
-// Stored shape: { id, description, qty, unit_price, tech_pay, badge, blurb, default_on }.
-// - id: a short stable key so the customer's selection can be matched back to the
-//   server's stored price (client prices are never trusted on approval).
-// - tech_pay: OFFICE-ONLY — carried through to convert-to-job/payroll, never sent
-//   to the public approve page.
-// Caps the list and clamps every number so a bad client can't bloat or mis-price a row.
 function sanitizeUpsells(items) {
   const seen = new Set();
   return (Array.isArray(items) ? items : [])
@@ -13176,12 +9879,9 @@ function sanitizeUpsells(items) {
       return { id, description, qty, unit_price, tech_pay, badge, blurb, default_on };
     })
     .filter(it => it.description)
-    // de-dupe ids so the customer's selection always maps to exactly one price
     .filter(it => { if (seen.has(it.id)) return false; seen.add(it.id); return true; });
 }
 
-// Public-safe view of the upsell menu for the approve page: drops tech_pay so the
-// customer never sees our cost/margin.
 function publicUpsells(items) {
   return (Array.isArray(items) ? items : []).map(u => ({
     id: u.id, description: u.description, qty: u.qty, unit_price: u.unit_price,
@@ -13189,9 +9889,6 @@ function publicUpsells(items) {
   }));
 }
 
-// Fetch one estimate by id, tolerating the quote columns (line_items, tax_rate)
-// being absent (migration 0028 not applied) by dropping whichever is missing and
-// retrying. Returns the row with line_items: [] and tax_rate: 0 defaulted.
 async function fetchEstimate(db, id, businessId, baseCols) {
   const optional = ['line_items', 'tax_rate'];
   let cols = [baseCols, ...optional].join(', ');
@@ -13211,7 +9908,6 @@ async function fetchEstimate(db, id, businessId, baseCols) {
   return data;
 }
 
-// { subtotal, tax, total } for a quote, all rounded to cents.
 function quoteTotals(items, taxRate) {
   const subtotal = lineItemsTotal(items);
   const rate = Number(taxRate) || 0;
@@ -13219,8 +9915,6 @@ function quoteTotals(items, taxRate) {
   return { subtotal, tax, total: Math.round((subtotal + tax) * 100) / 100 };
 }
 
-// Insert an estimate, tolerating a column the local schema doesn't have yet
-// (e.g. line_items before migration 0028 is applied) by dropping it and retrying.
 async function insertEstimateResilient(db, row, requiredColumns = []) {
   const payload = { ...row };
   for (let i = 0; i < 6; i++) {
@@ -13237,26 +9931,12 @@ async function insertEstimateResilient(db, row, requiredColumns = []) {
   return { data: null, error: new Error('insert estimate failed after stripping unknown columns') };
 }
 
-// Sum of qty * unit_price across line items, rounded to cents.
 function lineItemsTotal(items) {
   const sum = (Array.isArray(items) ? items : [])
     .reduce((t, it) => t + (Number(it.qty) || 0) * (Number(it.unit_price) || 0), 0);
   return Math.round(sum * 100) / 100;
 }
 
-// Best-effort "mark contacted" after a quote goes out. Never throws — a failed
-// status bump must not turn a successful send into an error for the user.
-// Stamps WHO sent it and WHEN (migration estimates_contacted_stamp) so the
-// Estimates tab can show "Sent by Heather · Fri, Jul 17, 9:02 AM" instead of
-// just a status label. Degrades to a status-only update if that migration
-// isn't applied yet on some environment.
-//
-// `channel` ('sms' | 'email') additionally stamps texted_at/texted_by or
-// emailed_at/emailed_by (migration 0112) alongside the combined
-// contacted_at/contacted_by -- so a quote sent by BOTH text and email shows
-// both confirmations on the card instead of the most recent one clobbering
-// the other. Returns the patch actually applied (after any missing-column
-// degrade) so the caller can update the client without a full re-fetch.
 async function markEstimateContacted(db, businessId, id, sentBy, channel, emailId) {
   const now = new Date().toISOString();
   const patch = { status: 'sent', contacted_at: now, contacted_by: sentBy || null };
@@ -13280,37 +9960,23 @@ async function markEstimateContacted(db, businessId, id, sentBy, channel, emailI
   }
 }
 
-// Create an estimate from New Booking form data, then email it to the customer
 async function estimateCreate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
   const estimateId = body.estimate_id == null ? null : String(body.estimate_id);
   if (estimateId && !PHONE_REQUEST_UUID.test(estimateId)) return res.status(400).json({ error: 'estimate_id must be a UUID' });
-  // The Take a Call row this quote came out of (migration 0141, Pipeline):
-  // lets the card tie the conversation to the quote without guessing. Only a
-  // link -- a malformed id is dropped rather than blocking the estimate.
   const estCallId = body.call_id != null && PHONE_REQUEST_UUID.test(String(body.call_id)) ? String(body.call_id) : null;
   const taxRate = body.tax_rate === undefined ? DEFAULT_EST_TAX_RATE : normalizeTaxRate(body.tax_rate);
 
   const { customer_name, customer_phone, customer_email, selections, service_label } = body;
-  // One way to reach them is all that's required. A customer who has already
-  // said no to booking often will not hand over a name and both contact
-  // details just to hear a number, and refusing to send anything without all
-  // three loses the estimate entirely. Whichever channel they gave is the one
-  // it goes out on.
   const estEmail = (customer_email || '').trim();
   const estPhone = (customer_phone || '').trim();
-  // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
   const estSmsConsent = await textConsentFor(db, estPhone);
   const estName  = (customer_name || '').trim();
   if (!estEmail && !estPhone) {
     return res.status(400).json({ error: 'A phone number or an email address is required to send an estimate' });
   }
-  // Keep the zip so the approve page can show real availability for the right metro.
   const customer_zip = (body.postal_code || body.customer_zip || '').toString().replace(/\D/g, '').slice(0, 5) || null;
-  // ZIP check (owner 2026-10-22): warn when the ZIP isn't in this business's
-  // service area; staff can still send it (confirm_out_of_area). Skipped for a
-  // business with no ZIP list.
   if (customer_zip && customer_zip.length === 5 && body.confirm_out_of_area !== true && !body.merge_into) {
     try {
       const [{ count: total }, { count: hit }] = await Promise.all([
@@ -13321,7 +9987,6 @@ async function estimateCreate(req, res, db, auth, body) {
     } catch (e) { console.warn('[estimate_create] zip check failed:', e.message); }
   }
 
-  // Turn the selections into priced line items — these ARE the estimate detail.
   let description = '';
   let line_items = [];
   if (selections && Array.isArray(selections)) {
@@ -13331,22 +9996,14 @@ async function estimateCreate(req, res, db, auth, body) {
       unit_price: s.price || 0,
     })));
   }
-  // Same sanity ceiling as booking_create — an estimate the customer approves
-  // converts straight into a real booking (estimate_approve).
   if (body.confirm_high_price !== true) {
     const issue = priceSanityIssue({ lines: line_items });
     if (issue) return res.status(409).json({ error: issue, code: 'high_price_confirm_required' });
   }
-  // Don't also store a comma-joined dump of the selections as the description —
-  // it just duplicated the line items on the estimate card. Only keep a
-  // description when there are no line items to show instead.
   if (!line_items.length) description = 'Estimate for services requested';
 
-  // Recommended add-ons the office attached in the "Send Estimate" popover. These
-  // ride on the estimate so the customer can toggle them on the approve page.
   const upsells = sanitizeUpsells(body.upsells);
 
-  // Optional: tie this quote to one technician (0122). Blank = any tech.
   let estTechId = null;
   if (body.technician_id) {
     const { data: tRow } = await db.from('technicians').select('id').eq('id', String(body.technician_id)).eq('active', true).maybeSingle();
@@ -13354,9 +10011,6 @@ async function estimateCreate(req, res, db, auth, body) {
     estTechId = tRow.id;
   }
 
-  // Same customer already has an open estimate (owner 2026-10-22): offer
-  // "Use existing" so a website lead's source and ad click aren't lost to a
-  // fresh manual row. body.merge_into = that id; body.force_new skips this.
   const mergeInto = body.merge_into != null && PHONE_REQUEST_UUID.test(String(body.merge_into)) ? String(body.merge_into) : null;
   const p10 = phone10(estPhone);
   if (!mergeInto && body.force_new !== true && p10.length === 10) {
@@ -13375,14 +10029,9 @@ async function estimateCreate(req, res, db, auth, body) {
     } catch (e) { console.warn('[estimate_create] duplicate check failed:', e.message); }
   }
 
-  // Create the estimate record. insertResilientEstimate() tolerates a column
-  // being absent (line_items before 0028, upsells before 0048) by dropping it
-  // and retrying, so an estimate is never lost to schema drift.
   const estRow = {
     ...(estimateId ? { id: estimateId } : {}),
     business_id: biz.id,
-    // No name given: label the row by whichever contact detail they did give,
-    // so the estimates list still has something recognisable to show.
     customer_name: capName(estName) || estPhone || estEmail,
     customer_phone: estPhone || null,
     customer_email: estEmail || null,
@@ -13391,9 +10040,6 @@ async function estimateCreate(req, res, db, auth, body) {
     description,
     line_items,
     upsells,
-    // Store the rate the email/SMS totals were computed with, so the estimate
-    // card and the customer approve page show the SAME tax the customer was
-    // quoted (previously left null — the card showed no tax at all).
     tax_rate: taxRate,
     status: 'unsent',
     sms_consent: estSmsConsent,
@@ -13404,8 +10050,6 @@ async function estimateCreate(req, res, db, auth, body) {
   };
   let est = null, createErr = null;
   if (mergeInto) {
-    // Use existing: write the quote onto that row; source, ad_click,
-    // created_at and created_by stay as they were.
     const { data: target } = await db.from('estimates').select('id, customer_email, customer_name')
       .eq('id', mergeInto).eq('business_id', biz.id).is('deleted_at', null).maybeSingle();
     if (!target) return res.status(404).json({ error: 'That estimate is gone. Start a new one.' });
@@ -13430,8 +10074,6 @@ async function estimateCreate(req, res, db, auth, body) {
   if (createErr) throw createErr;
   if (!est?.id) return res.status(500).json({ error: 'The estimate record was not returned. Retry using the same estimate attempt.' });
 
-  // Prospects quote (owner 2026-10-08): link it; over $2,000 from a secretary
-  // is saved but NOT sent until the owner OKs it.
   if (body.prospect_id && PHONE_REQUEST_UUID.test(String(body.prospect_id))) {
     const qTotal = line_items.reduce((s, li) => s + (Number(li.qty) || 0) * (Number(li.unit_price) || 0), 0);
     let held = false;
@@ -13440,21 +10082,12 @@ async function estimateCreate(req, res, db, auth, body) {
     if (held) return res.status(201).json({ id: est.id, ok: true, held: true, warning: "Over $2,000: saved, waiting for Owner's OK." });
   }
 
-  // After insertion, even a delivery/setup exception must return the saved ID.
-  // A customer-facing retry reuses that ID and never creates or sends twice.
   try {
-  // Email is no longer mandatory, so its unavailability can't short-circuit the
-  // whole send — a phone-only customer still gets their estimate by text below.
   const emailOff = !emailNotificationsOn() ? 'Email notifications are turned off'
     : !emailConfig(biz.slug).apiKey ? 'Email service not configured'
     : null;
 
-  // Only greet by name when a real one was given — with no name the stored
-  // customer_name is their phone number, and "Hi 5125550134," is worse than
-  // no greeting at all.
   const firstName = greetName(estName ? estName.split(/\s+/)[0] : '');
-  // 90-day signed approve link (same as the Estimates-tab "send" flow), so the
-  // New Booking estimate email also gets an "I approve this estimate" button.
   const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   const approveToken = signToken({ kind: 'estimate_approve', estimate_id: est.id }, 7776000);
   const approveUrl = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(approveToken)}` : '';
@@ -13474,14 +10107,9 @@ async function estimateCreate(req, res, db, auth, body) {
     }
   }
 
-  // Text the customer the estimate + a link to view/approve it. For a customer
-  // who only gave a phone number this IS the delivery, not a bonus copy.
   let texted = false;
-  // Blocked numbers / STOP never get the auto-text (block is sitewide, audit 2026-10-25).
   if (estPhone && estSmsConsent && approveUrl && (await staffTextGate(db, estPhone, true)).ok) {
     try {
-      // No brand prefix and no dollar amount: the customer taps the link to see
-      // the price (owner rule, 2026-09-18).
       const greeting = firstName ? `Hi ${firstName}, here's` : `Here's`;
       const svcTxt = (service_label && service_label !== 'Custom Estimate') ? `${service_label}. ` : '';
       const shortLink = estimateApproveLink({ slug: biz.slug, token: approveToken, fallbackUrl: approveUrl });
@@ -13489,9 +10117,6 @@ async function estimateCreate(req, res, db, auth, body) {
       const r = await sendSMSResult(estPhone, msg);
       await logAutomatedMessage(db, { businessId: biz.id, customerPhone: estPhone, body: msg, result: r });
       texted = !!r.ok;
-      // Stamped independently of the email branch above -- both can succeed on
-      // the same create, and each needs its own confirmation on the card (see
-      // markEstimateContacted).
       if (texted) await markEstimateContacted(db, biz.id, est.id, auth.name || adminAuthorName(auth), 'sms');
       if (!r.ok) console.warn(`[estimate_create] estimate SMS not sent:`, r.skipped || r.error);
     } catch (e) {
@@ -13499,9 +10124,6 @@ async function estimateCreate(req, res, db, auth, body) {
     }
   }
 
-  // The estimate exists either way, but the office needs to know when nothing
-  // actually left the building — otherwise "Estimate sent ✓" is a lie and the
-  // customer is waiting on something that never arrived.
   let warning = null;
   if (!emailed && !texted) {
     warning = estEmail
@@ -13518,9 +10140,6 @@ async function estimateCreate(req, res, db, auth, body) {
   }
 }
 
-// Send quote SMS to customer
-// Pipeline Text box (owner 2026-09-28): the customer's own estimate link, to
-// drop into a custom text. Same signed 90-day link the estimate texts carry.
 async function estimateLink(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const id = String(req.query.id || '').slice(0, 64);
@@ -13543,35 +10162,20 @@ async function estimateSendSms(req, res, db, auth, body) {
   const est = await fetchEstimate(db, body.id, biz.id, 'customer_name, customer_phone, service_label, description, sms_consent');
   if (!est) return res.status(404).json({ error: 'Estimate not found' });
   if (!est.customer_phone) return res.status(400).json({ error: 'Customer phone not available for this estimate.' });
-  // Explicit opt-in only (A2P 10DLC): a missing answer is not consent.
   if (gateRefuse(res, await staffTextGate(db, est.customer_phone, est.sms_consent === true))) return;
 
   const firstName = greetName((est.customer_name || '').trim().split(/\s+/)[0]);
   const greeting = firstName ? `Hi ${firstName}, here's` : `Here's`;
   const svcTxt = est.service_label ? `${est.service_label}: ` : '';
-  // Line items only, never the total — the customer taps the link to see the
-  // price (owner rule, 2026-09-18). Fall back to the request description so
-  // the text is never empty.
   const items = Array.isArray(est.line_items) ? est.line_items : [];
   const body_txt = items.length
     ? items.map(it => `${it.qty && it.qty !== 1 ? it.qty + '× ' : ''}${it.description}`).filter(Boolean).slice(0, 4).join('; ')
     : (est.description || 'Your estimate request');
-  // Every estimate text must carry an actual booking link — "reply or call" with
-  // nothing to tap left customers replying in plain English instead of ever
-  // reaching the approve-and-schedule screen (see the Kanaan/Barrios incident,
-  // 2026-09-17). Same 90-day signed link the email button uses.
-  // NOTE: this changes the wording of campaign sample 3 on file for A2P 10DLC —
-  // re-verify/re-submit the sample with this link-bearing copy before assuming
-  // it's covered by the existing approval.
   const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   const approveToken = signToken({ kind: 'estimate_approve', estimate_id: body.id }, 7776000);
   const approveUrl = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(approveToken)}` : '';
   const shortLink = estimateApproveLink({ slug: biz.slug, token: approveToken, fallbackUrl: approveUrl });
   const linkTxt = shortLink ? `\nCheck availability & schedule:\n${shortLink}` : ' Reply or call us to get scheduled.';
-  // No brand prefix — same reasoning as the estimate_create SMS above and
-  // reviewRequestSms: A2P 10DLC only requires the brand name once per
-  // conversation, and this text always follows the opt-in confirmation text
-  // (which does name the business), so repeating it here reads as spam.
   const msg = `${greeting} the estimate you requested. ${svcTxt}${body_txt}.${linkTxt}`;
 
   const r = await sendSMSResult(est.customer_phone, msg);
@@ -13587,16 +10191,6 @@ async function estimateSendSms(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, estimate: patch });
 }
 
-// ── Follow up now ────────────────────────────────────────────────────────────
-// Sent, not approved, and still fresh enough to win. Two groups, best first:
-//   opened   – the customer opened the text/email but did not approve
-//   unopened – never opened
-// Owner rule (2026-09-22): an estimate is DUE for a follow-up once 24 hours
-// pass with no response -- and every follow-up we send (Text reminder / Resend
-// text) restarts that 24-hour clock, so the same customer isn't listed every
-// time the page opens. "No response" = not approved; an open is not a response.
-// Read-only. Nothing here changes an estimate.
-// Clean slate (owner, 2026-09-22): only estimates sent from this moment on are listed.
 const FOLLOWUP_STARTS = Date.parse('2026-09-22T00:00:00-06:00');
 const FOLLOWUP_AFTER_MS = 24 * 3600000;
 async function estimateFollowups(req, res, db, auth) {
@@ -13609,9 +10203,7 @@ async function estimateFollowups(req, res, db, auth) {
     .order('created_at', { ascending: false }).limit(300);
   if (error) throw error;
   const ms = (t) => (t ? Date.parse(t) : 0) || 0;
-  // Owner 2026-09-29: a customer who BOOKED after the quote (by phone, without
-  // tapping approve) is done -- not someone to chase.
-  const bookedAt = new Map();   // phone10 -> latest booking created_at
+  const bookedAt = new Map();
   try {
     const phones = [...new Set((data || []).map((e) => String(e.customer_phone || '').replace(/\D/g, '').slice(-10)).filter((p) => p.length === 10))];
     if (phones.length) {
@@ -13633,7 +10225,6 @@ async function estimateFollowups(req, res, db, auth) {
     const sentAt = Math.max(ms(e.contacted_at), ms(e.texted_at), ms(e.emailed_at)) || ms(e.created_at);
     const openedAt = Math.max(ms(e.text_opened_at), ms(e.email_opened_at));
     const rem = [...String(e.notes || '').matchAll(/Reminder texted (\d{4}-\d{2}-\d{2}T[\d:.]+Z)/g)].map(m => Date.parse(m[1])).filter(Boolean);
-    // The automatic 3-hour follow-up email (estimate-followup.js) is a touch too.
     const remindedAt = Math.max(rem.length ? Math.max(...rem) : 0, ms(e.followup_emailed_at));
     const row = {
       id: e.id, name: e.customer_name || '', phone: e.customer_phone || '', email: e.customer_email || '',
@@ -13644,8 +10235,6 @@ async function estimateFollowups(req, res, db, auth) {
       auto_emailed_at: e.followup_emailed_at || null, created_at: e.created_at,
     };
     if (!sentAt || sentAt < FOLLOWUP_STARTS) continue;
-    // Last time WE reached out: the original send or the latest reminder.
-    // Due only when that was 24h+ ago and the estimate is still young enough to win.
     const lastTouch = Math.max(sentAt, remindedAt);
     if (lastTouch > now - FOLLOWUP_AFTER_MS || sentAt < now - 14 * 86400000) continue;
     if (openedAt) opened.push(row);
@@ -13656,10 +10245,7 @@ async function estimateFollowups(req, res, db, auth) {
   return res.status(200).json({ opened, unopened });
 }
 
-// Screen pop (owner 2026-09-30). ring_setup: which handset channels this login
-// listens to + the public Realtime connection details. ring_card: who is
-// calling -- name, past jobs, open estimates, the last call's summary.
-const SCOPE_HANDSET = { 'handy-andy': '0000000000', doms: '0000000000' };
+const SCOPE_HANDSET = { 'tidyhaus': '0000000000', doms: '0000000000' };
 async function ringSetup(req, res, db, auth) {
   if (auth.role === 'auditor') return res.status(200).json({ topics: [] });
   const { ringTopic } = await import('./_lib/ring-push.js');
@@ -13704,10 +10290,6 @@ async function ringCard(req, res, db, auth) {
   return res.status(200).json(out);
 }
 
-// The whole story of one estimate, oldest first (owner 2026-09-29: "I can't
-// diagnose why they didn't book"): the quote itself, every send and open, the
-// automatic follow-ups, every call and text with that customer around it, and
-// the office notes. Read-only.
 async function estimateStory(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business || ''); } catch (e) { return bail(res, e); }
   const id = String(req.query.id || '');
@@ -13764,12 +10346,6 @@ async function estimateStory(req, res, db, auth) {
   });
 }
 
-// One-tap reminder text for a sent estimate. Needs the customer's text consent;
-// re-uses the same signed 90-day approve link as the original estimate text.
-// POST { business, id } -- the "Send Quote via email (Coupon)" button (owner
-// rule 2026-09-23). Sends the SAME $20-off follow-up email the 3-hour cron
-// sends, through the same function, and claims the same followup_emailed_at
-// stamp -- so once either one has gone out, the other never sends.
 async function estimateCouponSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -13820,8 +10396,6 @@ async function estimateRemind(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, reminded_at: stamp });
 }
 
-// Bulk close: sent estimates nobody approved, older than N days, move to the
-// Archived folder with a lost reason in the notes. `dry: true` only counts.
 const LOST_REASONS = { no_reply: 'No reply', price: 'Price too high', elsewhere: 'Went with someone else', not_needed: 'No longer needs it', other: 'Other' };
 async function estimateBulkClose(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -13848,7 +10422,6 @@ async function estimateBulkClose(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, count: closed, days });
 }
 
-// Send quote email to customer
 async function estimateSendEmail(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -13867,10 +10440,8 @@ async function estimateSendEmail(req, res, db, auth, body) {
   }
 
   const firstName = greetName((est.customer_name || '').trim().split(/\s+/)[0]);
-  // 90-day signed link the customer clicks to approve this quote. Verified
-  // server-side by estimate_approve — no public token column needed on the row.
   const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
-  const approveToken = signToken({ kind: 'estimate_approve', estimate_id: body.id }, 7776000); // 90 days
+  const approveToken = signToken({ kind: 'estimate_approve', estimate_id: body.id }, 7776000);
   const approveUrl = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(approveToken)}&via=email` : '';
   const { subject, html } = estimateEmail(
     { firstName, serviceLabel: est.service_label, description: est.description, customerNote: est.customer_note, lineItems: est.line_items, taxRate: est.tax_rate, approveUrl, upsells: publicUpsells(est.upsells) },
@@ -13888,30 +10459,7 @@ async function estimateSendEmail(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, estimate: patch });
 }
 
-// Decline an estimate as outside what the business does (a request for work
-// that isn't home cleaning or handyman repairs) — tells the customer directly
-// rather than letting the request silently age out, and points them at a
-// public "what we do" page instead of the priced-quote approve flow. Sends
-// both channels the estimate has (best-effort — a failed SMS must not block
-// the email, and vice versa), then marks the estimate declined either way so
-// it stops showing as "Needs Response".
-// ---------------------------------------------------------------------------
-// Subcontractor brokering (migrations 0092 + 0093). Only for estimates whose
-// zip lands in an UNSTAFFED service area (DFW / Los Angeles / Phoenix / San
-// Antonio as of Aug 2026). The gate is service_areas.unstaffed via the shared
-// resolver -- NOT a city list -- so staffing a market turns this off by itself.
-//
-// A TV mount is priced off three things: the size tier, the bracket, and the
-// wire concealment. Those three are picked ONCE per estimate (so all three
-// companies quote the same scope), and each company's price for them lives on
-// that company's rate card, keyed by the same (section_key, row_key) the
-// booking widget uses. Fill a company's card once and every later estimate
-// prices itself.
-// ---------------------------------------------------------------------------
 
-// The option catalog the booking widget already uses. city_key 'default' is the
-// canonical option list; per-city rows only differ in OUR price, which is not
-// what a subcontractor charges.
 async function brokerCatalog(db, businessId) {
   const { data, error } = await db.from('widget_prices')
     .select('section_key, row_key, label, price, sort_order')
@@ -13927,8 +10475,6 @@ async function brokerCatalog(db, businessId) {
   return out;
 }
 
-// Shared by every broker action: load the estimate, resolve its zip, and refuse
-// to broker anything in a staffed market. Returns { est, area }.
 async function brokerContext(db, biz, estimateId) {
   const est = await fetchEstimate(db, estimateId, biz.id,
     'id, customer_zip, customer_name, service_label, broker_sub_price, broker_sell_price, broker_company_name, broker_spec');
@@ -13940,8 +10486,6 @@ async function brokerContext(db, biz, estimateId) {
   return { est, area };
 }
 
-// Panel load: the job's three options, the three bid slots with each company's
-// rates for exactly those options, and the directory for the dropdown.
 async function estimateBroker(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -13962,7 +10506,6 @@ async function estimateBroker(req, res, db, auth, body) {
     .select('id, company_name, phone').eq('business_id', biz.id).eq('active', true).order('company_name');
   if (dErr) throw dErr;
 
-  // Every rate any of these companies has for the three options this job needs.
   const subIds = (bids || []).map(b => b.subcontractor_id).filter(Boolean);
   let rates = [];
   if (subIds.length) {
@@ -13979,8 +10522,6 @@ async function estimateBroker(req, res, db, auth, body) {
     return hit ? Number(hit.price) : null;
   };
 
-  // A custom line's price is job-specific, so it lives on the BID's breakdown
-  // rather than on the company's reusable rate card.
   const customPriceFor = (bid, id) => {
     const rows = Array.isArray(bid && bid.breakdown) ? bid.breakdown : [];
     const hit = rows.find(r => r && r.section_key === 'custom' && r.row_key === id);
@@ -13995,8 +10536,6 @@ async function estimateBroker(req, res, db, auth, body) {
       section_key: l.key, label: l.label, custom: l.custom,
       price: l.custom ? customPriceFor(b, l.key) : rateFor(b.subcontractor_id, l.key),
     }));
-    // Their total is the sum of EVERY required line, and only counts once all
-    // of them are filled in -- a partial card must not read as a cheap bid.
     const complete = lines.length > 0 && lines.every(l => l.price !== null);
     const total = complete ? Math.round(lines.reduce((t, l) => t + l.price, 0) * 100) / 100 : null;
     return { slot: n, subcontractor_id: b.subcontractor_id, company_name: b.company_name, phone: b.phone,
@@ -14017,8 +10556,6 @@ async function estimateBroker(req, res, db, auth, body) {
   });
 }
 
-// The office correcting which size/bracket/wires this job actually is. Shared
-// by all three bids, so everyone quotes the same scope.
 async function estimateBrokerSaveSpec(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -14037,8 +10574,6 @@ async function estimateBrokerSaveSpec(req, res, db, auth, body) {
     }
     spec[s.key] = v;
   }
-  // Free-text scope lines. Blank labels are dropped, which is how the UI
-  // deletes one; ids are preserved so typed prices stay with their line.
   spec.custom = normalizeCustomLines(body.spec && body.spec.custom);
 
   const { error } = await db.from('estimates').update({ broker_spec: spec }).eq('id', body.id).eq('business_id', biz.id);
@@ -14046,9 +10581,6 @@ async function estimateBrokerSaveSpec(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, spec });
 }
 
-// Save one bid slot. The three prices are written to the COMPANY'S rate card
-// (keyed by this job's row_keys), so the next estimate needing the same options
-// fills itself in. Blank everything clears the slot.
 async function estimateBrokerSaveBid(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -14077,7 +10609,6 @@ async function estimateBrokerSaveBid(req, res, db, auth, body) {
   }
   if (!company) return res.status(400).json({ error: 'Enter the company name for this slot.' });
 
-  // Directory upsert, matched case-insensitively against the unique index.
   let subId = body.subcontractor_id || null;
   if (!subId) {
     const { data: existing } = await db.from('subcontractors')
@@ -14096,17 +10627,15 @@ async function estimateBrokerSaveBid(req, res, db, auth, body) {
     }
   }
 
-  // Write each typed price onto the company's rate card.
   const breakdown = [];
   for (const l of required) {
     const price = parseMoney(prices[l.key]);
     if (price === null) continue;
     if (l.custom) {
-      // Job-specific: recorded on this bid only, never on the rate card.
       breakdown.push({ section_key: 'custom', row_key: l.key, label: l.label, price });
       continue;
     }
-    if (!l.row_key) continue;   // section not chosen yet
+    if (!l.row_key) continue;
     const opt = (catalog[l.key] || []).find(o => o.row_key === l.row_key);
     const { error: upErr } = await db.from('subcontractor_rates').upsert({
       business_id: biz.id, subcontractor_id: subId,
@@ -14117,7 +10646,6 @@ async function estimateBrokerSaveBid(req, res, db, auth, body) {
     breakdown.push({ section_key: l.key, row_key: l.row_key, label: opt ? opt.label : l.row_key, price });
   }
 
-  // Their price only counts when all three lines are in.
   const complete = breakdown.length === required.length;
   const subPrice = complete ? Math.round(breakdown.reduce((t, l) => t + l.price, 0) * 100) / 100 : null;
 
@@ -14132,11 +10660,6 @@ async function estimateBrokerSaveBid(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, slot, sub_price: subPrice, min_sell: minSellPrice(subPrice) });
 }
 
-// Pick a winning bid and set the price we sell at. The sell price is validated
-// against the 20 percent minimum, recorded for profit reporting, and written
-// into line_items as the SINGLE line the customer sees, so the EXISTING
-// estimate_send_sms / estimate_send_email actions quote exactly that number.
-// The customer never sees the subcontractor, the breakdown, or the spread.
 async function estimateBrokerBook(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
@@ -14160,11 +10683,6 @@ async function estimateBrokerBook(req, res, db, auth, body) {
   const check = checkSellPrice(bid.sub_price, body.sell_price, !!body.override_below_min);
   if (!check.ok) return res.status(400).json({ error: check.error, below_min: !!check.belowMin, min_sell: check.min });
 
-  // ONE line at the sell price, replacing whatever was there. The estimate's
-  // own itemization is OUR pricing for a job we are not doing ourselves, and
-  // leaving it in place would add to the brokered price rather than replace it
-  // (a 254 dollar itemized LA quote plus a 652 dollar brokered line quoted the
-  // customer 906). The breakdown stays on the bid row for reporting.
   const items = brokerQuoteLineItems(ctx.est.service_label, check.sell);
 
   const patch = {
@@ -14175,7 +10693,6 @@ async function estimateBrokerBook(req, res, db, auth, body) {
     broker_below_min:        !!check.belowMin,
     broker_booked_at:        new Date().toISOString(),
     line_items:              items,
-    // broker_spread is a GENERATED column -- never written here on purpose.
   };
   const { error } = await db.from('estimates').update(patch).eq('id', body.id).eq('business_id', biz.id);
   if (error) throw error;
@@ -14204,7 +10721,6 @@ async function estimateDecline(req, res, db, auth, body) {
 
   let smsResult = null, emailResult = null;
 
-  // Explicit opt-in only (A2P 10DLC); the email below still goes out either way.
   if (est.customer_phone && est.sms_consent === true) {
     const opener = firstName ? `Hi ${firstName}, we're` : "We're";
     const msg = `${opener} sorry, but it looks like your request is outside of what we're able to help with. Here's what we do handle: ${servicesUrl}`;
@@ -14233,32 +10749,7 @@ async function estimateDecline(req, res, db, auth, body) {
   });
 }
 
-// ── How much can we discount this quote without losing money? ────────────────
-// The owner's rule: never take a job below $50 of profit. Profit here is NOT a
-// percentage guess — the quote's line items are run through the SAME payroll
-// engine that pays the techs (computeJobPay), so the TV base rates, bracket
-// rates, wire/fireplace add-ons, travel tiers and the after-hours bonus are all
-// priced exactly as they will be on payday. Bracket hardware the business buys
-// is subtracted too, same as the Profit card does.
-//
-// No tech is assigned yet at quote time, so this prices the job for a standard
-// tech rather than guessing who it'll land on. Juan's own rates differ (higher
-// base pay on some sizes, no bracket reimbursement since 2026-08-16 — see
-// bracketHardwareCost), but standard-rate is the conservative default here.
 const QUOTE_PROFIT_FLOOR = 50;
-// A second, independent ceiling: a share of the ticket. The profit floor alone
-// scales with the job, so a fat multi-TV ticket would have permitted several
-// hundred off and still cleared $50, technically profitable but not a
-// discount anyone meant to authorize. Whichever limit is TIGHTER wins, so a
-// thin job is protected by the floor and a big one by this.
-//
-// Measured against 1,566 completed jobs (Aug 2025 - Aug 2026, priced through
-// the real payroll engine): margin sits at a near-constant 31-35% at EVERY
-// ticket size, so this cap, not the floor, is what actually binds on anything
-// over ~$450 -- 100% of the time up there. The floor does its work at the low
-// end instead, binding on ~61% of $150-249 jobs. Raised 10% -> 15% so the
-// office has real room to close a mid-size job; worst case (every call maxed)
-// still leaves $51 on a small ticket and $140 on an $800 one.
 const QUOTE_MAX_DISCOUNT_PCT = 0.15;
 async function quoteEconomics(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -14272,9 +10763,6 @@ async function quoteEconomics(req, res, db, auth, body) {
   }));
   const price = Math.round(lines.reduce((t, li) => t + li.line_total, 0) * 100) / 100;
 
-  // Same projection shape computeJobEconomics builds for an upcoming job: force
-  // completed + paid so the payment gate doesn't zero out a job that hasn't
-  // happened yet.
   const projJob = {
     status: 'completed',
     payment_status: 'paid',
@@ -14286,10 +10774,8 @@ async function quoteEconomics(req, res, db, auth, body) {
     business_slug: biz.slug,
     line_items: lines,
     scheduled_at: body.scheduled_at || new Date().toISOString(),
-    travel_payout: 0,   // derived from the ticket's own surcharge line by the engine
+    travel_payout: 0,
     second_tech: false,
-    // No real booking yet, so only a zip on the quote (if the office entered one)
-    // can resolve the metro beyond the Houston-exclusive brands.
     is_houston: await isHoustonBooking(db, biz.id, biz.slug, await serviceAreaIdFromPostal(db, biz.id, body.postal_code)),
   };
   const { total: pay, flags } = computeJobPay(projJob, 'Office Quote');
@@ -14299,37 +10785,22 @@ async function quoteEconomics(req, res, db, auth, body) {
   const floorRoom = Math.max(0, profit - QUOTE_PROFIT_FLOOR);
   const pctRoom = Math.floor(price * QUOTE_MAX_DISCOUNT_PCT);
   const taxRate = body.tax_rate === undefined ? DEFAULT_EST_TAX_RATE : normalizeTaxRate(body.tax_rate);
-  // booking_create compares the final tax-inclusive ticket against $139.
-  // Leave enough before-tax price that an authorized discount still books.
   const minimumRoom = price > 0 && !isHandymanPricedLines(lines)
     ? Math.max(0, Math.floor((price - MIN_TICKET_PRICE / (1 + taxRate)) * 100) / 100) : Infinity;
   const maxDiscount = Math.min(floorRoom, pctRoom, minimumRoom);
 
   return res.status(200).json({
     price,
-    // Only the owner sees the raw economics; a secretary gets the ceiling they
-    // are allowed to work within, which is all they need to close the call.
     ...(auth.role === 'owner' ? { payout: Math.round(payout), bracket_cost: bracketCost, profit, flags } : {}),
     profit,
     max_discount: maxDiscount,
     floor: QUOTE_PROFIT_FLOOR,
-    // Which limit actually bound this quote, so the office can see WHY a job
-    // has little room rather than just being told "no".
-    // Derived from the constant, never hardcoded: this string is shown to the
-    // secretary as "limit: ...", so a literal would silently lie the next time
-    // the percentage moves.
     capped_by: maxDiscount <= 0 ? 'nothing to give'
       : minimumRoom <= Math.min(floorRoom, pctRoom) ? 'minimum ticket'
       : (pctRoom < floorRoom ? `${(QUOTE_MAX_DISCOUNT_PCT * 100).toFixed(2).replace(/\.?0+$/, '')}% of the ticket` : 'profit floor'),
   });
 }
 
-// ── Take a Call: event log + rollups ────────────────────────────────────────
-// Every step of the phone script writes one row here. The point is the funnel:
-// a call that dies on the zip question and a call that dies after the price was
-// quoted are very different failures, and only the event history tells them
-// apart. Also stamps the denormalized outcome columns on the call itself so the
-// day/week rollup is one scan instead of re-aggregating events every load.
 const CALL_EVENTS = new Set([
   'started', 'service_picked', 'zip_checked', 'question_answered', 'options_done', 'extras_reached',
   'date_picked', 'technician_picked', 'slot_picked', 'price_quoted', 'read_to_customer',
@@ -14351,8 +10822,6 @@ async function callEvent(req, res, db, auth, body) {
   if (callError) throw callError;
   if (!call) return res.status(404).json({ error: 'Call not found. The event was not saved.' });
 
-  // The frontend keeps analytics off the conversation's critical path, but
-  // callers still need an honest result when persistence fails.
   {
     const { error } = await db.from('call_events').insert({
       call_id: body.call_id, business_id: biz.id, actor,
@@ -14361,8 +10830,6 @@ async function callEvent(req, res, db, auth, body) {
     if (error) throw error;
   }
 
-  // Roll the interesting values onto the call row so reports don't have to dig
-  // through jsonb for the numbers they show on every line.
   const patch = { reached_step: body.step ? String(body.step).slice(0, 40) : undefined };
   if (event === 'extras_reached' || event === 'options_done' || ['schedule', 'recap', 'discount', 'customer', 'estimate'].includes(String(body.step || ''))) patch.reached_extras = true;
   if (event === 'price_quoted') {
@@ -14374,9 +10841,6 @@ async function callEvent(req, res, db, auth, body) {
     patch.discount_detail = meta.detail ? String(meta.detail).slice(0, 200) : null;
   }
   if (event === 'booking_created' && meta.total != null) {
-    // quoted_total was frozen at the FIRST recap, before any discount, so booked
-    // revenue read higher than what was actually charged and never reconciled
-    // with the discount column sitting next to it. The booked price wins.
     patch.quoted_total = Number(meta.total) || 0;
   }
   if (['booking_created', 'estimate_sent', 'declined', 'abandoned'].includes(event)) {
@@ -14396,20 +10860,6 @@ async function callEvent(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, recorded: true });
 }
 
-// Daily + weekly rollups for the phone script. The headline number the owner
-// asked for is calls-taken vs calls-booked, broken down by who took the call —
-// everything else on this payload exists to explain that ratio.
-// Rolls up the manual call audits (see api/audit.js) into the one question the
-// owner actually asks: are the secretaries doing what they were told. Owner
-// only, and unlike the profit endpoints this one genuinely needs to span both
-// businesses, since the auditor works every line regardless of brand.
-//
-// The reconciliation is the headline. Her per-line counts are the only record
-// of how many calls actually came in (live call rows carry handled_by but no
-// grasshopper_number), so counted-minus-scripted is the number of calls handled
-// without opening the script at all. That is a bigger finding than any single
-// question's score, which is why it leads.
-// POST {id} -- owner marks a flagged call as heard; it leaves his list.
 async function auditHeard(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -14420,8 +10870,6 @@ async function auditHeard(req, res, db, auth) {
   return res.status(200).json({ ok: true });
 }
 
-// POST {id, note} -- owner's note back to Jiyah on a flagged call. Shows on
-// her audit log. Empty note clears it.
 async function auditOwnerNote(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -14438,11 +10886,6 @@ async function auditReport(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
 
   const days = Math.min(180, Math.max(1, parseInt(req.query.days, 10) || 30));
-  // offset shifts the whole window back in whole days: 0 = ending today (the
-  // default for every multi-day range), -1 = ending yesterday. Combined with
-  // days=1 this is what makes "Today" and "Yesterday" single-day views rather
-  // than a 1-day slice of a rolling window; every other range stays anchored
-  // to today the way it always has.
   const offset = Math.max(-365, Math.min(0, parseInt(req.query.offset, 10) || 0));
   const { data: bizRows } = await db.from('businesses').select('id, slug, timezone').eq('active', true);
   const tz = (bizRows && bizRows[0] && bizRows[0].timezone) || 'Asia/Manila';
@@ -14457,8 +10900,6 @@ async function auditReport(req, res, db, auth) {
       .order('occurred_at', { ascending: false }),
   ]);
 
-  // Scripted calls over the same window, bucketed by local day so they line up
-  // with audit_date, which is a plain calendar date the auditor typed.
   const start = localDayStartUTC(tz, offset - (days - 1));
   const end = localDayStartUTC(tz, offset + 1);
   const { data: liveCalls } = await db.from('calls')
@@ -14490,10 +10931,6 @@ async function auditReport(req, res, db, auth) {
     return { yes, no, pct: (yes + no) ? Math.round(100 * yes / (yes + no)) : null };
   };
 
-  // Per-day grading activity and script score, for the owner's trend chart:
-  // "are they getting better" needs the score over time, not one pooled
-  // number, and "is the auditor keeping up" needs graded-per-day next to
-  // counted-per-day.
   const gradedByDay = {}, scoreAggByDay = {};
   for (const a of (audits || [])) {
     gradedByDay[a.audit_date] = (gradedByDay[a.audit_date] || 0) + 1;
@@ -14504,7 +10941,6 @@ async function auditReport(req, res, db, auth) {
     }
   }
 
-  // Per-day series so a bad week is visible rather than averaged away.
   const daily = [];
   for (let i = 0; i < days; i++) {
     const d = dayStr(offset - (days - 1) + i);
@@ -14512,8 +10948,6 @@ async function auditReport(req, res, db, auth) {
     const agg = scoreAggByDay[d];
     daily.push({
       date: d,
-      // null, not 0, when the auditor never saved that day. A day she skipped
-      // and a day with genuinely no calls must not look the same on the chart.
       counted: counted == null ? null : counted,
       scripted: scriptedByDay[d] || 0,
       graded: gradedByDay[d] || 0,
@@ -14523,11 +10957,6 @@ async function auditReport(req, res, db, auth) {
 
   const people = {};
   const questions = {};
-  // Same tally as `questions`, kept separately per person too. The combined
-  // list answers "what goes wrong on these calls" but not "who", which is the
-  // actual coaching question the owner is asking; Heather and Joey missing
-  // different things at a 50/50 split reads identically to one of them
-  // missing everything, in a list that only ever names the question.
   const questionsByPerson = {};
   for (const a of (audits || [])) {
     const s = scoreOf(a);
@@ -14537,7 +10966,7 @@ async function auditReport(req, res, db, auth) {
     if (a.flagged) p.flagged++;
     const pq = questionsByPerson[who] || (questionsByPerson[who] = {});
     for (const [k, v] of Object.entries(a.answers || {})) {
-      if (v !== 'yes' && v !== 'no') continue;   // N/A is excluded from the denominator
+      if (v !== 'yes' && v !== 'no') continue;
       const q = questions[k] || (questions[k] = { key: k, asked: 0, no: 0 });
       q.asked++;
       if (v === 'no') q.no++;
@@ -14547,8 +10976,6 @@ async function auditReport(req, res, db, auth) {
     }
   }
 
-  // Worst first, same rule as the combined list below: fail rate, then volume
-  // to break ties, and only questions actually missed at least once.
   const rankQuestions = (map) => Object.values(map)
     .map(q => ({ ...q, fail_rate: q.asked ? Math.round(100 * q.no / q.asked) : 0 }))
     .filter(q => q.no > 0)
@@ -14560,14 +10987,8 @@ async function auditReport(req, res, db, auth) {
     questions: rankQuestions(questionsByPerson[p.name] || {}),
   })).sort((a, b) => b.audited - a.audited);
 
-  // Worst first: this is the coaching list, so the thing they get wrong most
-  // often has to be at the top. Ties break toward the more frequently asked
-  // question, since a 50% failure over 20 calls matters more than over 2.
   const questionsOut = rankQuestions(questions);
 
-  // Owner redesign 2026-09-27: only real "listen to this" requests -- flagged
-  // WITH a reason and not yet marked heard. Old reason-less flags (the old
-  // checkbox, used for small misses) stay in the data but off this list.
   const listenRows = (audits || []).filter(a => a.flagged && a.listen_reason && !a.heard_at).slice(0, 25);
   const recIds = listenRows.map(a => a.call_id).filter(Boolean);
   const withRec = new Set();
@@ -14606,41 +11027,20 @@ async function auditReport(req, res, db, auth) {
     questions: questionsOut,
     flagged,
     daily,
-    // Days in range the auditor never saved anything for, so a gap in her own
-    // coverage does not read as a quiet stretch for the business.
     missing_days: daily.filter(d => d.counted == null).map(d => d.date),
   });
 }
 
-// Every Twilio tracking number across the whole portfolio, with the business
-// it belongs to and where a call to it actually rings. Owner-only, same as
-// Performance/Audit -- forward_to is a real personal cell number, not
-// something a secretary needs to see to do her job.
-// Twilio itself is the only source of truth for whether a number's voice
-// webhook actually points at Vapi (importing a number into Vapi silently
-// rewrites this URL on Twilio's side -- nothing in our own DB changes when
-// that happens). Pulled fresh every time the Numbers screen loads rather than
-// cached, since a number can be imported/removed from Vapi at any moment
-// outside this app. 10s timeout + swallow-on-failure: a slow/erroring Twilio
-// call should degrade to "can't tell" for every row, never break the page.
-let _twilioNumbersCache = null; // { at, byPhone: Map<10-digit, voiceUrl>, ok }
+let _twilioNumbersCache = null;
 const TWILIO_NUMBERS_CACHE_MS = 30 * 1000;
 async function fetchTwilioVoiceUrls() {
   if (_twilioNumbersCache && (Date.now() - _twilioNumbersCache.at) < TWILIO_NUMBERS_CACHE_MS) return _twilioNumbersCache.byPhone;
   const sid = process.env.TWILIO_ACCOUNT_SID, token = process.env.TWILIO_AUTH_TOKEN;
   const byPhone = new Map();
-  // Ridden along from the same response: whether Twilio says the number can
-  // do SMS at all. Read by callNumbers() via _twilioNumbersCache.smsCap.
   const smsCap = new Map();
   if (!sid || !token) return byPhone;
   const auth = Buffer.from(`${sid}:${token}`).toString('base64');
   let url = `https://api.twilio.com/2010-04-01/Accounts/${sid}/IncomingPhoneNumbers.json?PageSize=200`;
-  // Whether this list is COMPLETE, not just non-empty -- callNumbers() needs
-  // this to tell "this number isn't in the Twilio account yet" (a Grasshopper
-  // number that hasn't ported in) from "we couldn't finish asking Twilio"
-  // (rate limit / timeout / a page failed mid-list). Only a clean run where
-  // pagination ran out on its own earns ok=true; anything that broke early
-  // leaves ok=false so an outage can't be misread as "not ported".
   let ok = true;
   try {
     for (let page = 0; page < 5 && url; page++) {
@@ -14657,28 +11057,16 @@ async function fetchTwilioVoiceUrls() {
       }
       url = data.next_page_uri ? `https://api.twilio.com${data.next_page_uri}` : null;
     }
-    if (url) ok = false; // hit the 5-page cap before pagination actually finished
+    if (url) ok = false;
   } catch (e) { ok = false; /* Twilio unreachable/slow -- callers treat a missing entry as "unknown" */ }
   _twilioNumbersCache = { at: Date.now(), byPhone, smsCap, ok };
   return byPhone;
 }
 function aiVoiceStatusFor(voiceUrl) {
-  if (voiceUrl == null) return 'unknown';   // Twilio call failed/timed out
+  if (voiceUrl == null) return 'unknown';
   return /vapi\.ai/i.test(voiceUrl) ? 'connected' : 'not_connected';
 }
 
-// Whether each number can actually SEND a text today. Three Twilio facts, all
-// read live so the Numbers tab reflects reality the day a carrier approves the
-// campaign or a number gets dropped into the pool -- no manual flag to forget:
-//   1. the A2P Messaging Service (registered 2026-09-09 as "Mixed A2P
-//      Messaging Service", discovered by listing Services so no env var has to
-//      be set; TWILIO_MESSAGING_SERVICE_SID overrides if there are ever two)
-//   2. its Sender Pool -- which numbers are in it
-//   3. its US A2P campaign status -- VERIFIED is the only value that sends
-// Same 30s cache / 10s timeout / swallow-on-failure shape as
-// fetchTwilioVoiceUrls above: a slow Twilio must degrade to "unknown" on every
-// row, never break the page. The toll-free sender is NOT here on purpose --
-// it is not a tracking number and lives on toll-free verification, not 10DLC.
 let _twilioSmsCache = null;
 async function fetchTwilioSmsReadiness() {
   if (_twilioSmsCache && (Date.now() - _twilioSmsCache.at) < TWILIO_NUMBERS_CACHE_MS) return _twilioSmsCache.v;
@@ -14700,7 +11088,6 @@ async function fetchTwilioSmsReadiness() {
     if (!svcSid) {
       const d = await get('https://messaging.twilio.com/v1/Services?PageSize=50');
       const list = d.services || [];
-      // Prefer the one we registered; fall back to the only/first one.
       const pick = list.find(x => /a2p/i.test(x.friendly_name || '')) || list[0];
       if (pick) { svcSid = pick.sid; svcName = pick.friendly_name || null; }
     }
@@ -14714,9 +11101,6 @@ async function fetchTwilioSmsReadiness() {
     }
     out.pool_size = out.pool.size;
 
-    // Response key has been documented as both `compliance` and
-    // `us_app_to_person`; read either. Anything but VERIFIED means "can't send
-    // yet" -- PENDING / IN_PROGRESS while the carriers vet, FAILED if rejected.
     const comp = await get(`https://messaging.twilio.com/v1/Services/${svcSid}/Compliance/Usa2p?PageSize=5`);
     const rows = comp.compliance || comp.us_app_to_person || [];
     out.campaign_status = rows.length ? (rows[0].campaign_status || null) : null;
@@ -14728,14 +11112,8 @@ async function fetchTwilioSmsReadiness() {
   return out;
 }
 
-// Google Ads call numbers (owner 2026-10-22): one purpose only -- ads. They stay
-// in tracking_numbers so calls still route, but never show on Numbers or Launch.
 function isAdsOnlyLine(n) { return /\bads\b/i.test(String((n && n.display_name) || '')); }
 
-// Owner Twilio line check + setup (2026-10-22). GET: each phone's voice/SMS
-// webhook, SMS capability, and whether it is in the A2P sender pool. POST
-// {phones, add_to_pool:true}: adds those numbers to the A2P Messaging Service
-// pool (the service's own inbound settings then handle texts to them).
 async function twilioLines(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const sid = process.env.TWILIO_ACCOUNT_SID, token = process.env.TWILIO_AUTH_TOKEN;
@@ -14750,7 +11128,7 @@ async function twilioLines(req, res, db, auth, body) {
     const j = await (await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/IncomingPhoneNumbers.json?PhoneNumber=%2B1${ph}`, { headers: H })).json();
     const rec = (j.incoming_phone_numbers || [])[0];
     const row = { phone: ph, in_twilio: !!rec, voice_url: rec?.voice_url || null, sms_url: rec?.sms_url || null, sms_capable: !!rec?.capabilities?.sms, in_pool: sms.pool.has(ph) };
-    if (req.query.calls) {   // last 5 calls Twilio saw to this number (status + error codes)
+    if (req.query.calls) {
       const cj = await (await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Calls.json?To=%2B1${ph}&PageSize=5`, { headers: H })).json();
       row.recent_calls = (cj.calls || []).map((c) => ({ at: c.start_time, from: c.from, status: c.status, duration: c.duration, sid: c.sid }));
       for (const c of row.recent_calls.slice(0, 2)) {
@@ -14758,7 +11136,6 @@ async function twilioLines(req, res, db, auth, body) {
         c.errors = (nj.notifications || []).map((n) => n.error_code + ' ' + (n.message_text || '').slice(0, 200));
       }
     }
-    // set_webhooks: point voice + SMS at the CRM, same URLs every routed line uses.
     if (req.method === 'POST' && body.set_webhooks && rec) {
       const base = 'https://tidyhaus-crm.vercel.app/api/analytics?action=';
       const r = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/IncomingPhoneNumbers/${rec.sid}.json`, { method: 'POST', headers: { ...H, 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ VoiceUrl: base + 'voice_inbound', VoiceMethod: 'POST', SmsUrl: base + 'sms_inbound', SmsMethod: 'POST' }) });
@@ -14778,7 +11155,7 @@ async function twilioLines(req, res, db, auth, body) {
 }
 
 async function callNumbers(req, res, db, auth) {
-  if (auth.role !== 'owner' && !auth.auditor) return res.status(403).json({ error: 'Owner only' });   // the call auditor may read this too
+  if (auth.role !== 'owner' && !auth.auditor) return res.status(403).json({ error: 'Owner only' });
 
   const [{ data: numbers }, { data: businesses }, voiceUrlByPhone, sms, staff, schedules] = await Promise.all([
     db.from('tracking_numbers')
@@ -14798,7 +11175,6 @@ async function callNumbers(req, res, db, auth) {
     if(phone && person.name) recipientNames.set(phone,person.name);
   }
   const recipientName=phone=>phone?(recipientNames.get(digitsOf(phone).slice(-10))||'Unknown contact'):'Voicemail only';
-  // Filled by fetchTwilioVoiceUrls() above (already awaited), so safe to read.
   const smsCapByPhone = (_twilioNumbersCache && _twilioNumbersCache.smsCap) || new Map();
   const twilioListOk = !!(_twilioNumbersCache && _twilioNumbersCache.ok);
   const campaignApproved = (sms.campaign_status || '').toUpperCase() === 'VERIFIED';
@@ -14817,20 +11193,9 @@ async function callNumbers(req, res, db, auth) {
       business_name: biz.name || n.business_slug,
       forward_name:recipientName(n.forward_to),
       after_hours_forward_name:recipientName(n.after_hours_forward_to),
-      // What every screen should actually show as this LINE's name (migration
-      // 0132) -- label is a legal disclosure sentence, business_name collapses
-      // every TidyHaus lead-gen city number to the same word. Falls back to
-      // business_name only for a line ported in before it's been given one.
       line_name: n.display_name || biz.name || n.business_slug,
       business_url: biz.url || null,
       volume: volumes[n.phone] || null,
-      // Is this number actually in our Twilio account yet? A row can be
-      // active=true in our own CRM well before the real port lands (we add
-      // the routing config ahead of time so it's ready the moment a number
-      // ports in -- see the Grasshopper port project) -- until Twilio says
-      // it owns the number, it is NOT connected no matter what the CRM row
-      // says. null (not false) when the Twilio list call itself failed, so a
-      // timeout/outage reads as "can't tell" rather than a false "not ported".
       twilio_number_exists: twilioListOk ? hasVoiceUrl : null,
       ai_voice_status: aiVoiceStatusFor(hasVoiceUrl ? voiceUrlByPhone.get(n.phone) : null),
       texting_status: !sms.ok ? 'unknown'
@@ -14853,22 +11218,15 @@ async function callNumbers(req, res, db, auth) {
   });
 }
 
-// Estimate check (api/_lib/estimate-check.js): calls that ended with neither an
-// estimate nor a booking. A secretary sees only her own; the owner sees both
-// TidyHaus's and Dom's.
-// Owner/auditor "Secretaries Performance" (owner 2026-10-18): who can be
-// picked. Built from the staff list (default secretary per business + every
-// STAFF_LOGINS entry) plus whoever actually took live calls in the last 90
-// days, so Alex shows under both TidyHaus and Dom's when she worked both.
 async function secretaryRoster(req, res, db, auth) {
   if (!(auth.role === 'owner' || auth.auditor)) return res.status(403).json({ error: 'Not available for this login' });
   const names = new Set(secretaryNameList());
   const pairs = new Map();
   const add = (name, business) => { if (name && business) pairs.set(business + '|' + name, { name, business }); };
-  add(displayNameFor('handy-andy'), 'handy-andy');
+  add(displayNameFor('tidyhaus'), 'tidyhaus');
   add(displayNameFor('doms'), 'doms');
   for (const x of staffLogins()) add(String(x.name), x.scope);
-  const { data: bizRows } = await db.from('businesses').select('id, slug').in('slug', ['handy-andy', 'doms']);
+  const { data: bizRows } = await db.from('businesses').select('id, slug').in('slug', ['tidyhaus', 'doms']);
   const since = new Date(Date.now() - 90 * 86400000).toISOString();
   for (const b of (bizRows || [])) {
     const { data } = await db.from('calls').select('handled_by').eq('business_id', b.id).eq('kind', 'live')
@@ -14878,13 +11236,11 @@ async function secretaryRoster(req, res, db, auth) {
   const people = [...pairs.values()].sort((a, b) => a.name.localeCompare(b.name) || a.business.localeCompare(b.business));
   return res.status(200).json({ people });
 }
-// Owner/auditor may look at one secretary via ?person=&business=. Anyone else
-// (secretaries included) gets null here and stays on their own token data.
 function perfTargetAuth(req, auth) {
   if (!(auth.role === 'owner' || auth.auditor)) return null;
   const person = String(req.query.person || '').trim();
   const business = String(req.query.business || '');
-  if (!person || !['handy-andy', 'doms'].includes(business)) return null;
+  if (!person || !['tidyhaus', 'doms'].includes(business)) return null;
   if (!secretaryNameList().includes(person)) return null;
   return { kind: 'admin', role: 'secretary', scope: business, name: person, readOnlyView: true };
 }
@@ -14892,16 +11248,14 @@ async function estimateCheckAction(req, res, db, auth) {
   const tgt = perfTargetAuth(req, auth);
   if (tgt) auth = tgt;
   else if (auth.auditor) return res.status(400).json({ error: 'person and business required' });
-  const scopes = auth.role === 'owner' ? ['handy-andy', 'doms']
-    : (auth.role === 'secretary' && ['handy-andy', 'doms'].includes(auth.scope)) ? [auth.scope] : null;
+  const scopes = auth.role === 'owner' ? ['tidyhaus', 'doms']
+    : (auth.role === 'secretary' && ['tidyhaus', 'doms'].includes(auth.scope)) ? [auth.scope] : null;
   if (!scopes) return res.status(403).json({ error: 'Not available for this login' });
   const { data: bizRows } = await db.from('businesses').select('id, slug, timezone').in('slug', scopes);
   const people = [];
   for (const slug of scopes) {
     const b = (bizRows || []).find(x => x.slug === slug);
     if (!b) continue;
-    // Secretary (incl. owner View As token): the logged-in person, same as
-    // myCallPerformance. Owner: each business's default secretary.
     const who = auth.role === 'secretary' ? (auth.name || displayNameFor(slug)) : displayNameFor(slug);
     const p = await estimateCheckFor(db, { bizId: b.id, tz: b.timezone || 'Asia/Manila', name: who });
     people.push({ business: slug, ...p });
@@ -14911,7 +11265,7 @@ async function estimateCheckAction(req, res, db, auth) {
 async function estimateExcuseAction(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const slug = auth.role === 'owner' ? String(body.business || '') : auth.scope;
-  if (!['handy-andy', 'doms'].includes(slug) || !(auth.role === 'owner' || auth.role === 'secretary')) {
+  if (!['tidyhaus', 'doms'].includes(slug) || !(auth.role === 'owner' || auth.role === 'secretary')) {
     return res.status(403).json({ error: 'Not available for this login' });
   }
   const { data: bizRows } = await db.from('businesses').select('id').eq('slug', slug).limit(1);
@@ -14920,32 +11274,12 @@ async function estimateExcuseAction(req, res, db, auth, body) {
   try {
     const out = await setExcuse(db, {
       kind: String(body.kind || ''), id: String(body.id || ''), reason: body.reason ? String(body.reason) : '',
-      // setExcuse rejects a call whose handled_by is not `who` -- secretaries may
-      // only excuse their own calls; owner (null) may excuse any.
       note: body.note, bizId, who: auth.role === 'owner' ? null : (auth.name || displayNameFor(slug)),
     });
     return res.status(200).json(out);
   } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
 }
 
-// A secretary's own booking numbers: how many calls she took, how many became
-// jobs, and what those jobs were worth. The SAME definition of "booked" the
-// owner's Call Performance screen uses (callAnalytics isBooked), so her
-// conversion figure and his agree to the decimal rather than being two
-// different ideas of the word.
-//
-// Deliberately her own row only -- no other person's conversion rate, and none
-// of the owner's cross-staff ranking. Scope comes from the token, never the
-// request, so Heather's login can only ever total Heather's calls on Handy
-// Andy and Joey's only Joey's on Dom's.
-//
-// auth.role === 'secretary' covers a real secretary login AND the owner's
-// "View As" (see viewAs above), which mints an identical secretary-role token
-// on purpose so he can see exactly what she sees.
-// Calls rung to the signed-in secretary's own phone, last 7 days (owner
-// 2026-10-20): inbound rows whose forwarded_to is her staff_users.phone.
-// Schedule vote (owner 2026-10-26): Alex and Joe each pick an option and tick
-// "I agree". The owner sees every answer; a secretary sees only her own.
 async function scheduleProposal(req, res, db, auth, body) {
   const owner = auth.role === 'owner';
   if (!owner && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -14966,7 +11300,6 @@ async function scheduleProposal(req, res, db, auth, body) {
   const { data: votes } = await q;
   return res.status(200).json({ proposal: p, votes: votes || [] });
 }
-// Owner dashboard: missed calls rung to each secretary's phone, last 7 days (owner 2026-10-25).
 async function missedBySecretary(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { data: staff } = await db.from('staff_users').select('name, phone').eq('active', true);
@@ -14981,8 +11314,6 @@ async function missedBySecretary(req, res, db, auth) {
   }
   return res.status(200).json({ people: out });
 }
-// Competitor backlinks (owner 2026-10-25, Other tab): referring domains of up to 3
-// competitors via DataForSEO, minus big brands, spam and sites already linking to us.
 const BL_BIG = /(^|\.)(yelp|reddit|bestbuy|facebook|instagram|youtube|google|tiktok|twitter|x|linkedin|pinterest|amazon|homedepot|lowes|angi|homeadvisor|thumbtack|nextdoor|bbb|wikipedia|apple|microsoft|bing|yahoo|mapquest|tripadvisor|taskrabbit|porch|houzz|craigslist|medium|wordpress|blogspot|github|godaddy|wix|squarespace|shopify|vercel)\.[a-z.]+$/i;
 async function competitorBacklinks(req, res, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -15041,7 +11372,6 @@ async function myRungCalls(req, res, db, auth) {
     .in('forwarded_to', ['+1' + d10, d10, '1' + d10]).gte('occurred_at', since).order('occurred_at', { ascending: false }).limit(5000);
   if (error) throw error;
   const calls = (data || []).length, answered = (data || []).filter(r => r.answered === true).length;
-  // Review bonuses earned in the same 7 days (same rule as reviewBonusUnseen).
   let review_bonuses = 0;
   try {
     const { data: rb } = await db.from('bookings').select('review_call_at, reviewed_at')
@@ -15053,11 +11383,9 @@ async function myRungCalls(req, res, db, auth) {
   return res.status(200).json({ days: 7, calls, answered, missed: calls - answered, review_bonuses, review_bonus_php: REVIEW_BONUS_PHP, missed_list });
 }
 async function myCallPerformance(req, res, db, auth) {
-  // Owner / auditor picking a secretary (Secretaries Performance page). A
-  // secretary's own ?person= is ignored: perfTargetAuth returns null for her.
   const tgt = perfTargetAuth(req, auth);
   if (tgt) auth = tgt;
-  if (auth.role !== 'secretary' || !['handy-andy', 'doms'].includes(auth.scope)) {
+  if (auth.role !== 'secretary' || !['tidyhaus', 'doms'].includes(auth.scope)) {
     return res.status(403).json({ error: 'Not available for this login' });
   }
   const name = auth.name || displayNameFor(auth.scope);
@@ -15074,19 +11402,10 @@ async function myCallPerformance(req, res, db, auth) {
     name, from, to, days, calls: 0, booked: 0, not_booked: 0, estimates: 0,
     conversion: 0, booked_value: 0, avg_quote: 0, daily: [], audit: emptyAudit,
   };
-  // Should never happen -- both slugs are seeded business rows every other part
-  // of this file assumes exist -- but failing closed with an empty report beats
-  // a 500 or, worse, silently dropping the business_id filter below.
   if (!bizId) return res.status(200).json(empty);
 
-  // Live (script-taken) calls only, exactly as callAnalytics does: Grasshopper
-  // voicemails are a different thing and would wreck the conversion rate if
-  // mixed in. The window is [from 00:00, to 24:00) in the BUSINESS timezone.
   const since = localDayStartUTC(tz, offset - (days - 1));
   const until = localDayStartUTC(tz, offset + 1);
-  // Audits are queried with the same business, person, and date boundaries as
-  // the performance data. Those values come only from the secretary token, so
-  // changing browser parameters cannot expose another secretary's feedback.
   const [{ data: calls, error }, { data: audits, error: auditError }] = await Promise.all([
     db.from('calls')
       .select('handled_by, resolution, booking_id, quoted_total, occurred_at, reached_step, reached_extras')
@@ -15103,13 +11422,6 @@ async function myCallPerformance(req, res, db, auth) {
   ]);
   if (error) throw error;
   if (auditError) throw auditError;
-  // Same worked-the-script gate as callAnalytics (owner rule, 2026-08-25): an
-  // opened-and-abandoned greet screen is a misclick, not a call, and must not
-  // drag this person's own conversion number down. Keep the two definitions
-  // identical or her report and the owner's ranking disagree about the same week.
-  // Owner rule 2026-09-25: a call counts only once the secretary reached the
-  // "Is there anything else?" card (or booked). Zip + TV size then stopping
-  // does not count.
   const rows = (calls || []).filter(r => !!r.booking_id || !!r.reached_extras);
 
   const isBooked = r => !!r.booking_id || r.resolution === 'booked';
@@ -15161,17 +11473,8 @@ async function myCallPerformance(req, res, db, auth) {
       .filter(q => q.no > 0)
       .sort((a, b) => b.fail_rate - a.fail_rate || b.asked - a.asked)
       .slice(0, 3),
-    // Notes are the only individual audit records a secretary receives, and
-    // only for calls SHE took (the query above is scoped to her name and
-    // business). Each note carries enough about the call for her to tell which
-    // one it was -- when, who called, which service and line -- plus what the
-    // script check found, because "Great job!" alone tells her nothing about
-    // which call earned it. Audit records belonging to anyone else never
-    // leave the API.
     notes: (audits || []).filter(a => a.notes).slice(0, 12).map(a => auditCard(a)),
   };
-  // Phase 2 redesign (additive only -- every field above is unchanged for the
-  // owner dashboard + greeting card). Same yes/no counting as script_score.
   audit.criteria = Object.values(auditQuestions)
     .map(q => ({ ...q, fail_rate: q.asked ? Math.round(100 * q.no / q.asked) : 0 }))
     .sort((a, b) => b.fail_rate - a.fail_rate || b.asked - a.asked);
@@ -15185,7 +11488,7 @@ async function myCallPerformance(req, res, db, auth) {
   for (const a of (audits || [])) {
     if (!a.audit_date) continue;
     const dt = new Date(a.audit_date + 'T00:00:00Z');
-    dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));   // Monday
+    dt.setUTCDate(dt.getUTCDate() - ((dt.getUTCDay() + 6) % 7));
     const wk = dt.toISOString().slice(0, 10);
     const w = weeks[wk] || (weeks[wk] = { week: wk, audits: 0, yes: 0, no: 0 });
     w.audits++;
@@ -15195,8 +11498,6 @@ async function myCallPerformance(req, res, db, auth) {
     .map(w => ({ ...w, score: w.yes + w.no ? Math.round(100 * w.yes / (w.yes + w.no)) : null }));
 
   function auditCard(a) {
-      // Shown in the BUSINESS timezone, the one she works in. time_local is the
-      // auditor's own clock (Central), so it would read an hour off for Denver.
       let when = null;
       if (a.occurred_at) {
         try {
@@ -15209,9 +11510,7 @@ async function myCallPerformance(req, res, db, auth) {
       const done = Object.values(a.answers || {}).filter(v => v === 'yes').length;
       return {
         id: a.id, audit_date: a.audit_date, time_local: a.time_local,
-        notes: a.notes, flagged: !!a.flagged,   // reviewer name never sent (Jiyah 2026-10-19)
-        // Owner 2026-10-23: complaint + serious flag shown; no caller phone,
-        // caller name or business line on the secretary's view.
+        notes: a.notes, flagged: !!a.flagged,
         complaint: (a.complaint || '').trim() || null, serious: !!a.complaint_serious,
         call: {
           when,
@@ -15232,25 +11531,19 @@ async function myCallPerformance(req, res, db, auth) {
   });
 }
 
-// Backs the click-a-day-to-see-the-calls drill-down on both Call Performance
-// screens. A secretary can only ever see her OWN calls for HER OWN business:
-// the query/body params are trusted for the date only; person and business
-// are always derived from the auth token for that role, never taken from the
-// client, so Heather can't page through Joey's calls by editing the request.
-// An owner may pass a person to filter by, or omit it to see everyone's.
 async function callDayDetail(req, res, db, auth) {
   const dateStr = (req.query.date || (req.body && req.body.date) || '').toString();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return res.status(400).json({ error: 'date (YYYY-MM-DD) required' });
 
   let bizId, tz, person = null;
   if (auth.role === 'secretary') {
-    if (!['handy-andy', 'doms'].includes(auth.scope)) return res.status(403).json({ error: 'Not available for this login' });
+    if (!['tidyhaus', 'doms'].includes(auth.scope)) return res.status(403).json({ error: 'Not available for this login' });
     const { data: bizRows } = await db.from('businesses').select('id, timezone').eq('slug', auth.scope).limit(1);
     if (!bizRows || !bizRows[0]) return res.status(200).json({ date: dateStr, calls: [] });
     bizId = bizRows[0].id;
     tz = bizRows[0].timezone || 'Asia/Manila';
     person = auth.name || displayNameFor(auth.scope);
-  } else if (auth.role === 'owner' || auth.auditor) {   // the call auditor reads any business, like the owner
+  } else if (auth.role === 'owner' || auth.auditor) {
     let biz; try { biz = await resolveBusiness(db, auth, req.query.business || (req.body && req.body.business)); } catch (e) { return bail(res, e); }
     bizId = biz.id;
     tz = biz.timezone || 'Asia/Manila';
@@ -15287,21 +11580,15 @@ async function callDayDetail(req, res, db, auth) {
 }
 
 async function callAnalytics(req, res, db, auth) {
-  // Ranks staff against each other on booking rate — the hidden nav button is a
-  // convenience, this is the actual gate.
-  if (auth.role !== 'owner' && !auth.auditor) return res.status(403).json({ error: 'Owner only' });   // the call auditor may read this too
+  if (auth.role !== 'owner' && !auth.auditor) return res.status(403).json({ error: 'Owner only' });
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const RANGE_TO_DAYS = { today: 1, yesterday: 1, '7': 7, '30': 30, '90': 90 };
   const range = String(req.query.range || '30');
   const days = RANGE_TO_DAYS[range] ?? Math.min(180, Math.max(1, parseInt(range, 10) || 30));
   const tz = biz.timezone || 'Asia/Manila';
-  // "Yesterday" is the one range that isn't "since X through now" — it needs an
-  // upper bound too, or it'd silently include today's calls.
   const since = range === 'yesterday' ? localDayStartUTC(tz, -1) : localDayStartUTC(tz, -(days - 1));
   const until = range === 'yesterday' ? localDayStartUTC(tz, 0) : null;
 
-  // Live (script-taken) calls only. Grasshopper voicemails are a different
-  // thing entirely and would wreck the conversion rate if mixed in.
   let callsQuery = db.from('calls')
     .select('id, handled_by, service, market, status, resolution, booking_id, quoted_total, discount_amount, discount_detail, tv_count, reached_step, reached_extras, occurred_at, ended_at')
     .eq('business_id', biz.id).eq('kind', 'live')
@@ -15309,16 +11596,6 @@ async function callAnalytics(req, res, db, auth) {
   if (until) callsQuery = callsQuery.lt('occurred_at', until.toISOString());
   const { data: calls, error } = await callsQuery.order('occurred_at', { ascending: false });
   if (error) throw error;
-  // Only calls where the script was actually WORKED count (owner rule,
-  // 2026-08-25). Opening "Take a Call", tapping a service, and abandoning it
-  // leaves a row stuck at the greet step with no resolution — a misclick or a
-  // wrong number, not a conversation — and every one of those was scored as a
-  // 0% call against whoever opened it. A call counts once it moved past the
-  // greeting (any later step stamped) or actually ended somewhere (resolution
-  // or a booking).
-  // Owner rule 2026-09-25: a call counts only once the secretary reached the
-  // "Is there anything else?" card (or booked). Zip + TV size then stopping
-  // does not count.
   const rows = (calls || []).filter(r => !!r.booking_id || !!r.reached_extras);
 
   let eventsQuery = db.from('call_events')
@@ -15330,13 +11607,8 @@ async function callAnalytics(req, res, db, auth) {
   const evs = events || [];
 
   const isBooked = r => !!r.booking_id || r.resolution === 'booked';
-  const dayKeyOf = iso => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });   // YYYY-MM-DD
+  const dayKeyOf = iso => new Date(iso).toLocaleDateString('en-CA', { timeZone: tz });
 
-  // ── Per-person scoreboard: the "who is booking and who is not" table.
-  // Everything that isn't a booking is one bucket ("not booked"). Splitting it
-  // into declined-vs-unfinished implied we knew WHY a call didn't convert, and
-  // we don't — the phone system isn't wired into this, so those were guesses
-  // dressed up as data.
   const byPerson = {};
   for (const r of rows) {
     const who = r.handled_by || 'Unknown';
@@ -15357,7 +11629,6 @@ async function callAnalytics(req, res, db, auth) {
     avg_discount: p.discounted_calls ? Math.round(p.discount_given / p.discounted_calls) : 0,
   })).sort((a, b) => b.calls - a.calls);
 
-  // ── Day-by-day series, for the daily number and the weekly chart.
   const byDay = {};
   for (const r of rows) {
     const k = dayKeyOf(r.occurred_at);
@@ -15369,38 +11640,19 @@ async function callAnalytics(req, res, db, auth) {
   const daily = Object.values(byDay).sort((a, b) => (a.date < b.date ? -1 : 1))
     .map(d => ({ ...d, conversion: d.calls ? Math.round((d.booked / d.calls) * 1000) / 10 : 0 }));
 
-  // ── Where calls die. Counted from the furthest step each call reached, so a
-  // call that quit on the zip question is distinguishable from one that heard
-  // the price and walked.
-  // These must be the steps the wizard actually stamps. 'wait' was a screen that
-  // got merged into the recap and is never emitted, while 'customer',
-  // 'handydesc', 'estimate' and 'resolution' ARE emitted and were missing — so
-  // indexOf returned -1 and every deep call that didn't book was reported as
-  // dying at hello, which is precisely the group this chart exists to explain.
   const FUNNEL = ['greet', 'zip', 'tvopts', 'schedule', 'recap', 'discount', 'customer', 'booked'];
-  // Branch steps that aren't stages of their own: a handyman description is the
-  // handyman equivalent of the options step, and estimate/resolution are exits
-  // taken from the discount screen.
   const STEP_ALIAS = { handydesc: 'tvopts', estimate: 'discount', resolution: 'discount' };
   const funnel = FUNNEL.map(step => ({ step, reached: 0 }));
   for (const r of rows) {
     const reached = isBooked(r) ? 'booked' : (STEP_ALIAS[r.reached_step] || r.reached_step || 'greet');
     const idx = FUNNEL.indexOf(reached);
-    // Reaching a step means having reached everything before it.
     for (let i = 0; i <= (idx < 0 ? 0 : idx); i++) funnel[i].reached++;
   }
 
-  // ── Discounts: what is actually being given away, on which lever, by whom,
-  // and whether it bought a booking. The `discount_final` event carries the
-  // full picture for one call (which levers were pulled, what was asked for,
-  // what the caps allowed), so it is the spine of this whole section.
   const discounted = rows.filter(r => Number(r.discount_amount) > 0);
   const callById = Object.fromEntries(rows.map(r => [r.id, r]));
   const finals = evs.filter(e => e.event === 'discount_final' && Number(e.meta?.amount) > 0);
 
-  // Per-lever totals. A call can pull more than one lever, so `amount` is the
-  // call's TOTAL and is attributed to each lever used — the counts are exact,
-  // the money is "discounts involving this lever".
   const lever = { source: { count: 0, amount: 0 }, coupon: { count: 0, amount: 0 }, manual: { count: 0, amount: 0 } };
   const bySource = {}, byCoupon = {};
   for (const e of finals) {
@@ -15420,20 +11672,14 @@ async function callAnalytics(req, res, db, auth) {
     }
     if (Number(m.manual) > 0) { lever.manual.count++; lever.manual.amount += amt; }
   }
-  // How often the caps actually bit — a secretary asking for more than the
-  // rules allow, repeatedly, is a conversation worth having.
   const cappedCount = evs.filter(e =>
     e.event === 'manual_discount' && Number(e.meta?.requested) > Number(e.meta?.allowed || 0)).length;
-  // Coupon codes that were READ OUT but rejected — a customer quoting a dead
-  // code is worth knowing about (an ad still running with an expired offer).
   const badCoupons = {};
   for (const e of evs) {
     if (e.event === 'coupon_tried' && e.meta && e.meta.valid === false && e.meta.code) {
       badCoupons[e.meta.code] = (badCoupons[e.meta.code] || 0) + 1;
     }
   }
-  // Call-by-call discount log, newest first — the "show me exactly what was
-  // given away" list.
   const discountLog = finals
     .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
     .slice(0, 100)
@@ -15452,7 +11698,6 @@ async function callAnalytics(req, res, db, auth) {
         booked: isBooked(c),
       };
     });
-  // Did discounting actually work? Conversion with vs without.
   const discBooked = discounted.filter(isBooked).length;
   const plain = rows.filter(r => !(Number(r.discount_amount) > 0));
   const plainBooked = plain.filter(isBooked).length;
@@ -15482,8 +11727,6 @@ async function callAnalytics(req, res, db, auth) {
       rejected_coupons: Object.entries(badCoupons).map(([code, count]) => ({ code, count })).sort((a, b) => b.count - a.count),
       capped_attempts: cappedCount,
       log: discountLog,
-      // Whether discounting is buying anything: booking rate on discounted
-      // calls vs everything else.
       effect: {
         discounted_calls: discounted.length, discounted_booked: discBooked,
         discounted_conversion: discounted.length ? Math.round((discBooked / discounted.length) * 1000) / 10 : 0,
@@ -15496,15 +11739,10 @@ async function callAnalytics(req, res, db, auth) {
   });
 }
 
-// Validate a promo code the customer read out over the phone. Resolves against
-// the SAME table the public booking widget uses, so the office can never tell a
-// caller a live code is invalid (or honor one that has been retired).
-// Levenshtein distance, small inputs only (promo codes) — used to suggest the
-// code the caller probably meant.
 function editDistance(a, b) {
   a = String(a || ''); b = String(b || '');
   if (a === b) return 0;
-  if (Math.abs(a.length - b.length) > 2) return 99;   // too far apart to be a typo
+  if (Math.abs(a.length - b.length) > 2) return 99;
   const prev = Array.from({ length: b.length + 1 }, (_, i) => i);
   for (let i = 1; i <= a.length; i++) {
     let diag = prev[0];
@@ -15524,9 +11762,6 @@ async function quoteCoupon(req, res, db, auth, body) {
   if (!code) return res.status(400).json({ error: 'code required' });
   const amount = await couponAmountFor(db, biz.slug, code, { strict: true });
   if (!amount) {
-    // Offer the closest real code when it's within one or two characters — a
-    // code read aloud over the phone is easy to mistype, and a bare "not valid"
-    // strands the secretary mid-call against a customer who is actually right.
     let suggest = null, best = 3;
     for (const c of await couponCodesFor(db, biz.slug, { strict: true })) {
       const d = editDistance(code, c);
@@ -15537,10 +11772,6 @@ async function quoteCoupon(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, code, amount });
 }
 
-// ── Public "what we do" services list (no admin auth) ────────────────────────
-// Backs services.html, the link sent by estimate_decline. Read-only, no
-// customer-specific data — just this business's active service categories, so
-// it skips the auth gate like estimate_approve_info does.
 async function servicesPublic(req, res, body) {
   const slug = ((req.query && req.query.business) || (body && body.business) || '').toString().trim();
   if (!slug) return res.status(400).json({ error: 'business required' });
@@ -15559,21 +11790,12 @@ async function servicesPublic(req, res, body) {
   return res.status(200).json({ business: biz.slug, business_name: biz.name, groups });
 }
 
-// ── Public estimate approval (token-based, no admin auth) ────────────────────
-// The "I approve" button in a quote email links to /estimate-approve.html with a
-// 90-day signed token (kind=estimate_approve, estimate_id). The page loads a
-// read-only quote summary (GET info) and records approval (POST). Mirrors the
-// public review flow. Service role bypasses RLS; the estimate id is global.
 function approveTokenEstimateId(raw) {
   const t = verifyToken((raw || '').toString());
   if (!t || t.kind !== 'estimate_approve' || !t.estimate_id) return null;
   return t.estimate_id;
 }
 
-// The $20 follow-up coupon (api/_lib/estimate-followup.js) rides as a `coupon`
-// claim on the SAME signed token, so it can only ever be applied by clicking
-// through that specific email -- a regular resend/text link mints a token
-// with no `coupon` claim and gets no discount. Expires with the token itself.
 function approveTokenDiscount(raw) {
   const t = verifyToken((raw || '').toString());
   if (!t || t.kind !== 'estimate_approve') return 0;
@@ -15581,20 +11803,12 @@ function approveTokenDiscount(raw) {
   return d > 0 ? Math.round(d * 100) / 100 : 0;
 }
 
-// Folds a follow-up coupon into a copy of an estimate's line items as a real
-// negative line -- the SAME shape the office's own manual discount lines use
-// -- so it flows through quoteTotals/booking/line-item insert with no special
-// casing anywhere downstream. No-op when there's nothing to discount against.
 function applyCouponToItems(items, discount) {
   const list = Array.isArray(items) ? items.slice() : [];
   if (discount > 0 && list.length) list.push({ description: `$${discount} off — thanks for getting back to us`, qty: 1, unit_price: -discount });
   return list;
 }
 
-// Fetch one estimate by id across any business (for the public approve page),
-// dropping quote columns the schema may not have yet so it never 500s. The
-// business is fetched separately (not via an embed) so the column-drop retry
-// can't mangle a comma-containing join.
 async function fetchEstimateAnyBiz(db, id) {
   let cols = 'id, business_id, service_id, customer_name, customer_phone, customer_email, customer_zip, customer_address, customer_city, customer_state, service_label, description, customer_note, line_items, tax_rate, approved_at, preferred_slots, upsells, accepted_upsells, approved_total, sms_consent, technician_id, notes';
   let data, error;
@@ -15613,15 +11827,6 @@ async function fetchEstimateAnyBiz(db, id) {
   if (!Array.isArray(data.upsells)) data.upsells = [];
   if (!Array.isArray(data.accepted_upsells)) data.accepted_upsells = null;
   if (!('approved_total' in data)) data.approved_total = null;
-  // This lookup's failure used to be silently discarded (data.business = null),
-  // and every caller below defaults est.business?.slug to 'handy-andy' when
-  // that happens — so a Doms estimate hitting a transient DB hiccup here would
-  // tokenize AND attach the customer's card into TidyHaus's Stripe account.
-  // Unlike a card-save failure elsewhere, this one has NO error to catch —
-  // the attach genuinely succeeds, just in the wrong account, so it would
-  // never surface until a Doms charge attempt failed at time of service.
-  // Fail loud instead: a customer seeing an error on the approve page is far
-  // better than their card silently ending up in the wrong company's account.
   const { data: biz, error: bizErr } = await db.from('businesses').select('id, slug, name, timezone').eq('id', data.business_id).maybeSingle();
   if (bizErr) throw bizErr;
   if (!biz) throw new Error(`Estimate ${id} references a business (${data.business_id}) that could not be found.`);
@@ -15629,8 +11834,6 @@ async function fetchEstimateAnyBiz(db, id) {
   return data;
 }
 
-// Normalize the customer's preferred appointment times to { date, slot_key, label }.
-// Mirrors the widget estimate-request shape (api/estimate.js); caps at 5.
 function sanitizePreferredSlots(raw) {
   return (Array.isArray(raw) ? raw : []).slice(0, 5).map(s => ({
     date: (s && s.date) ? String(s.date).slice(0, 10) : null,
@@ -15639,10 +11842,6 @@ function sanitizePreferredSlots(raw) {
   })).filter(s => s.date && s.slot_key);
 }
 
-// Public (token-gated) real availability for the estimate approve page, so the
-// customer can pick preferred appointment times that reflect actual open slots.
-// Resolves the estimate's metro from its zip (TidyHaus spans metros); falls
-// back to all techs when the zip isn't known so slots still show.
 async function estimateSlots(req, res) {
   const token = (req.query.token || (req.body && req.body.token) || '').toString();
   const id = approveTokenEstimateId(token);
@@ -15652,15 +11851,8 @@ async function estimateSlots(req, res) {
   const est = await fetchEstimateAnyBiz(db, id);
   if (!est) return res.status(404).json({ error: 'Estimate not found.' });
 
-  const slug = est.business?.slug || 'handy-andy';
+  const slug = est.business?.slug || 'tidyhaus';
   const serviceAreaId = await serviceAreaIdFromPostal(db, est.business_id, est.customer_zip);
-  // No resolvable metro => offer NOTHING. publicOpenSlots applies no
-  // service_area filter when serviceAreaId is null, so it would happily offer
-  // every tech in the company (a Denver customer shown Austin's openings), and
-  // the booking's strict per-metro check then refuses all of them — the
-  // customer picks a time, hands over a card, and gets silently bounced. An
-  // empty list makes the page show its "please call us to book" message, which
-  // is the honest outcome when we can't tell which metro serves this address.
   if (!serviceAreaId) {
     console.warn('[estimate_slots] no service area for estimate', id, 'zip', est.customer_zip || '(blank)', '— offering no slots');
     return res.status(200).json({ days: [], timezone: est.business?.timezone || 'Asia/Manila' });
@@ -15674,12 +11866,6 @@ async function estimateSlots(req, res) {
   }
 }
 
-// ── Guaranteed Dismount Service upsell (confirmation-email button) ─────────
-// The "Want to upgrade?" button in the booking-confirmation email links to
-// /add-gds.html with a signed token (kind=add_gds, booking_id). That page
-// shows a one-tap confirm (never mutates on the GET — a mail client or bot
-// prefetching the link must not silently add a charge), and the POST here
-// is what actually writes the line item onto the customer's real ticket.
 const GDS_LINE_NAME = 'Guaranteed Dismount Service';
 const GDS_PRICE = 35;
 const GDS_RE = /guarante\w*\s+dismount|dismount\s+service|\btv removal\b/i;
@@ -15722,7 +11908,7 @@ async function gdsUpsellInfo(req, res, body) {
     service_label: est.service?.name || 'Service',
     current_total: Number(est.price) || 0,
     gds_price: GDS_PRICE,
-    business_slug: est.business?.slug || 'handy-andy',
+    business_slug: est.business?.slug || 'tidyhaus',
     business_name: est.business?.name || 'TidyHaus',
   });
 }
@@ -15738,8 +11924,6 @@ async function gdsUpsellAdd(req, res, body) {
   if (!est) return res.status(404).json({ error: 'Booking not found.' });
 
   if (est.line_items.some(li => GDS_RE.test(li.name || ''))) {
-    // Already added (a prior click, or the office added it manually) — no-op,
-    // not an error, so a double-tap or refresh doesn't look broken.
     return res.status(200).json({ ok: true, already: true, new_total: Number(est.price) || 0 });
   }
 
@@ -15750,17 +11934,9 @@ async function gdsUpsellAdd(req, res, body) {
   });
   if (insErr) return res.status(500).json({ error: 'Could not add this to your ticket. Please try again.' });
 
-  // Invalidate any open office/tech editor IMMEDIATELY — the line is on the
-  // ticket from this point, so every later exit path (even the price-update
-  // 500 below) must leave open editors unable to silently replace it. Then
-  // slot the new line into the canonical order (it would otherwise default to
-  // sort_order 0 and render at the top of the ticket).
   await bumpLiRev(db, id);
   await recanonicalizeBookingRows(db, id);
 
-  // Bump the existing tax line (if any) by the same rate rather than
-  // re-deriving a rate from scratch — matches how tax is stored everywhere
-  // else in this codebase (a flat 'fee' line item, not a stored rate column).
   const taxLine = est.line_items.find(li => /^tax\s*\(/i.test(li.name || ''));
   let taxAdd = 0;
   if (taxLine) {
@@ -15782,17 +11958,7 @@ async function gdsUpsellAdd(req, res, body) {
   return res.status(200).json({ ok: true, already: false, new_total: newTotal });
 }
 
-// ── Self-serve reschedule (confirmation-email button) ──────────────────────
-// The "Reschedule this appointment" link opens /reschedule.html with a signed
-// token (kind=reschedule, booking_id). GET (rescheduleInfo) shows the current
-// time plus real open slots (same publicOpenSlots engine the booking widget
-// itself uses); POST (rescheduleSubmit) moves the booking and re-assigns a
-// tech via the SAME pickOpenTech() call the original booking used. If NO tech
-// is open for the requested slot (availability changed between page load and
-// confirm, or a crafted request names a slot nobody works), the submit is
-// REJECTED — a staffed job is never silently converted into an unstaffed one,
-// and a job never lands on a slot no tech marked available.
-const RESCHEDULE_CUTOFF_MS = 24 * 60 * 60 * 1000; // matches the email's "not within 24 hours" policy
+const RESCHEDULE_CUTOFF_MS = 24 * 60 * 60 * 1000;
 
 function rescheduleTokenBookingId(raw) {
   const t = verifyToken((raw || '').toString());
@@ -15814,11 +11980,6 @@ async function fetchBookingForReschedule(db, id) {
   return data;
 }
 
-// A two-tech (lifting) job or a big job holding extra time slots can't be
-// safely moved by the single-slot self-serve flow: the second tech and the
-// extra slots would either be silently dragged to an unvalidated time or
-// silently dropped, both of which break real scheduling. Those customers are
-// asked to call — the office reschedule path handles the extra moving parts.
 function rescheduleNeedsOffice(b) {
   return !!(b.secondary_technician_id || (Array.isArray(b.extra_slots) && b.extra_slots.length));
 }
@@ -15833,7 +11994,7 @@ async function rescheduleInfo(req, res, body) {
   const b = await fetchBookingForReschedule(db, id);
   if (!b) return res.status(404).json({ error: 'Booking not found.' });
 
-  const slug = b.business?.slug || 'handy-andy';
+  const slug = b.business?.slug || 'tidyhaus';
   const serviceAreaId = b.service_area_id || await serviceAreaIdFromPostal(db, b.business_id, b.postal_code);
   const tz = await areaTimezone(db, serviceAreaId, b.business?.timezone || 'Asia/Manila');
 
@@ -15866,8 +12027,6 @@ async function rescheduleInfo(req, res, body) {
     customer_name: b.customer?.name || '',
     service_label: b.service?.name || 'Service',
     business_name: b.business?.name || '',
-    // Metro-LOCAL date, not a UTC slice — an 8 PM Denver job is stored as
-    // 02:00 UTC the next day, so slicing the ISO string shows the wrong day.
     current_date: b.scheduled_at ? localDateStr(tz, b.scheduled_at) : null,
     current_time: slotTimeLabel(tz, b.scheduled_at),
     business_slug: slug,
@@ -15896,7 +12055,7 @@ async function rescheduleSubmit(req, res, body) {
   }
 
   const parsed = parseSlotId((body.selected_slot || '').toString());
-  const slug = b.business?.slug || 'handy-andy';
+  const slug = b.business?.slug || 'tidyhaus';
   if (!parsed || parsed.businessSlug !== slug) return res.status(400).json({ error: 'Please pick a valid time slot.' });
   const { dateStr, slotKey } = parsed;
 
@@ -15913,9 +12072,6 @@ async function rescheduleSubmit(req, res, body) {
   try { technician_id = await pickOpenTech(db, { businessSlug: slug, dateStr, slotKey, serviceAreaId, timezone: tz, crossHire: true, zip: b.postal_code }); }
   catch (e) { console.warn('[reschedule_submit] tech pick failed:', e.message); }
   if (!technician_id) {
-    // Hard rule: a job never lands on a slot no tech marked available, and a
-    // currently-staffed job is never traded for an unstaffed one. Refuse and
-    // let the customer pick again (the page refreshes availability on this).
     return res.status(409).json({ error: 'That time was just taken — please pick a different time.', slot_taken: true });
   }
 
@@ -15927,8 +12083,6 @@ async function rescheduleSubmit(req, res, body) {
     scheduled_end: endUTC ? endUTC.toISOString() : null,
     technician_id,
     status: 'assigned',
-    // Same "rescheduled from" stamp the office-side reschedule writes, so the
-    // job card shows this under Date & time regardless of which path moved it.
     metadata: (({ reminder_sent_at, ...m }) => ({ ...m, rescheduled_from: b.scheduled_at }))(b.metadata || {}),
   }).eq('id', id);
   if (updErr) return res.status(500).json({ error: 'Could not reschedule this appointment. Please try again.' });
@@ -15940,24 +12094,16 @@ async function rescheduleSubmit(req, res, body) {
   }).then(({ error }) => { if (error) console.warn('[reschedule_submit] note insert failed:', error.message); })
     .catch(e => console.warn('[reschedule_submit] note insert failed:', e.message));
 
-  // Every send below is AWAITED: this handler returns on the next statement,
-  // and an unawaited send lets Vercel freeze the lambda before Twilio is called.
   const ownerPhone = process.env.OWNER_PHONE_NUMBER;
   if (ownerPhone) {
     await sendSMS(ownerPhone, `${b.customer?.name || 'A customer'} just rescheduled their ${b.business?.name || ''} appointment: ${oldLabel} → ${newLabel}.`)
       .catch(e => console.warn('[reschedule_submit] owner SMS failed:', e.message));
   }
   const bizForNotify = b.business || { id: b.business_id };
-  // The customer's new slot can land on a DIFFERENT tech than the one who had
-  // the job. Tell the previous tech it's off their plate — otherwise they still
-  // believe they're working it and may drive out to a job that isn't theirs.
   if (b.technician_id && b.technician_id !== technician_id) {
     await notifyTechAssigned(db, bizForNotify, b.technician_id, b.scheduled_at, tz, { bookingId: id, kind: 'unassigned' })
       .catch(e => console.warn('[reschedule_submit] prior-tech SMS failed:', e.message));
   }
-  // Text the newly assigned tech the same way office assignment does — they
-  // may be a different person than before, and even the same tech needs to
-  // know the job moved.
   await notifyTechAssigned(db, bizForNotify, technician_id, startUTC.toISOString(), tz,
     { bookingId: id, kind: b.technician_id === technician_id ? 'rescheduled' : 'assigned' })
     .catch(e => console.warn('[reschedule_submit] tech SMS failed:', e.message));
@@ -15965,15 +12111,6 @@ async function rescheduleSubmit(req, res, body) {
   return res.status(200).json({ ok: true, new_date: dateStr, new_time: slotTimeLabel(tz, startUTC.toISOString()) });
 }
 
-// ── Review-email tester (public/review-email-tester.html) ─────────────────
-// No admin auth — this only ever renders sample data or sends to a single
-// hardcoded inbox, so there's nothing here worth gating behind a login.
-// The preview action returns the REAL rendered output of reviewEmail() (not
-// a hand-copied mockup), so what's shown is byte-for-byte what a customer
-// would receive.
-// Real, live token (sentinel booking_id 'TEST' — see reviewCheck/reviewSubmit)
-// so the button/stars in a test email go through the ACTUAL review_click ->
-// review.html -> review flow, not a dead '#' link.
 function testReviewClickUrl(bizSlug) {
   const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : '');
   const token = signToken({ kind: 'review', booking_id: 'TEST', business_slug: bizSlug }, 3600);
@@ -15985,20 +12122,18 @@ function reviewTesterSample(bizSlug) {
 }
 
 async function reviewEmailPreview(req, res) {
-  const slug = (req.query.business || 'handy-andy').toString();
-  const bizSlug = ['doms', 'mile-high', 'austin', 'precision'].includes(slug) ? slug : 'handy-andy';
+  const slug = (req.query.business || 'tidyhaus').toString();
+  const bizSlug = ['doms', 'mile-high', 'austin', 'precision'].includes(slug) ? slug : 'tidyhaus';
   const { subject, html } = reviewEmail(reviewTesterSample(bizSlug), brandFor(bizSlug));
   return res.status(200).json({ subject, html });
 }
 
-// Fixed recipient — deliberately ignores anything the client sends, so this
-// endpoint can never be used to relay mail to an arbitrary address.
 const TEST_EMAIL_RECIPIENT = 'owner@example.invalid';
 
 async function sendTestReviewEmail(req, res, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  const slug = ((body && body.business) || 'handy-andy').toString();
-  const bizSlug = ['doms', 'mile-high', 'austin', 'precision'].includes(slug) ? slug : 'handy-andy';
+  const slug = ((body && body.business) || 'tidyhaus').toString();
+  const bizSlug = ['doms', 'mile-high', 'austin', 'precision'].includes(slug) ? slug : 'tidyhaus';
   const brand = brandFor(bizSlug);
   const { subject, html } = reviewEmail(reviewTesterSample(bizSlug), brand);
   const { from } = emailConfig(bizSlug);
@@ -16007,20 +12142,14 @@ async function sendTestReviewEmail(req, res, body) {
   return res.status(200).json({ ok: true, to: TEST_EMAIL_RECIPIENT });
 }
 
-// ── Zenbooker historical job import ─────────────────────────────────────────
-// Batch loader for the "All Jobs" export. Idempotent: bookings are keyed on
-// zenbooker_job_id, so re-running a batch updates rather than duplicates.
-// Customers are MATCHED against the existing roster (phone first, then email)
-// because the customer export was already imported; only genuinely new people
-// are created. Pass dry_run to get the counts without writing anything.
-const ZB_PLACEHOLDER_CREW = {};   // crewId -> label, filled from the request
+const ZB_PLACEHOLDER_CREW = {};
 
 async function zbImport(req, res, db, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const rows = Array.isArray(body.rows) ? body.rows : [];
   if (!rows.length) return res.status(400).json({ error: 'No rows supplied.' });
   const dry = !!body.dry_run;
-  const slug = body.business || 'handy-andy';
+  const slug = body.business || 'tidyhaus';
 
   const { data: biz } = await db.from('businesses').select('id, slug').eq('slug', slug).single();
   if (!biz) return res.status(400).json({ error: 'Unknown business ' + slug });
@@ -16029,10 +12158,6 @@ async function zbImport(req, res, db, body) {
   const areaByName = {};
   for (const a of areas || []) areaByName[(a.name || '').toLowerCase()] = a.id;
 
-  // ── technicians: map Zenbooker crew id -> technician row, creating a clearly
-  // provisional placeholder when the crew is one we could not name. Renaming
-  // the placeholder later re-labels every job automatically (jobs point at the
-  // technician row, not at a name string).
   const { data: techs } = await db.from('technicians').select('id, name, zenbooker_provider_id').eq('business_id', biz.id);
   const techByCrew = {};
   for (const t of techs || []) if (t.zenbooker_provider_id) techByCrew[t.zenbooker_provider_id] = t.id;
@@ -16045,15 +12170,13 @@ async function zbImport(req, res, db, body) {
   for (const crew of neededCrews) {
     if (techByCrew[crew]) continue;
     const wanted = crewNames[crew];
-    // A known name (Juan / Zach) attaches the crew id to the EXISTING tech row
-    // rather than creating a duplicate person.
     if (wanted && techByName[wanted.toLowerCase()]) {
       const id = techByName[wanted.toLowerCase()];
       if (!dry) await db.from('technicians').update({ zenbooker_provider_id: crew }).eq('id', id);
       techByCrew[crew] = id;
       continue;
     }
-    if (!wanted) continue;   // unnamed crews are handled by the caller
+    if (!wanted) continue;
     if (dry) { createdTechs.push(wanted); techByCrew[crew] = '00000000-0000-0000-0000-000000000000'; continue; }
     const { data: nt, error } = await db.from('technicians').insert({
       business_id: biz.id, name: wanted, active: false, status: 'off',
@@ -16063,7 +12186,6 @@ async function zbImport(req, res, db, body) {
     techByCrew[crew] = nt.id; createdTechs.push(wanted);
   }
 
-  // ── customer matching, in bulk ────────────────────────────────────────────
   const phones = [...new Set(rows.map(r => r.phone).filter(Boolean))];
   const emails = [...new Set(rows.map(r => r.email).filter(Boolean))];
   const byPhone = {}, byEmail = {};
@@ -16113,7 +12235,6 @@ async function zbImport(req, res, db, body) {
     });
   }
 
-  // ── bookings ──────────────────────────────────────────────────────────────
   const bookingRows = [];
   for (const r of rows) {
     const cid = (r.phone && byPhone[r.phone]) || (r.email && byEmail[r.email]) || null;
@@ -16146,7 +12267,6 @@ async function zbImport(req, res, db, body) {
     for (const b of data || []) savedIds[b.zenbooker_job_id] = b.id;
   }
 
-  // ── GDS line items (this is what lights up the ✓ in the customer modal) ────
   const gdsRows = rows.filter(r => r.gds && savedIds[r.zb_id]);
   let gdsWritten = 0;
   if (gdsRows.length) {
@@ -16163,14 +12283,6 @@ async function zbImport(req, res, db, body) {
       const { error } = await db.from('booking_line_items').insert(payload);
       if (error) return res.status(500).json({ error: 'line item insert: ' + error.message });
       gdsWritten = payload.length;
-      // These rows landed on EXISTING bookings outside any editor — invalidate
-      // any open editor on each (so its save can't silently drop the GDS line)
-      // and slot the line into the canonical order (the raw sort_order 99
-      // above would otherwise sit below the tax line). Best-effort per
-      // booking, capped so a huge first-run backfill can't push this already
-      // heavy import handler into the platform timeout (the inserts above are
-      // committed, and re-running would skip them via the `have` dedupe) —
-      // anything past the cap is LOGGED, not silently dropped.
       const affected = [...new Set(payload.map(p => p.booking_id))];
       const CANON_CAP = 50;
       for (const bid of affected.slice(0, CANON_CAP)) {
@@ -16190,14 +12302,6 @@ async function zbImport(req, res, db, body) {
   });
 }
 
-// One-off internal notice to every active tech about the GDS-redemption pay
-// rate change ($60 -> $50, effective Mon Aug 3 2026 -- see api/_lib/payroll.js's
-// GDS_REDEEMED_RATE_CHANGE, which the payroll engine itself gates on the job's
-// scheduled date, not on when this code deployed). Recipients are read
-// straight from the technicians table (active + has an email on file), never
-// from the request. Sent from each tech's OWN business identity (Doms techs
-// get a Doms-branded email, TidyHaus techs a TidyHaus one) so it reads as
-// coming from the company they actually work for.
 async function sendGdsRateUpdate(req, res, db) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const { data: rows } = await db.from('technicians')
@@ -16206,7 +12310,7 @@ async function sendGdsRateUpdate(req, res, db) {
   const subject = 'Pay rate update: GDS redemption jobs';
   const results = [];
   for (const t of rows || []) {
-    const slug = t.business?.slug || 'handy-andy';
+    const slug = t.business?.slug || 'tidyhaus';
     const firstName = String(t.name || '').trim().split(/\s+/)[0] || 'there';
     const html = `<div style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#222;">
       <p>Hi ${firstName},</p>
@@ -16222,13 +12326,10 @@ async function sendGdsRateUpdate(req, res, db) {
   return res.status(200).json({ results });
 }
 
-// One-off internal notice asking the office to un-spam the brand-new Mile High
-// sending address. Recipients are read from the same env vars owner-notify uses
-// (never from the request), so this can't be used to relay mail anywhere else.
 async function sendSpamNotice(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const to = [
-    process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid',
+    process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid',
     process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid',
   ];
   const subject = 'Quick favor: mark this email as "not spam"';
@@ -16260,8 +12361,6 @@ async function estimateApproveInfo(req, res, body) {
   const est = await fetchEstimateAnyBiz(db, id);
   if (!est) return res.status(404).json({ error: 'Estimate not found.' });
 
-  // First open per channel: the email button carries ?via=email, the texted
-  // short link carries nothing and counts as text. Best-effort (0115).
   try {
     const via = ((req.query.via || (body && body.via) || '').toString() === 'email') ? 'email' : 'text';
     const col = `${via}_opened_at`;
@@ -16271,20 +12370,14 @@ async function estimateApproveInfo(req, res, body) {
   const discount = approveTokenDiscount(token);
   const items = applyCouponToItems(est.line_items, discount);
   const totals = quoteTotals(items, est.tax_rate);
-  // Public-safe upsell menu (no tech_pay). If already approved, echo back the
-  // customer's own selection so a reopened link shows what they chose.
   const menu = publicUpsells(est.upsells);
   const acceptedIds = Array.isArray(est.accepted_upsells) ? est.accepted_upsells.map(u => u && u.id) : null;
-  const slug = est.business?.slug || 'handy-andy';
-  // First name only of the tech this quote is tied to, so the times list can
-  // say "Times with Steve". Null when the quote is open to any tech.
+  const slug = est.business?.slug || 'tidyhaus';
   let techFirstName = null;
   if (est.technician_id) {
     const { data: tr } = await db.from('technicians').select('name').eq('id', est.technician_id).maybeSingle();
     techFirstName = tr && tr.name ? String(tr.name).split(/\s+/)[0] : null;
   }
-  // Prefill (owner 2026-10-22): fill any blank address field from this
-  // business's customer record for the same phone. The card stays required.
   let known = {};
   if (!est.approved_at && est.customer_phone && !(est.customer_address && est.customer_city && est.customer_state && est.customer_zip)) {
     try {
@@ -16306,8 +12399,6 @@ async function estimateApproveInfo(req, res, body) {
     customer_address: est.customer_address || known.address_line1 || '',
     customer_city: est.customer_city || known.city || '',
     customer_state: est.customer_state || known.state || '',
-    // Publishable key so the approve page can collect a card to hold on file
-    // (tokenized client-side; only the business's secret key can charge it).
     stripe_pk: bookingStripePk(slug),
     service_label: est.service_label || '',
     description: est.description || '',
@@ -16316,7 +12407,7 @@ async function estimateApproveInfo(req, res, body) {
     tax_rate: Number(est.tax_rate) || 0,
     totals,
     upsells: menu,
-    accepted_ids: acceptedIds,        // non-null once the customer has approved
+    accepted_ids: acceptedIds,
     approved_total: est.approved_total != null ? Number(est.approved_total) : null,
     already_approved: !!est.approved_at,
     approved_at: est.approved_at || null,
@@ -16324,35 +12415,17 @@ async function estimateApproveInfo(req, res, body) {
   });
 }
 
-// Turn accepted upsells into priced line-item rows so quoteTotals() can fold
-// them into the base quote (customer price × qty, tax applied to the combined sum).
 function upsellsAsLineItems(accepted) {
   return (Array.isArray(accepted) ? accepted : []).map(u => ({
     description: u.description, qty: u.qty, unit_price: u.unit_price,
   }));
 }
 
-// Auto-book the customer's chosen slot the moment they approve an estimate —
-// no staffer re-enters their info or re-picks the time. Re-validates
-// availability at THIS instant (not just when the page loaded) and picks the
-// tech itself, the same way the public widget does. Throws a plain Error with
-// `.conflict = true` when the slot is gone, which the caller turns into a 409
-// so the customer can pick a different time instead of hitting a dead end.
 async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot, cust, card) {
   if (await isScammer({ phone: cust && cust.phone, email: cust && cust.email }, db) || await isScammer({ phone: est.customer_phone, email: est.customer_email }, db)) {
     const e = new Error(SCAMMER_BOOKING_ERROR); e.scammer = true; e.status = 403; throw e;
   }
   const tz = await areaTimezone(db, null, biz.timezone || 'Asia/Manila').catch(() => biz.timezone || 'Asia/Manila');
-  // Resolve the metro the SAME way estimateSlots did when it offered these
-  // times, or "offered" and "bookable" disagree and every approval 409s.
-  // estimateSlots keys off the ESTIMATE's zip; this used to key only off the
-  // zip the customer types on the details form. When that typed zip isn't in
-  // service_area_zips (a typo, or a genuinely-served zip nobody has mapped
-  // yet) this came back null, and scopedRosterTechs deliberately contributes
-  // NOTHING for a null area — so the strict tech pick found nobody, threw
-  // .conflict, and the customer was bounced back to the start after their
-  // card had already been tokenized. Falling back to the estimate's own zip
-  // keeps both sides on the same roster.
   const bookingAreaId = (await serviceAreaIdFromPostal(db, biz.id, cust.zip))
     || (await serviceAreaIdFromPostal(db, biz.id, est.customer_zip));
   const areaTz = bookingAreaId ? await areaTimezone(db, bookingAreaId, biz.timezone || 'Asia/Manila') : tz;
@@ -16363,15 +12436,6 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
   const midnight = localDateStartUTC(areaTz, slot.date);
   const scheduled_at = new Date(midnight.getTime() + (hh * 60 + mm) * 60000).toISOString();
 
-  // Re-check availability RIGHT NOW — the page may have loaded minutes ago.
-  // strict:true — this is a fully automated, customer-triggered booking with
-  // no office staffer to confirm an override, so it must never fall back to a
-  // tech who merely has no conflicting job (pickAvailableTech's off-schedule
-  // second choice) — only someone actually scheduled to work that slot, and
-  // only from THIS metro's roster (a multi-metro business must never book its
-  // Austin tech onto a Denver estimate just because slot keys match).
-  // An estimate tied to one tech books ONLY that tech (never falls back to
-  // someone else, or the customer would be told Steve and get a stranger).
   const technician_id = est.technician_id
     ? ((await techIsOpenForSlot(db, est.technician_id, slot.date, slot.slot_key, areaTz)) ? est.technician_id : null)
     : await pickAvailableTech(db, [{ bizId: biz.id, serviceAreaId: bookingAreaId, zip: est.customer_zip }], slot.date, slot.slot_key, areaTz, null, false, true);
@@ -16381,11 +12445,7 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
     throw e;
   }
 
-  // Reuse an existing customer (by phone, then email) or create one — same
-  // lookup order as the dashboard's booking_create.
   let customer_id = null;
-  // Newest match, not .maybeSingle(): duplicate customer rows exist and
-  // maybeSingle returns null on several, which inserted yet another duplicate.
   if (cust.phone) {
     const { data: rows, error } = await db.from('customers').select('id').eq('business_id', biz.id).eq('phone', cust.phone).order('created_at', { ascending: false }).limit(1);
     if (error) throw error;
@@ -16415,10 +12475,6 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
     if (Object.keys(patch).length) await db.from('customers').update(patch).eq('id', customer_id).eq('business_id', biz.id);
   }
 
-  // Hard $139 minimum ticket (owner rule 2026-08-31) — see MIN_TICKET_PRICE.
-  // An estimate is office-authored, so a normal (non-$0) one should already
-  // have cleared the same floor at send time, but this is real money about to
-  // be charged on approval, so it's checked again here rather than trusted.
   if ((Number(totals.total) || 0) > 0 && Number(totals.total) < MIN_TICKET_PRICE && !isDismountOnlyLines(combinedItems)) {
     const e = new Error(`This estimate totals $${Number(totals.total).toFixed(2)}, under the $${MIN_TICKET_PRICE} minimum — it cannot be booked as-is.`);
     e.conflict = true; throw e;
@@ -16431,14 +12487,9 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
     status: 'assigned', source: 'estimate',
     scheduled_at,
     subtotal: totals.subtotal, price: totals.total,
-    // An estimate's internal notes never reach the job, EXCEPT a "Payroll
-    // override: $X" line, which the payroll engine reads from the booking's
-    // notes. Carrying just that line means the pay the office wrote on the
-    // quote is the pay the tech actually gets (owner rule 2026-09-19).
     notes: [est.description, (String(est.notes || '').match(/payroll\s*override\s*:?\s*\$?\s*\d+(?:\.\d{1,2})?/i) || [])[0]].filter(Boolean).join(String.fromCharCode(10, 10)) || null,
     address_line1: cust.line1 || null, city: cust.city || null, state: cust.state || null, postal_code: cust.zip || null,
     payment_required: true, payment_method: 'card',
-    // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
     sms_consent: await textConsentFor(db, cust.phone),
     stripe_customer_id: card.customerId, stripe_payment_method_id: card.pmId || null,
     metadata: { booked_by: 'Estimate approval (auto-booked)', source_estimate_id: est.id },
@@ -16459,14 +12510,8 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
   }
   if (bErr) throw bErr;
 
-  // Review-link token, exactly as bookingCreate mints one. This path never did,
-  // so every estimate-approved job reached completion with review_token NULL
-  // and the completion hook (tech.js / bookingUpdate) sent nothing — 8 of 8
-  // such jobs in the 120 days before 2026-09-06 got no review request.
   await ensureReviewToken(db, { id: bRow.id });
 
-  // Canonical ticket order from birth (TVs smallest-first, then work, then
-  // travel/discounts); tax gets the next sort_order so it's always the last line.
   const rows = canonicalizeLineItems(combinedItems.map(it => ({
     booking_id: bRow.id, business_id: biz.id, kind: 'option', name: it.description || 'Item',
     quantity: Number(it.qty) || 1, unit_price: Number(it.unit_price) || 0,
@@ -16501,14 +12546,6 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
   await notifyTechAssigned(db, biz, technician_id, scheduled_at, areaTz, { bookingId: bRow.id })
     .catch(e => console.error('[tech-notify]', e.message));
 
-  // Office alert — this auto-booked without any staffer touching it, so the
-  // ONLY way Heather/Joey/the owner find out is this alert. Every OTHER
-  // booking-creation path (bookingCreate, the public widget) already sends
-  // this; it was missing here, meaning a successful self-serve approval
-  // produced zero proactive notice to the office (found 2026-09-17). Awaited,
-  // same reasoning as the customer SMS below: an un-awaited send can be
-  // killed when Vercel freezes the lambda on response. sendOwnerBookingAlert
-  // swallows its own errors (never throws), so no try/catch needed here.
   const [alertEndH, alertEndM] = slotDef.end.split(':').map(Number);
   const scheduledEnd = new Date(midnight.getTime() + (alertEndH * 60 + alertEndM) * 60000).toISOString();
   const alertLineItems = combinedItems.map(it => ({ name: it.description || 'Item', quantity: Number(it.qty) || 1, line_total: (Number(it.qty) || 1) * (Number(it.unit_price) || 0) }));
@@ -16526,13 +12563,10 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
   if (cust.phone && est.sms_consent === true) {
     const _d = new Date(scheduled_at);
     const dateStr = _d.toLocaleDateString('en-US', { timeZone: areaTz, weekday: 'short', month: 'short', day: 'numeric' });
-    // Same template as the widget and office confirmations
-    // (_lib/booking-confirm-sms.js), with the window the customer picked.
     const msg = bookingConfirmMessage({
       bizName: biz.name, bizSlug: biz.slug,
       dateStr, timeWindow: slotDef.label, techName: techInfo?.name || null,
     });
-    // Awaited: an un-awaited send is killed when Vercel freezes the lambda on response.
     try {
       const _confirmResult = await sendSMSResult(cust.phone, msg);
       if (!_confirmResult.ok) {
@@ -16585,12 +12619,10 @@ async function estimateApprove(req, res, body) {
   if (!id) return res.status(401).json({ error: 'This approval link is invalid or has expired.' });
 
   const db = serviceClient();
-  const est = await fetchEstimateAnyBiz(db, id);   // tolerates un-applied migrations; loads line_items, tax_rate, upsells, …
+  const est = await fetchEstimateAnyBiz(db, id);
   if (!est) return res.status(404).json({ error: 'Estimate not found.' });
   const businessName = est.business?.name || 'TidyHaus';
 
-  // Idempotent: first approval wins. A reopened link returns the stored selection
-  // rather than overwriting it.
   if (est.approved_at) {
     const acceptedIds = Array.isArray(est.accepted_upsells) ? est.accepted_upsells.map(u => u && u.id) : [];
     return res.status(200).json({
@@ -16601,9 +12633,6 @@ async function estimateApprove(req, res, body) {
     });
   }
 
-  // SERVER-AUTHORITATIVE: the client only tells us WHICH add-ons it accepted (ids).
-  // We intersect with the stored menu and re-price from our own record — a client
-  // can never inject an item or change a price.
   const requested = Array.isArray(body && body.accepted_ids) ? body.accepted_ids.map(x => String(x)) : [];
   const reqSet = new Set(requested);
   const menu = Array.isArray(est.upsells) ? est.upsells : [];
@@ -16615,8 +12644,6 @@ async function estimateApprove(req, res, body) {
   const combined = baseItems.concat(upsellsAsLineItems(accepted));
   const totals = quoteTotals(combined, est.tax_rate);
 
-  // ── Card + address are REQUIRED to approve (so the office can book) ──────────
-  // The customer must give us a card to hold on file and their service address.
   const addr = (body && body.address) || {};
   const line1 = String(addr.line1 || '').trim();
   const city = String(addr.city || '').trim();
@@ -16626,8 +12653,6 @@ async function estimateApprove(req, res, body) {
   const custName = capName(String((body && body.customer_name) || est.customer_name || '').trim());
   const custPhone = String((body && body.customer_phone) || est.customer_phone || '').trim();
   const custEmail = est.customer_email || null;
-  // A phone number or email is not a name (owner 2026-10-13): estimates made
-  // from a call often carry the number as the name.
   if (!custName || /@/.test(custName) || !/[a-z]{2}/i.test(custName)) {
     return res.status(400).json({ error: 'Please enter your name.' });
   }
@@ -16642,11 +12667,9 @@ async function estimateApprove(req, res, body) {
   if (!chosenSlot) {
     return res.status(400).json({ error: 'Please pick an appointment time to approve.' });
   }
-  // Flagged scammer (owner 2026-10-23): refuse before the card is ever saved.
   if (await isScammer({ phone: custPhone, email: custEmail }, db) || await isScammer({ phone: est.customer_phone, email: est.customer_email }, db)) {
     return res.status(400).json({ error: 'We could not complete this booking online. Please call us.' });
   }
-  // Save the card on file in the business's Stripe account (tokenized client-side).
   let card = null;
   try {
     card = await saveCardOnFile(pmId, { name: custName, email: custEmail, phone: custPhone }, est.business?.slug || null);
@@ -16657,9 +12680,6 @@ async function estimateApprove(req, res, body) {
     return res.status(402).json({ error: 'Card entry is not set up for this business yet — please contact us to book.' });
   }
 
-  // Book the job right now, using the slot the customer picked from live
-  // availability. If someone else grabbed that slot in the meantime, this
-  // throws a `.conflict` error instead of silently double-booking a tech.
   let booking;
   try {
     booking = await bookEstimateAppointment(
@@ -16668,15 +12688,6 @@ async function estimateApprove(req, res, body) {
       card
     );
   } catch (e) {
-    // Neither branch below writes anything to the `estimates` row — approval
-    // isn't recorded until AFTER a successful booking, further down. Without an
-    // alert here, a customer who hits this (a slot conflict, or anything else
-    // going wrong) leaves zero trace: the estimate just sits "pending," looking
-    // exactly like one nobody has looked at yet, and no one at the office knows
-    // to follow up — which is exactly the gap that put a customer's card and
-    // approval intent in limbo with no human ever notified.
-    // Goes to whichever secretary actually runs THIS business (Heather for
-    // TidyHaus, Joey for Dom's) — not the owner. Owner doesn't work these.
     if (e.scammer) return res.status(400).json({ error: 'We could not complete this booking online. Please call us.' });
     const secretaryPhone = secretaryPhoneFor(est.business?.slug);
     if (secretaryPhone) {
@@ -16699,13 +12710,10 @@ async function estimateApprove(req, res, body) {
     customer_address: line1, customer_city: city, customer_state: stateAbbr, customer_zip: zip,
     stripe_customer_id: card.customerId, card_brand: card.brand, card_last4: card.last4,
     preferred_slots: [chosenSlot],
-    // Booked inline: the job exists (owner 2026-10-22 statuses).
     status: booking && booking.bookingId ? 'booked' : 'approved',
     ...(booking && booking.bookingId ? { booked_booking_id: booking.bookingId, booked_at: now } : {}),
   };
   if (discount > 0) patch.notes = [est.notes, `$${discount} follow-up coupon applied at approval (${now}).`].filter(Boolean).join('\n').slice(0, 2000);
-  // Strip columns the schema doesn't have yet (0048 not applied) and retry, so an
-  // approval is always recorded even if only approved_at exists.
   let error;
   for (let i = 0; i < 4; i++) {
     ({ error } = await db.from('estimates').update(patch).eq('id', est.id));
@@ -16732,21 +12740,18 @@ async function estimateApprove(req, res, body) {
   });
 }
 
-// Get email quota from Resend for the current business
 async function emailQuota(req, res, auth) {
   if (req.method !== 'GET') return res.status(405).json({ error: 'Method not allowed' });
   const db = serviceClient();
 
   let business;
   if (auth.scope === 'all') {
-    // For owner, need to specify business via query param
     const slug = (req.query.business || '').toString();
     if (!slug) return res.status(400).json({ error: 'business parameter required for owner' });
     const { data: biz, error } = await db.from('businesses').select('id, slug').eq('slug', slug).eq('active', true).maybeSingle();
     if (error || !biz) return res.status(404).json({ error: 'Business not found' });
     business = biz;
   } else {
-    // For secretary, use their scoped business
     const { data: biz, error } = await db.from('businesses').select('id, slug').eq('slug', auth.scope).eq('active', true).maybeSingle();
     if (error || !biz) return res.status(404).json({ error: 'Business not found' });
     business = biz;
@@ -16800,28 +12805,11 @@ async function emailQuota(req, res, auth) {
   }
 }
 
-// ── Payroll Report ──────────────────────────────────────────────────────────
-// Owner-only: show tech earnings for a week across all technicians in the business.
-// Returns per-tech breakdown with job details, flags, and payment states.
-// Runs the payroll computation for ONE business over a given Sun–Sat week.
-// Shared by payroll() (single-business view) and payrollCombined() (both
-// businesses merged into one screen) so the two never drift apart. Each job
-// carries business_name/business_slug so a combined, multi-business list can
-// still show which company it came from.
 async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
-  // All active technicians for this business
   const { data: techs, error: techErr } = await db.from('technicians')
     .select('id, name').eq('business_id', biz.id).eq('active', true).order('name');
   if (techErr) throw techErr;
 
-  // Completed jobs for all techs in the week with payroll computation.
-  //
-  // `quantity` is REQUIRED in the line-items embed. Most rates survive without
-  // it because payQty() can infer the count from line_total/unit_price, but
-  // dismountQty() has no such fallback and returns 1, so a job with 2 dismounts
-  // charged $120 read as ONE $120 dismount and paid $60 instead of 2 x $50.
-  // economicsSelect() (the profit side) has always selected quantity, so
-  // omitting it here also made profit and payroll disagree about the same job.
   const { data: jobs, error: jobErr } = await db.from('bookings')
     .select(`
       id, scheduled_at, created_at, status, subtotal, price, payment_status, amount_paid, payment_method,
@@ -16837,11 +12825,8 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
     .order('scheduled_at');
   if (jobErr) throw jobErr;
 
-  // Per-zip travel payout (the "$X paid to the tech" half of the surcharge tier).
-  // One batched lookup; tolerant of the tech_payout column not existing yet.
   const travelPayoutByZip = await travelPayoutMap(db, biz.id);
 
-  // Map job_id -> list of techs who worked it (primary or secondary)
   const jobTechs = {};
   for (const b of jobs || []) {
     jobTechs[b.id] = [];
@@ -16849,19 +12834,11 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
     if (b.secondary_technician_id) jobTechs[b.id].push(b.secondary_technician_id);
   }
 
-  // Compute payroll for each tech
   const techPayroll = {};
   for (const tech of techs || []) {
     techPayroll[tech.id] = { name: tech.name, jobs: [], deferred: [], total: 0 };
   }
 
-  // A job in THIS business can be worked by a technician who belongs to a
-  // DIFFERENT business (cross-company helper, e.g. a TidyHaus tech helping
-  // on a Dom's job). That tech's own `technicians` row has a different
-  // business_id, so the query above never picks them up and their pay would
-  // otherwise be silently dropped by the `if (!techPayroll[techId]) continue`
-  // check below. Backfill anyone referenced by this week's jobs but missing
-  // from techPayroll with a direct by-id lookup (no business_id filter).
   const allTechIds = new Set(Object.values(jobTechs).flat());
   const missingTechIds = [...allTechIds].filter(id => !techPayroll[id]);
   if (missingTechIds.length) {
@@ -16895,9 +12872,6 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
         scheduled_at: b.scheduled_at,
         created_at: b.created_at,
         travel_payout: travelPayoutByZip.get(String(b.postal_code || '')) || 0,
-        // A 2nd tech is on the job — but it only SPLITS 50/50 when the customer
-        // booked a two-person job. On a one-person job the lead keeps full pay and
-        // the assigned helper earns $0.
         second_tech: (jobTechs[b.id] || []).length > 1,
         is_secondary: techId === b.secondary_technician_id && techId !== b.technician_id,
         is_houston: isHouston,
@@ -16916,32 +12890,18 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
       if (result.state === 'deferred') {
         techPayroll[techId].deferred.push({ ...jobBase, customer_due: Math.floor((Number(b.price) || 0) - (Number(b.amount_paid) || 0)) });
       } else if (result.state !== 'excluded') {
-        // CASH JOB: the tech collected the customer's money and kept it, so the
-        // business's share comes back out of their pay. The job's own economics
-        // are unchanged (profit is still price − pay elsewhere) — this is purely
-        // "pay the tech less because they're already holding the cash", which is
-        // why it lives here in payroll and NOT in computeJobPay (profit shares
-        // that engine and must not see the deduction).
-        //
-        // Only the PRIMARY tech is deducted: they're the one who took the money.
-        // A helper on the same job is paid normally.
         const collected = (b.payment_method === 'cash' && techId === b.technician_id)
           ? Math.round(Number(b.amount_paid) || Number(b.price) || 0)
           : 0;
         const breakdown = [...(result.breakdown || [])];
         if (collected > 0) breakdown.push({ label: `Cash collected from customer (kept by tech)`, amount: -collected });
-        // tech_pay stays the TOTAL owed (labor + tips) so every sum downstream is
-        // unchanged; labor_pay and tip split it for display (owner 2026-10-12).
         const tipShare = Number(result.tip) || 0;
-        // Owner-set labor for this tech on this job (metadata.tech_pay_override
-        // { <techId>: amount }, owner 2026-10-26): replaces the computed labor.
         const ovr = b.metadata?.tech_pay_override?.[techId];
         if (ovr != null && Number.isFinite(Number(ovr))) {
           breakdown.length = 0;
           breakdown.push({ label: 'Pay set by owner', amount: Number(ovr) });
           result = { ...result, pay: Number(ovr), total: Number(ovr) + tipShare };
         }
-        // Per-tech TV-size rates (owner 2026-10-26, David): $ change per TV by size.
         const tvAdj = TECH_TV_BASE_ADJ[techId];
         if (tvAdj && ovr == null) {
           let cut = 0, tvs = 0;
@@ -16969,33 +12929,19 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
     }
   }
 
-  // ── $100 review bonus (all 5 Google listings, migration 0090) ────────────
-  // One locked row per tech; surfaced as its own labeled pseudo-job in the
-  // Sun-Sat week containing completed_at, under the TECH's home business, so
-  // it flows through this screen's totals (and payrollCombined's merge) into
-  // exactly what the owner types into the payroll processor. Pushed as a
-  // jobs[] entry on purpose: the renderer is generic over job rows, and the
-  // "jobs.length > 0" keep-filter below then retains a tech whose only line
-  // this week is the bonus. Best-effort: a missing table never breaks payroll.
   try {
-    // Half-open week window [Sunday, next Sunday): completed_at is a real
-    // wall-clock now() with fractional seconds, and an lte on 23:59:59 would
-    // drop a completion landing inside the final second of Saturday into NO
-    // week at all (the jobs query above gets away with lte only because slot
-    // times are hour-aligned).
     const { data: bonuses } = await db.from('tech_review_bonus')
       .select('technician_id, amount, completed_at, technician:technicians!technician_id(name, business_id)')
       .gte('completed_at', parsedWeek + 'T00:00:00Z')
       .lt('completed_at', addDaysStr(weekEnd, 1) + 'T00:00:00Z');
     for (const bns of bonuses || []) {
-      if (bns.technician?.business_id !== biz.id) continue;   // shows under the tech's own business only
+      if (bns.technician?.business_id !== biz.id) continue;
       const tId = bns.technician_id;
-      // A tech with no jobs this week (or inactive) still gets their bonus row.
       if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Technician', jobs: [], deferred: [], total: 0 };
       const amt = Math.round(Number(bns.amount) || 0);
       techPayroll[tId].jobs.push({
         id: `review-bonus-${tId}`,
-        bonus: true,   // the client excludes bonus rows from "jobs worked" counts
+        bonus: true,
         customer_name: 'Review bonus',
         service: 'All 5 Google listings reviewed',
         time: '',
@@ -17013,19 +12959,13 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
 
   const partsCorrections=await partsCorrectionsFor(db,parsedWeek,{businessId:biz.id});
 
-  // ── One-off bonuses (migration 0105) ─────────────────────────────────────
-  // The generic version of the block above: any number per tech, each with its
-  // own label. Same pseudo-job treatment for the same reason — it has to reach
-  // the number the owner types into the payroll processor, or the tech sees a
-  // bonus in their app that never actually gets paid. awarded_on is a plain
-  // date, so a simple inclusive range matches the Sun-Sat week exactly.
   try {
     const { data: bonuses, error: bonusError } = await db.from('tech_bonuses')
       .select('id, technician_id, amount, reason, message, awarded_on, photo_url, technician:technicians!technician_id(name, business_id)')
       .gte('awarded_on', parsedWeek).lte('awarded_on', weekEnd);
     if(bonusError) throw bonusError;
     for (const bns of bonuses || []) {
-      if (bns.technician?.business_id !== biz.id) continue;   // shows under the tech's own business only
+      if (bns.technician?.business_id !== biz.id) continue;
       const amt = partsMoney(Number(bns.amount) || 0);
       if (!amt) continue;
       const detail=partsAdjustmentDetail(partsCorrections,bns,parsedWeek);
@@ -17034,7 +12974,7 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
       if (!techPayroll[tId]) techPayroll[tId] = { name: bns.technician?.name || 'Technician', jobs: [], deferred: [], total: 0 };
       techPayroll[tId].jobs.push({
         id: `bonus-${bns.id}`,
-        bonus: true,   // the client excludes bonus rows from "jobs worked" counts
+        bonus: true,
         photo_url: bns.photo_url || null,
         customer_name: bns.reason || 'Bonus',
         service: amt<0?'Payroll adjustment':'Bonus',
@@ -17058,8 +12998,6 @@ async function computeBizPayroll(db, biz, parsedWeek, weekEnd) {
     .filter(t => t.jobs.length > 0 || t.deferred.length > 0);
 }
 
-// Lead-gen brands' hand-entered payouts: { "<slug>": amount } on the same weekly
-// row. Tolerates null / junk so a bad row can never break the payroll page.
 function leadGenMap(raw) {
   const out = {};
   if (raw && typeof raw === 'object') {
@@ -17071,30 +13009,20 @@ function leadGenSum(map) {
   return Math.round(Object.values(map).reduce((s, n) => s + n, 0) * 100) / 100;
 }
 
-// Shared "actual profit" lookup — same hand-entered row shown on both the
-// single-business and combined payroll screens (one row per pay_date, not
-// per business). Owner-gated by both callers already.
-//
-// Stripe payouts are per BUSINESS (owner 2026-10-12, migration 0199): any brand
-// the owner did a job for that week gets an input, not just TidyHaus + Dom's.
-// payouts_by_business = { slug: amount }; the two legacy columns are folded in
-// on read (and still written on save) so old rows and old readers keep working.
-// businesses_with_jobs = every business with >=1 non-cancelled job scheduled in
-// the pay week, so the UI can show an input for each automatically.
-const LEGACY_PAYOUT_COL = { doms: 'doms_stripe_payout', 'handy-andy': 'handy_andy_stripe_payout' };
+const LEGACY_PAYOUT_COL = { doms: 'doms_stripe_payout', 'tidyhaus': 'tidyhaus_stripe_payout' };
 async function actualProfitFor(db, payDate, weekStart, weekEnd) {
   let { data: profitRow, error: rowErr } = await db.from('actual_profit_weekly')
-    .select('doms_stripe_payout, handy_andy_stripe_payout, tech_pay, lead_gen_payouts, payouts_by_business').eq('pay_date', payDate).maybeSingle();
+    .select('doms_stripe_payout, tidyhaus_stripe_payout, tech_pay, lead_gen_payouts, payouts_by_business').eq('pay_date', payDate).maybeSingle();
   if (rowErr && /payouts_by_business/.test(rowErr.message || '')) {
     ({ data: profitRow } = await db.from('actual_profit_weekly')
-      .select('doms_stripe_payout, handy_andy_stripe_payout, tech_pay, lead_gen_payouts').eq('pay_date', payDate).maybeSingle());
+      .select('doms_stripe_payout, tidyhaus_stripe_payout, tech_pay, lead_gen_payouts').eq('pay_date', payDate).maybeSingle());
   }
   const domsStripe = profitRow?.doms_stripe_payout != null ? Number(profitRow.doms_stripe_payout) : null;
-  const haStripe = profitRow?.handy_andy_stripe_payout != null ? Number(profitRow.handy_andy_stripe_payout) : null;
+  const haStripe = profitRow?.tidyhaus_stripe_payout != null ? Number(profitRow.tidyhaus_stripe_payout) : null;
   const techPay = profitRow?.tech_pay != null ? Number(profitRow.tech_pay) : null;
   const payouts = leadGenMap(profitRow?.payouts_by_business);
   if (domsStripe != null && payouts.doms == null) payouts.doms = domsStripe;
-  if (haStripe != null && payouts['handy-andy'] == null) payouts['handy-andy'] = haStripe;
+  if (haStripe != null && payouts['tidyhaus'] == null) payouts['tidyhaus'] = haStripe;
   const stripeTotal = leadGenSum(payouts);
   const leadGen = leadGenMap(profitRow?.lead_gen_payouts);
   const leadGenTotal = leadGenSum(leadGen);
@@ -17117,13 +13045,11 @@ async function actualProfitFor(db, payDate, weekStart, weekEnd) {
       withJobs = [...seen.values()].sort((x, y) => y.jobs - x.jobs || x.name.localeCompare(y.name));
     } catch (e) { console.warn('[payroll] businesses-with-jobs lookup failed:', e.message); }
   }
-  // "Total I made" shows once tech pay is in AND every business that had jobs
-  // this week has its payout entered (the old rule was "both HA and Dom's").
-  const required = withJobs.length ? withJobs.map(b => b.slug) : ['doms', 'handy-andy'];
+  const required = withJobs.length ? withJobs.map(b => b.slug) : ['doms', 'tidyhaus'];
   const ready = techPay != null && required.every(sl => payouts[sl] != null);
   return {
     doms_stripe_payout: domsStripe,
-    handy_andy_stripe_payout: haStripe,
+    tidyhaus_stripe_payout: haStripe,
     payouts_by_business: payouts,
     stripe_total: stripeTotal,
     businesses_with_jobs: withJobs,
@@ -17134,16 +13060,10 @@ async function actualProfitFor(db, payDate, weekStart, weekEnd) {
   };
 }
 
-// Payroll displays people the way the owner actually runs payroll (matches
-// the contractor list in the payroll processor, sorted by LAST name) rather
-// than first-name alphabetical or job-count order. Anyone not in this map
-// (a new hire) falls back to sorting by their own first name so they still
-// land somewhere sane instead of erroring.
 const PAYROLL_LAST_NAME = {
   'TK': 'Adeshewo', 'Juan': 'Beltran', 'Zach': 'Benaya', 'Kregg': 'Buesig',
   'Steve': 'Burns', 'Gregory': 'Gadlin', 'Heather': 'Gonzalez',
 };
-// Exact Gusto contractor order (owner 2026-10-26). Anyone not listed sorts after, by last name.
 const PAYROLL_ORDER = [];
 function sortForPayroll(data) {
   const rank = (n) => { const first = String(n || '').split(/\s+/)[0].toLowerCase(); const i = PAYROLL_ORDER.findIndex(x => x.toLowerCase() === first); return i < 0 ? 999 : i; };
@@ -17151,22 +13071,11 @@ function sortForPayroll(data) {
   return [...data].sort((a, b) => rank(a.name) - rank(b.name) || String(key(a.name)).localeCompare(String(key(b.name))));
 }
 
-// Heather ($95/day) — how many of the 7 days in this Sun-Sat week her
-// availability says she worked, checking the date-specific exception first
-// and falling back to the recurring weekly pattern. Powers the payroll
-// suggestion below so a week's pay reflects her ACTUAL schedule instead of
-// always assuming a full 5-day week.
 async function secretaryWorkDaysInWeek(db, bizSlug, weekStart) {
   const { data: biz } = await db.from('businesses').select('id').eq('slug', bizSlug).maybeSingle();
   if (!biz) return 0;
   const { data: pattern } = await db.from('secretary_availability')
     .select('day_of_week, is_available').eq('business_id', biz.id);
-  // Exceptions for THIS pay week specifically, not fetchSecretaryAvailability's
-  // rolling "last 7 days onward" window. That window is for the dashboard's
-  // "upcoming days off" list; using it here silently overpaid, because payroll
-  // for a week is run the SECOND Monday after it closes (see _lib/payroll.js),
-  // by which point that week's days off had already fallen outside it — so a
-  // day the secretary took off was counted and paid as a normal work day.
   const weekEnd = addDaysStr(weekStart, 6);
   const { data: exceptions } = await db.from('secretary_availability_exceptions')
     .select('exception_date, is_available').eq('business_id', biz.id)
@@ -17182,38 +13091,18 @@ async function secretaryWorkDaysInWeek(db, bizSlug, weekStart) {
   }
   return workDays;
 }
-// Heather is paid in US dollars; Joey is paid in Philippine pesos (PHP). Each
-// secretary's daily rate carries its own currency — these are NEVER added
-// together, and never folded into the technicians' USD payroll total (see
-// the currency-aware sum in payroll()/payrollCombined() below).
 const SECRETARY_RATE = {
-  'handy-andy': { daily: 95, currency: 'USD' },
-  'doms': { daily: 2083, currency: 'PHP' },
+  'tidyhaus': { daily: 95, currency: 'USD' },
 };
-// Approximate PHP -> USD reference rate, for display only (never touches what
-// Joey is actually paid — he's paid in pesos, full stop). Update this number
-// as the real exchange rate drifts; there's no live FX feed wired in, so it's
-// a plain constant rather than silently going stale against a forgotten API.
 const PHP_PER_USD = 56.5;
 function phpToUsd(php) { return Math.round((Number(php) || 0) / PHP_PER_USD * 100) / 100; }
 
-// Heather (TidyHaus) / Joey (Dom's) aren't technicians — no jobs, no
-// per-job pay — but they ARE real payroll: paid their daily rate for every
-// day their "My Availability" schedule (weekly pattern + exceptions) says
-// they worked that week, $0 for any day they didn't. That's computed here
-// automatically and IS the real payroll figure — no manual step required.
-// A hand-entered office_pay_weekly value, if one exists, overrides the
-// computed number for a one-off adjustment (a partial day, a correction);
-// absent that, the automatic total is what's owed.
 async function officePayRows(db, weekStart) {
   const { data: row } = await db.from('office_pay_weekly').select('heather_pay, joey_pay, php_rate').eq('week_start', weekStart).maybeSingle();
-  // Owner can type in the real PHP->USD rate per week (office_pay_weekly.php_rate);
-  // falls back to the plain PHP_PER_USD constant when nothing's been entered.
   const effectiveRate = Number(row?.php_rate) > 0 ? Number(row.php_rate) : PHP_PER_USD;
   const mk = async (name, slug, saved) => {
     const currency = SECRETARY_RATE[slug].currency;
     const usdEq = (total) => currency === 'PHP' ? Math.round((Number(total) || 0) / effectiveRate * 100) / 100 : null;
-    // Review bonus is pesos, so only the PHP-paid secretaries (Joey) get it here; Heather does not call for reviews.
     const rb = currency === 'PHP' ? await reviewBonusLines(db, name, weekStart) : [];
     const rbTotal = rb.length * REVIEW_BONUS_PHP;
     if (saved != null) {
@@ -17224,21 +13113,16 @@ async function officePayRows(db, weekStart) {
     const total = workDays * SECRETARY_RATE[slug].daily + rbTotal;
     return { name, jobs: [], deferred: [], total, is_office: true, is_suggested: true, work_days: workDays, additions: rb, review_bonus_total: rbTotal, currency, usd_equivalent: usdEq(total), fx_rate: currency === 'PHP' ? effectiveRate : null };
   };
-  // Alex / Joe (owner 2026-10-02): ₱2,000 for each day they are scheduled
-  // (staff_schedules), nothing for days off. Read-only, no override.
   const team = async (name) => {
     const { data: days, error } = await db.from('staff_schedules').select('day_of_week').eq('name', name);
-    if (error) throw error;   // never show a fake ₱0
+    if (error) throw error;
     const set = new Set((days || []).map(d => d.day_of_week));
     let workDays = 0;
     for (let i = 0; i < 7; i++) { const d = addDaysStr(weekStart, i); if (d >= STAFF_PAY_FROM && set.has(dayOfWeekFor(d))) workDays++; }
-    // One-off OFF dates (staff_schedule_exceptions, e.g. 'No-show 10/9') remove that day's pay.
     const wkEnd = addDaysStr(weekStart, 6);
     const { data: offs } = await db.from('staff_schedule_exceptions').select('on_date, reason').eq('name', name).is('business_slug', null).gte('on_date', weekStart).lte('on_date', wkEnd);
     const offDays = (offs || []).filter(o => o.on_date >= STAFF_PAY_FROM && set.has(dayOfWeekFor(o.on_date)));
     workDays -= offDays.length;
-    // One-off WORKING dates (business_slug set) add a day ONLY when that weekday is not already a
-    // weekly scheduled day (else it would double count). Labeled 'Covered <other> m/d'.
     const { data: ons } = await db.from('staff_schedule_exceptions').select('on_date').eq('name', name).not('business_slug', 'is', null).gte('on_date', weekStart).lte('on_date', wkEnd);
     const onDays = (ons || []).filter(o => o.on_date >= STAFF_PAY_FROM && !set.has(dayOfWeekFor(o.on_date)));
     let additions = [];
@@ -17256,45 +13140,32 @@ async function officePayRows(db, weekStart) {
     const total = workDays * STAFF_DAY_RATE_PHP + rb.length * REVIEW_BONUS_PHP;
     return { name, jobs: [], deferred: [], total, is_office: true, is_suggested: true, read_only: true, work_days: workDays, deductions: offDays.map(o => ({ date: o.on_date, label: o.reason, amount: -STAFF_DAY_RATE_PHP })), additions, review_bonus_total: rb.length * REVIEW_BONUS_PHP, daily_rate: STAFF_DAY_RATE_PHP, currency: 'PHP', usd_equivalent: Math.round(total / effectiveRate * 100) / 100, fx_rate: effectiveRate };
   };
-  // Joey: US$227 per 7 days (~$32.43/day worked) from the week of 2026-10-25 (owner 2026-10-26;
-  // Gusto can't pay her in pesos).
-  // Review bonuses (pesos) are converted at this week's rate and added.
   const joeyUsd = async () => {
     if (row?.joey_pay != null) return mk('Joey', 'doms', row.joey_pay);
     const rb = await reviewBonusLines(db, 'Joey', weekStart);
     const rbUsd = Math.round(rb.length * REVIEW_BONUS_PHP / effectiveRate * 100) / 100;
-    // $227 = 7 days; paid per day worked (her availability), like before in pesos.
     const workDays = await secretaryWorkDaysInWeek(db, 'doms', weekStart);
     const total = Math.round((workDays * JOEY_WEEKLY_USD / 7 + rbUsd) * 100) / 100;
     return { name: 'Joey', jobs: [], deferred: [], total, work_days: workDays, is_office: true, is_suggested: true, read_only: true,
       additions: rb.map(x => ({ ...x, amount: Math.round(REVIEW_BONUS_PHP / effectiveRate * 100) / 100 })), review_bonus_total: rbUsd, currency: 'USD', usd_equivalent: null };
   };
   return Promise.all([
-    mk('Heather', 'handy-andy', row?.heather_pay),
+    mk('Heather', 'tidyhaus', row?.heather_pay),
     weekStart >= JOEY_USD_FROM ? joeyUsd() : mk('Joey', 'doms', row?.joey_pay),
     team('Alex'),
     team('Joe'),
-    // Jiyah (call auditor): flat US$200 a week until the owner says otherwise (2026-10-26).
     ...(weekStart >= JIYAH_PAY_FROM ? [{ name: 'Jiyah', jobs: [], deferred: [], total: JIYAH_WEEKLY_USD, is_office: true, is_suggested: false, read_only: true, currency: 'USD', usd_equivalent: null, flat_week: true }] : []),
   ]);
 }
 const STAFF_DAY_RATE_PHP = 2000;
 const JOEY_WEEKLY_USD = 227;
-const INVENTORY_SHOW_UNCOUNTED = new Set(['7b245baf-e384-407d-aa0d-7f648a54d03f']);   // David
-// Per-tech change to each TV-size base pay, in $ per TV (owner 2026-10-26).
-// David Michael Orr: $10 under standard, except 85"-97" pays $80 and 98"+ pays $110.
+const INVENTORY_SHOW_UNCOUNTED = new Set(['7b245baf-e384-407d-aa0d-7f648a54d03f']);
 const TECH_TV_BASE_ADJ = { '7b245baf-e384-407d-aa0d-7f648a54d03f': { default: -10, '85': -30, '98': -20 } };
 const JIYAH_WEEKLY_USD = 200;
 const JIYAH_PAY_FROM = '2026-10-18';
 const JOEY_USD_FROM = '2026-10-25';
-// Review bonus (owner 2026-10-14): ₱500 to the secretary who logged "customer
-// promised review" in Pipeline, when that customer leaves a 5-star Google
-// review within 7 days of the call. Paid in the week the review lands.
-// Computed on read from bookings (review_call_* + reviewed_at/review_rating),
-// so nothing is stored and nothing can drift.
 const REVIEW_BONUS_PHP = 500;
-const REVIEW_BONUS_FROM = '2026-10-14T15:00:00Z';   // owner 2026-10-14: start fresh, no back pay
-// Secretary popup (owner 2026-10-14): every earned review bonus pops once.
+const REVIEW_BONUS_FROM = '2026-10-14T15:00:00Z';
 async function reviewBonusUnseen(req, res, db, auth) {
   const name = auth.role === 'secretary' ? String(auth.name || '') : '';
   if (!name) return res.status(200).json({ bonuses: [] });
@@ -17331,11 +13202,8 @@ async function reviewBonusLines(db, name, weekStart) {
     return { date: d, label: `5-star review: ${b.customer?.name || 'customer'} ${Number(m)}/${Number(dd)}`, amount: REVIEW_BONUS_PHP, review_bonus: true };
   });
 }
-const STAFF_PAY_FROM = '2026-10-02';   // first day Alex/Joe take calls
+const STAFF_PAY_FROM = '2026-10-02';
 
-// Owner-only: set the PHP->USD reference rate for one pay week. Independent
-// of the pay amount override — the owner can correct the exchange rate
-// without also having to hand-enter Joey's whole week's pay.
 async function officePayRateSave(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { week_start, php_rate } = req.body || {};
@@ -17368,8 +13236,6 @@ async function officePaySave(req, res, db, auth) {
     week_start,
     heather_pay: existing?.heather_pay ?? null,
     joey_pay: existing?.joey_pay ?? null,
-    // `clear` removes a manual override so payroll goes back to the
-    // automatic (days worked × daily rate) figure for this week.
     [field]: clear ? null : Number(amount),
     updated_at: new Date().toISOString(),
   };
@@ -17379,8 +13245,6 @@ async function officePaySave(req, res, db, auth) {
 }
 
 
-// Owner-recorded parts corrections. Amounts already paid remain in a dated
-// snapshot; the recovery is a fixed-week extra-pay row, never a rolling debt.
 async function payrollParts(req, res, db, auth, body, action) {
   if (auth.role !== 'owner') return res.status(403).json({error:'Owner only'});
   const write=action!=='payroll_parts_preview';
@@ -17423,9 +13287,6 @@ async function payroll(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
 
   const weekStart = (req.query.week_start || '').toString();
-  // Always run on a whole Sun–Sat week: take the requested date (or today) and
-  // snap it back to that week's Sunday, so a stray weekday can't yield a partial
-  // period. addDaysStr(date, -dayOfWeekFor(date)) lands on the preceding Sunday.
   const rawWeek = weekStart && /^\d{4}-\d{2}-\d{2}$/.test(weekStart) ? weekStart : startOfWeekUTC(biz.timezone || 'Asia/Manila').toISOString().split('T')[0];
   const parsedWeek = addDaysStr(rawWeek, -dayOfWeekFor(rawWeek));
   const weekEnd = addDaysStr(parsedWeek, 6);
@@ -17433,13 +13294,8 @@ async function payroll(req, res, db, auth) {
   const data = await computeBizPayroll(db, biz, parsedWeek, weekEnd);
   const payDate = addDaysStr(weekEnd, PAY_DATE_OFFSET_DAYS);
 
-  // Office staff aren't technicians (no jobs), but the owner runs payroll for
-  // them too — add just THIS business's secretary row (Heather for Handy
-  // Andy, Joey for Dom's), not both, so a single-business view never shows
-  // someone who doesn't work there.
   const officeRows = (await officePayRows(db, parsedWeek))
-    .filter(r => (biz.slug === 'handy-andy' && r.name === 'Heather') || (biz.slug === 'doms' && ['Joey', 'Alex', 'Joe'].includes(r.name)));
-  // Prospect commission (10% ex-tax) for this business's office people only.
+    .filter(r => (biz.slug === 'tidyhaus' && r.name === 'Heather') || (biz.slug === 'doms' && ['Joey', 'Alex', 'Joe'].includes(r.name)));
   const officeNames = officeRows.map(r => r.name);
   const commRows = await prospectCommissionRows(db, parsedWeek, weekEnd, officeNames);
   const allRows = sortForPayroll([...data, ...officeRows, ...commRows]);
@@ -17449,20 +13305,11 @@ async function payroll(req, res, db, auth) {
     week_end: weekEnd,
     pay_date: payDate,
     techs: allRows,
-    // USD only — Joey's peso row is never added into the technicians' dollar
-    // total (see currency tag on each row; the client keeps his figure
-    // displayed separately instead of folding mismatched currencies together).
     total: allRows.filter(t => (t.currency || 'USD') === 'USD').reduce((sum, t) => sum + t.total, 0),
     actual_profit: await actualProfitFor(db, payDate, parsedWeek, weekEnd),
   });
 }
 
-// One combined payroll screen for BOTH businesses — so the owner never has to
-// flip tabs to find what a cross-hired tech's actual total is for the week.
-// Same job-level computation as the single-business view (computeBizPayroll),
-// run once per business and merged by technician id — cross-hired techs (e.g.
-// Kregg working both TidyHaus and Dom's jobs) share ONE technicians row, so
-// merging by id naturally sums their pay across both companies into one line.
 async function payrollCombined(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
 
@@ -17471,22 +13318,18 @@ async function payrollCombined(req, res, db, auth) {
   const parsedWeek = addDaysStr(rawWeek, -dayOfWeekFor(rawWeek));
   const weekEnd = addDaysStr(parsedWeek, 6);
 
-  // TidyHaus + Dom's always, plus ANY other brand with a completed job this
-  // week (owner 2026-10-12: e.g. Zach's ATX Home Cleaning Pros job on 10/10 was
-  // missing from payroll because only these two businesses were computed).
   const { data: doneRows, error: doneErr } = await db.from('bookings')
     .select('business_id').eq('status', 'completed')
     .gte('scheduled_at', parsedWeek + 'T00:00:00Z').lte('scheduled_at', weekEnd + 'T23:59:59Z');
   if (doneErr) throw doneErr;
   const doneBizIds = [...new Set((doneRows || []).map(r => r.business_id).filter(Boolean))];
   let bizQ = db.from('businesses').select('id, slug, name, timezone');
-  bizQ = doneBizIds.length ? bizQ.or(`slug.in.(handy-andy,doms),id.in.(${doneBizIds.join(',')})`) : bizQ.in('slug', ['handy-andy', 'doms']);
+  bizQ = doneBizIds.length ? bizQ.or(`slug.in.(tidyhaus,doms),id.in.(${doneBizIds.join(',')})`) : bizQ.in('slug', ['tidyhaus', 'doms']);
   const { data: bizRows, error: bizErr } = await bizQ;
   if (bizErr) throw bizErr;
 
   const perBiz = await Promise.all((bizRows || []).map(biz => computeBizPayroll(db, biz, parsedWeek, weekEnd)));
 
-  // Merge by tech id (the field stashed as _id in computeBizPayroll's result).
   const merged = new Map();
   for (const bizTechs of perBiz) {
     for (const t of bizTechs) {
@@ -17501,7 +13344,7 @@ async function payrollCombined(req, res, db, auth) {
     }
   }
   const payDate = addDaysStr(weekEnd, PAY_DATE_OFFSET_DAYS);
-  const officeRows = await officePayRows(db, parsedWeek);   // both Heather and Joey — combined view spans both businesses
+  const officeRows = await officePayRows(db, parsedWeek);
   const commRows = await prospectCommissionRows(db, parsedWeek, weekEnd, null);
   const data = sortForPayroll([...merged.values(), ...officeRows, ...commRows]);
 
@@ -17516,35 +13359,28 @@ async function payrollCombined(req, res, db, auth) {
   });
 }
 
-// Owner-only: hand-enter one of the three actual-profit fields for a given
-// pay date (upsert — Sunday-night entry can be corrected Monday). Merges
-// with whatever the OTHER two fields already have for that date instead of
-// clobbering them, since all three share one row per pay_date.
 async function actualProfitSave(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { pay_date, field, amount } = req.body || {};
-  const validFields = ['doms_stripe_payout', 'handy_andy_stripe_payout', 'tech_pay', 'lead_gen', 'stripe_payout'];
+  const validFields = ['doms_stripe_payout', 'tidyhaus_stripe_payout', 'tech_pay', 'lead_gen', 'stripe_payout'];
   if (!pay_date || !/^\d{4}-\d{2}-\d{2}$/.test(pay_date)) return res.status(400).json({ error: 'pay_date (YYYY-MM-DD) required' });
   if (!validFields.includes(field)) return res.status(400).json({ error: `field must be one of ${validFields.join(', ')}` });
   if (amount == null || isNaN(Number(amount))) return res.status(400).json({ error: 'amount required' });
-  // field 'lead_gen' = one lead-gen brand's payout, keyed by business slug.
   const leadSlug = String((req.body || {}).slug || '');
   if ((field === 'lead_gen' || field === 'stripe_payout') && !/^[a-z0-9-]{1,60}$/.test(leadSlug)) return res.status(400).json({ error: 'slug required' });
 
   const { data: existing } = await db.from('actual_profit_weekly')
-    .select('doms_stripe_payout, handy_andy_stripe_payout, tech_pay, lead_gen_payouts, payouts_by_business').eq('pay_date', pay_date).maybeSingle();
+    .select('doms_stripe_payout, tidyhaus_stripe_payout, tech_pay, lead_gen_payouts, payouts_by_business').eq('pay_date', pay_date).maybeSingle();
 
   const row = {
     pay_date,
     doms_stripe_payout: existing?.doms_stripe_payout ?? null,
-    handy_andy_stripe_payout: existing?.handy_andy_stripe_payout ?? null,
+    tidyhaus_stripe_payout: existing?.tidyhaus_stripe_payout ?? null,
     tech_pay: existing?.tech_pay ?? null,
     lead_gen_payouts: leadGenMap(existing?.lead_gen_payouts),
     payouts_by_business: leadGenMap(existing?.payouts_by_business),
     updated_at: new Date().toISOString(),
   };
-  // Stripe payouts live per business; HA/Dom's also keep their legacy column
-  // in sync (both directions) so nothing reading the old columns drifts.
   const legacySlug = Object.keys(LEGACY_PAYOUT_COL).find(k => LEGACY_PAYOUT_COL[k] === field);
   if (field === 'lead_gen') row.lead_gen_payouts[leadSlug] = Number(amount);
   else if (field === 'stripe_payout') {
@@ -17560,15 +13396,6 @@ async function actualProfitSave(req, res, db, auth) {
   return res.status(200).json({ ok: true, pay_date, field, amount: Number(amount) });
 }
 
-// ── Secretary availability ("My Availability" / "Secretaries") ─────────────
-// Whole-day on/off per business (Heather = TidyHaus, Joey = Dom's) — no
-// time-of-day slots, since a secretary is paid a flat $95/day, not per job.
-// A secretary's own login is already scoped to exactly one business (see
-// login(): the shared per-business password sets role:'secretary',
-// scope:'<slug>'), so "Heather only sees her own availability" and "Joey
-// only sees his" fall out of that scoping for free — no new identity system
-// needed. The owner (role:'owner', scope:'all') can view (not edit) both
-// under the "Secretaries" menu.
 const DOW_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
 async function fetchSecretaryAvailability(db, bizId) {
@@ -17583,12 +13410,8 @@ async function fetchSecretaryAvailability(db, bizId) {
   return { pattern: pattern || [], exceptions: exceptions || [] };
 }
 
-// GET — a secretary sees their OWN business (from their token's scope); the
-// owner must pass ?business= to pick which one.
 async function secretaryAvailability(req, res, db, auth) {
   let slug;
-  // Alex / Joe (owner 2026-09-30): their OWN weekly schedule, read-only. They
-  // never see or change the business's (Joey's) days.
   if (auth.role === 'secretary' && auth.name && auth.name !== displayNameFor(auth.scope)) {
     const { data: days } = await db.from('staff_schedules').select('day_of_week, start_time, end_time, timezone').eq('name', auth.name).order('day_of_week');
     return res.status(200).json({ personal: true, name: auth.name, day_names: DOW_NAMES, days: days || [] });
@@ -17596,7 +13419,7 @@ async function secretaryAvailability(req, res, db, auth) {
   if (auth.role === 'secretary') slug = auth.scope;
   else if (auth.role === 'owner') slug = (req.query.business || '').toString();
   else return res.status(403).json({ error: 'Not authorized' });
-  if (!slug || !['handy-andy', 'doms'].includes(slug)) return res.status(400).json({ error: 'business required' });
+  if (!slug || !['tidyhaus', 'doms'].includes(slug)) return res.status(400).json({ error: 'business required' });
 
   const { data: biz, error: bizErr } = await db.from('businesses').select('id, slug').eq('slug', slug).maybeSingle();
   if (bizErr) throw bizErr;
@@ -17609,7 +13432,6 @@ async function secretaryAvailability(req, res, db, auth) {
   });
 }
 
-// Owner can manage every regular workday; secretary edits remain self-scoped.
 async function secretaryAvailabilitySet(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const owner = auth.role === 'owner', body = req.body || {};
@@ -17619,7 +13441,7 @@ async function secretaryAvailabilitySet(req, res, db, auth) {
   if (!Number.isInteger(dayOfWeek) || dayOfWeek < 0 || dayOfWeek > 6 || typeof isAvailable !== 'boolean') return res.status(400).json({ error: 'A weekday (0-6) and Working/Off value are required' });
   const scope = owner ? body.business : auth.scope;
   const subject = owner ? body.name : displayNameFor(scope);
-  if (!['handy-andy','doms'].includes(scope) || (owner && !((subject === 'Heather' && scope === 'handy-andy') || (['Joey','Alex','Joe'].includes(subject) && scope === 'doms')))) return res.status(400).json({ error: 'Unknown secretary' });
+  if (!['tidyhaus','doms'].includes(scope) || (owner && !((subject === 'Heather' && scope === 'tidyhaus') || (['Joey','Alex','Joe'].includes(subject) && scope === 'doms')))) return res.status(400).json({ error: 'Unknown secretary' });
   const { data: biz, error: bizErr } = await db.from('businesses').select('id').eq('slug', scope).maybeSingle();
   if (bizErr) throw bizErr;
   if (!biz) return res.status(404).json({ error: 'Business not found' });
@@ -17630,8 +13452,6 @@ async function secretaryAvailabilitySet(req, res, db, auth) {
     if (previous !== isAvailable) {
       if (isAvailable) {
         let template = (rows || [])[0];
-        // Existing coverage settings win. Re-enabling a fully off roster uses
-        // the same standard 8am-8pm coverage, with the current staff phone.
         if (!template) {
           const { data: person, error: personErr } = await db.from('staff_users').select('phone').eq('name', subject).eq('active', true).maybeSingle();
           if (personErr) throw personErr;
@@ -17656,16 +13476,8 @@ async function secretaryAvailabilitySet(req, res, db, auth) {
   return res.status(200).json({ ok:true, day_of_week:dayOfWeek, is_available:isAvailable });
 }
 
-// Record a secretary schedule change for the owner's dashboard feed, and text
-// the owner. Best-effort throughout: the schedule change itself is already
-// committed by the time this runs, so a logging or SMS failure must never turn
-// a successful save into an error for Heather/Joey.
 async function recordSecretaryChange(db, { biz, scope, kind, dayOfWeek = null, dateStr = null, isAvailable, previous, actor = 'secretary' }) {
-  // Nothing actually changed (re-saving the same value) — don't cry wolf.
   if (previous !== null && previous === isAvailable) return;
-  // Name who actually did it. An owner booking a day off on someone's behalf
-  // must not show up in the feed as the secretary having done it themselves —
-  // the whole point of this log is knowing who changed what.
   const subject = displayNameFor(scope);
   const who = actor === 'owner' ? `Owner (for ${subject})` : subject;
   try {
@@ -17690,15 +13502,6 @@ async function recordSecretaryChange(db, { biz, scope, kind, dayOfWeek = null, d
     await sendSMS(ownerPhone, `Schedule change: ${who} ${what}.`);
   } catch (e) { console.warn('[secretary-change] owner SMS failed:', e.message); }
 
-  // Tell the crew when the office is closed on a specific day. Scoped tightly
-  // on purpose:
-  //   * one-off dates only, never a weekly-pattern edit. "Heather is now off
-  //     every Sunday" is a standing arrangement the techs already live with;
-  //     texting all of them every time it's re-saved is pure noise.
-  //   * only when going OFF. Putting a day BACK to working is a correction the
-  //     office cares about, not something the techs need woken up for.
-  // The techs of the affected business only, because that is whose office
-  // phone goes unanswered that day.
   if (kind === 'exception' && !isAvailable) {
     try {
       const { data: techs } = await db.from('technicians')
@@ -17714,27 +13517,11 @@ async function recordSecretaryChange(db, { biz, scope, kind, dayOfWeek = null, d
         }
       }
     } catch (e) {
-      // Never let a crew alert fail the schedule change itself — the day off is
-      // already saved and visible by this point.
       console.warn('[secretary-change] tech alert failed:', e.message);
     }
   }
 }
 
-// POST — a one-off exception for a specific date (e.g. a day off this week
-// only). Same secretary-only, own-business-only scoping as the weekly set.
-// POST — a one-off day for a specific date, overriding the weekly pattern.
-//
-// Two callers with different rules:
-//   secretary — their OWN business only, taken from auth.scope. A body
-//               `business` field is never trusted, so Heather can never edit
-//               Joey's calendar.
-//   owner     — either secretary, and must name which via body.business. This
-//               is how the office books a day off on someone's behalf ("Joey
-//               told me he's out on the 12th") without logging in as them.
-//
-// `remove: true` deletes the override so the date falls back to the weekly
-// pattern, rather than leaving a redundant row that says the same thing.
 async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const body = req.body || {};
@@ -17743,7 +13530,7 @@ async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
   if (auth.role === 'secretary') scope = auth.scope;
   else if (auth.role === 'owner') scope = (body.business || '').toString();
   else return res.status(403).json({ error: 'Not authorized' });
-  if (!scope || !['handy-andy', 'doms'].includes(scope)) return res.status(400).json({ error: 'business required' });
+  if (!scope || !['tidyhaus', 'doms'].includes(scope)) return res.status(400).json({ error: 'business required' });
 
   const date = (body.date || '').toString();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'date (YYYY-MM-DD) required' });
@@ -17754,9 +13541,6 @@ async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
   if (bizErr) throw bizErr;
   if (!biz) return res.status(404).json({ error: 'Business not found' });
 
-  // What the weekly pattern says for this weekday — needed both as the "prior
-  // state" fallback and as the value the date reverts to when an override is
-  // removed.
   let patternSays = null;
   try {
     const dow = dayOfWeekFor(date);
@@ -17765,9 +13549,6 @@ async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
     if (pat) patternSays = pat.is_available;
   } catch { /* fall back to "no prior state" */ }
 
-  // Prior state for this exact date: an existing override if there is one,
-  // otherwise the weekly pattern — so "took Friday off" is only reported when
-  // Friday was actually a work day.
   const { data: prevEx } = await db.from('secretary_availability_exceptions')
     .select('is_available').eq('business_id', biz.id).eq('exception_date', date).maybeSingle();
   const previous = prevEx ? prevEx.is_available : patternSays;
@@ -17776,8 +13557,6 @@ async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
     const { error: delErr } = await db.from('secretary_availability_exceptions')
       .delete().eq('business_id', biz.id).eq('exception_date', date);
     if (delErr) throw delErr;
-    // The date now means whatever the weekly pattern means. Only worth logging
-    // if that is actually different from the override we just deleted.
     await recordSecretaryChange(db, {
       biz, scope, actor: auth.role === 'owner' ? 'owner' : 'secretary', kind: 'exception',
       dateStr: date, isAvailable: patternSays === null ? true : patternSays, previous,
@@ -17797,30 +13576,9 @@ async function secretaryAvailabilityExceptionSet(req, res, db, auth) {
   return res.status(200).json({ ok: true, date, is_available: isAvailable });
 }
 
-// GET — owner-only feed of secretary schedule changes, newest first, with an
-// unread count for the nav badge. Read-only; marking read is a separate POST
-// so simply opening the page doesn't silently clear the badge.
-// ── Daily notes for the secretaries ─────────────────────────────────────────
-// The owner leaves a note; it sits on the secretary's dashboard until she
-// ticks it off. A tick writes a read row rather than deleting anything, so the
-// note survives, the owner can see who read it and when, and a note aimed at
-// both secretaries can be cleared by each of them independently.
-// denverToday / noteIsLive live in _lib/notes.js (shared with the tech app's
-// notes, api/tech.js).
-// Who is ticking notes off. Secretaries are scoped to one business, so their
-// slug is a stable fallback when the session carries no display name.
 function noteReader(auth) {
   return (auth.name || auth.scope || auth.role || 'office').toString();
 }
-// GET — the notes the CURRENT user still has to read. The owner writes these,
-// so the owner never gets them on their own dashboard (owner rule 2026-09-17);
-// they can still see what was sent and who read it on the Notes page.
-// Owner rule 2026-09-23: notes now flow every direction (Owner, Heather,
-// Joey, and Jiyah can all post; see notesAdd / api/audit.js). Owner used to
-// be excluded here entirely because owner was the only poster -- now the
-// owner reads their own inbox through this SAME endpoint, filtered to
-// to_owner=true instead of target_slug. A person never sees their own note
-// echoed back as something to read.
 async function notesActive(req, res, db, auth) {
   const today = denverToday();
   const reader = noteReader(auth);
@@ -17834,8 +13592,6 @@ async function notesActive(req, res, db, auth) {
 
   const { data: reads } = await db.from('staff_note_reads').select('note_id, read_at').eq('reader', reader);
   const seenAt = new Map((reads || []).map(r => [r.note_id, r.read_at]));
-  // Thread messages (2026-10-17): a note this person already ticked off comes
-  // back when someone else writes in its thread after they read it.
   const allIds = (data || []).map(n => n.id);
   const threadBy = {};
   if (allIds.length) {
@@ -17851,9 +13607,7 @@ async function notesActive(req, res, db, auth) {
   const notes = (data || [])
     .filter(isNewFor)
     .filter(n => (n.created_by || '') !== reader)
-    // Jiyah (auditor) only gets notes addressed to her (target_slug 'auditor', owner 2026-09-28).
     .filter(n => auth.auditor ? n.target_slug === 'auditor' : isOwner ? !!n.to_owner : (!n.to_owner && n.target_slug !== 'auditor' && (!n.target_slug || n.target_slug === auth.scope)))
-    // A one-person note is seen by that person only.
     .filter(n => !n.target_name || (!isOwner && !auth.auditor && n.target_name === auth.name))
     .filter(n => noteIsLive(n, today))
     .map(n => ({ ...n, thread: (threadBy[n.id] || []).map(t => ({ author: t.author, body: t.body, created_at: t.created_at })) }));
@@ -17861,8 +13615,6 @@ async function notesActive(req, res, db, auth) {
   return res.status(200).json({ notes, count: notes.length });
 }
 
-// POST { id, reply? } — tick one off. Anyone signed in may clear their own
-// copy. A reply is optional: leave it out and this is the plain tick-off.
 async function notesRead(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = (body.id || '').toString();
@@ -17874,9 +13626,6 @@ async function notesRead(req, res, db, auth, body) {
   if (reply) { row.reply = reply; row.replied_at = now; row.reply_seen_at = null; }
   const { error } = await db.from('staff_note_reads').upsert(row, { onConflict: 'note_id,reader' });
   if (error) throw error;
-  // Threads (Jiyah's Notes redesign, owner OK 2026-10-17): every reply is
-  // also kept as its own message, so a second reply no longer overwrites
-  // the first in the conversation view.
   if (reply) {
     const { error: e2 } = await db.from('staff_note_replies').insert({ note_id: id, author: row.reader, body: reply, created_at: now });
     if (e2) console.warn('[admin] notes_read: thread row failed:', e2.message);
@@ -17884,11 +13633,6 @@ async function notesRead(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// GET — what was sent recently and who has read it. Owner sees everything
-// (the master view, unchanged). A secretary sees only their OWN sent notes
-// (owner rule 2026-09-23 opened posting to them) -- never another
-// secretary's thread with the owner, which target_slug/to_owner scoping
-// alone wouldn't hide from a shared "recent" list.
 async function notesList(req, res, db, auth) {
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
   const today = denverToday();
@@ -17920,8 +13664,6 @@ async function notesList(req, res, db, auth) {
   return res.status(200).json({ notes });
 }
 
-// POST — the owner has opened the Notes page: every reply on screen is now
-// "seen", which is what clears the "new replies" count on Other.
 async function notesRepliesSeen(req, res, db, auth) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -17932,19 +13674,6 @@ async function notesRepliesSeen(req, res, db, auth) {
   return res.status(200).json({ ok: true });
 }
 
-// POST { image } — upload one photo for a note. The browser shrinks it
-// first; the note is then posted with the returned URLs. Owner or secretary
-// (owner rule 2026-09-23: "with pictures just like i can leave them a
-// note"); the auditor path (Jiyah) uses this same action too -- see the
-// auditor-token gate in handler() and AUDITOR_WRITE_ACTIONS.
-//
-// Private bucket, not the public booking-photos one (owner rule 2026-09-23:
-// "i need to be able to view them securely") -- uploadPrivateImage returns a
-// path with no browsable URL at all; it only ever comes back as bytes
-// through note_photo below, to an authenticated CRM session. photo_urls
-// keeps its name for compatibility with every existing reader, but a
-// "priv:" entry is a private path, not a URL -- see notePhotoSrc() in
-// public/admin.html / public/audit.html for the one place that matters.
 async function notesPhoto(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary' && !auth.auditor) return res.status(403).json({ error: 'Not available for this login' });
@@ -17952,13 +13681,6 @@ async function notesPhoto(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, url: up.path });
 }
 
-// GET ?path=priv:note-photos/xxx.jpg[&token=...] — streams a private note
-// photo's bytes back, but only to someone who can see a note carrying it:
-// the owner sees all; everyone else only photos on notes they wrote or that
-// were sent to them (a note "for Owner only" never qualifies for anyone
-// else). A path on NO note yet is a fresh upload still sitting in its
-// sender's composer -- its random name is known only to that sender, so the
-// preview thumbnail has to keep working.
 async function notePhoto(req, res, db, auth) {
   const raw = (req.query.path || '').toString();
   if (!isPrivateNotePhoto(raw)) return res.status(400).json({ error: 'Bad photo path' });
@@ -17976,9 +13698,6 @@ async function notePhoto(req, res, db, auth) {
     if (!mayView) return res.status(403).json({ error: 'Not your photo' });
   }
   const { buffer } = await readPrivateImage(path);
-  // Content-Type comes from the file extension, NOT from whatever storage
-  // hands back, and nosniff + a sandbox CSP stop this response ever running
-  // as a document on our own origin (where it could read the login token).
   res.setHeader('Content-Type', notePhotoContentType(path));
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
@@ -17986,12 +13705,6 @@ async function notePhoto(req, res, db, auth) {
   return res.status(200).send(buffer);
 }
 
-// POST { body, target, mode, photos } — write one. Owner or secretary
-// (owner rule 2026-09-23: Heather/Joey can now post too, same as Owner
-// always could). target: 'handy-andy' | 'doms' | 'owner' | '' (both
-// secretaries). 'owner' means "for Owner only" (to_owner=true) -- distinct
-// from target_slug, which keeps meaning secretary scope. A person targeting
-// themself is harmless (self-reminder) and not specially blocked.
 async function notesAdd(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -17999,10 +13712,8 @@ async function notesAdd(req, res, db, auth, body) {
   if (!text) return res.status(400).json({ error: 'Write something first' });
   if (text.length > 2000) return res.status(400).json({ error: 'Note is too long (2000 characters max)' });
   const toOwner = body.target === 'owner';
-  // One person only (owner 2026-09-30): target 'person:<Name>'.
   const person = /^person:(Heather|Joey|Alex|Joe)$/.exec(String(body.target || ''));
-  // 'auditor' = Jiyah's portal (owner only, 2026-10-26); she reads it via notes_active.
-  const target = person ? null : !toOwner && body.target && (['handy-andy', 'doms'].includes(body.target) || (body.target === 'auditor' && auth.role === 'owner')) ? body.target : null;
+  const target = person ? null : !toOwner && body.target && (['tidyhaus', 'doms'].includes(body.target) || (body.target === 'auditor' && auth.role === 'owner')) ? body.target : null;
   const mode = ['today', 'two_days', 'until_read'].includes(body.mode) ? body.mode : 'today';
   const when = resolveSendAt(body);
   if (when.error) return res.status(400).json({ error: when.error });
@@ -18013,9 +13724,6 @@ async function notesAdd(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data && data.id });
 }
 
-// Joey's "Website edit" requests (owner 2026-10-18). Own table, Joey-only:
-// never in the owner's Notes, banners or dashboard. Claude reads/answers
-// them in SQL (app.website_edits: status 'done', reply, replied_by 'Owner').
 async function websiteEdits(req, res, db, auth) {
   if (!isJoeyLogin(auth)) return res.status(403).json({ error: 'Not available for this login' });
   const [{ data: biz }, { data, error }] = await Promise.all([
@@ -18035,7 +13743,6 @@ async function websiteEditAdd(req, res, db, auth, body) {
   const text = String((body && body.body) || '').trim();
   if (!site) return res.status(400).json({ error: 'Pick a website' });
   if (!text) return res.status(400).json({ error: 'Write the change' });
-  // Joey pastes long prompts (owner 2026-10-18): allow up to 100k chars.
   if (text.length > 100000) return res.status(400).json({ error: 'Too long' });
   const { data, error } = await db.from('website_edits')
     .insert({ site, body: text, photo_urls: cleanNotePhotos(body.photos), created_by: auth.name })
@@ -18044,24 +13751,16 @@ async function websiteEditAdd(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data && data.id });
 }
 
-// Jiyah's own path into the SAME notes system (owner rule 2026-09-23) --
-// deliberately thinner than notesAdd: one of three fixed recipients, no
-// scheduling (always 'until_read', so it can't silently expire before
-// anyone sees it), forced created_by. Auth is already mapped to
-// role:'auditor' by the gate in handler(); this writes target_slug/to_owner
-// exactly like a Heather/Joey/Owner-authored note would, so it rides the
-// existing dashboard banner/reply/photo UI with zero new admin.html code.
 async function auditorNoteSend(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const text = (body.body || '').toString().trim();
   if (!text) return res.status(400).json({ error: 'Write something first' });
   const recipient = (body.recipient || '').toString();
-  const when = resolveSendAt({}); // always "now" -- Jiyah's composer has no scheduling UI
+  const when = resolveSendAt({});
   const row = { body: text, mode: 'until_read', show_from: when.show_from, send_at: when.send_at, created_by: auth.name || 'Jiyah', photo_urls: cleanNotePhotos(body.photos) };
   if (recipient === 'andrew') { row.to_owner = true; row.target_slug = null; }
-  else if (recipient === 'heather') { row.to_owner = false; row.target_slug = 'handy-andy'; }
+  else if (recipient === 'heather') { row.to_owner = false; row.target_slug = 'tidyhaus'; }
   else if (recipient === 'joey') { row.to_owner = false; row.target_slug = 'doms'; }
-  // Alex / Joe, one person each (owner 2026-10-02: Joey is off Jiyah's portal).
   else if (recipient === 'alex' || recipient === 'joe') { row.to_owner = false; row.target_slug = null; row.target_name = recipient === 'alex' ? 'Alex' : 'Joe'; }
   else return res.status(400).json({ error: 'Pick Owner, Heather, Alex or Joe' });
   const { data, error } = await db.from('staff_notes').insert(row).select('id').maybeSingle();
@@ -18069,8 +13768,6 @@ async function auditorNoteSend(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data && data.id });
 }
 
-// POST — Jiyah edits or deletes one of HER OWN notes (owner 2026-10-05).
-// Delete is the same soft delete (deleted_at) the rest of Notes uses.
 async function auditorNoteChange(req, res, db, auth, body, action) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = String(body.id || '').trim();
@@ -18089,8 +13786,6 @@ async function auditorNoteChange(req, res, db, auth, body, action) {
   return res.status(200).json({ ok: true });
 }
 
-// GET — Jiyah's own sent history, with per-note read status, for her Notes
-// tab. Same read-tracking table as everyone else's notes (staff_note_reads).
 async function auditorNotesSent(req, res, db, auth) {
   const { data, error } = await db.from('staff_notes')
     .select('id, target_slug, target_name, to_owner, body, created_at, photo_urls, author_pinned_at')
@@ -18109,9 +13804,6 @@ async function auditorNotesSent(req, res, db, auth) {
     const { data: tr } = await db.from('staff_note_replies').select('id, note_id, author, body, created_at, author_ack_at').in('note_id', ids).order('created_at', { ascending: true });
     (tr || []).forEach(t => { (threadBy[t.note_id] = threadBy[t.note_id] || []).push(t); });
   }
-  // One conversation per note: legacy one-per-reader replies (kept as they
-  // are) plus thread messages. A legacy reply that was also written as a
-  // thread message is shown once.
   const threadOf = n => {
     const rows = threadBy[n.id] || [];
     const legacy = (readsBy[n.id] || []).filter(r => r.reply && !rows.some(t => t.author === r.reader && t.body === r.reply))
@@ -18123,9 +13815,7 @@ async function auditorNotesSent(req, res, db, auth) {
   };
   const notes = (data || []).map(n => ({
     ...n,
-    recipient: n.to_owner ? 'andrew' : n.target_name ? String(n.target_name).toLowerCase() : n.target_slug === 'handy-andy' ? 'heather' : n.target_slug === 'doms' ? 'joey' : 'both',
-    // reply_new: a reply from someone else she has not clicked "Got it" on.
-    // An edited reply bumps replied_at, so it counts as new again.
+    recipient: n.to_owner ? 'andrew' : n.target_name ? String(n.target_name).toLowerCase() : n.target_slug === 'tidyhaus' ? 'heather' : n.target_slug === 'doms' ? 'joey' : 'both',
     reads: (readsBy[n.id] || []).map(r => ({ reader: r.reader, read_at: r.read_at, reply: r.reply || null, replied_at: r.replied_at || null,
       reply_new: !!(r.reply && String(r.reader || '').toLowerCase() !== me && (!r.author_ack_at || (r.replied_at && r.author_ack_at < r.replied_at))) })),
     thread: threadOf(n),
@@ -18134,8 +13824,6 @@ async function auditorNotesSent(req, res, db, auth) {
   return res.status(200).json({ notes });
 }
 
-// POST { note_id, reader } — Jiyah's "Got it" on one reply banner. Only
-// touches that one reply row, and only on a note she wrote.
 async function auditorReplyAck(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const noteId = String((body && body.note_id) || ''), reader = String((body && body.reader) || ''), replyId = String((body && body.reply_id) || '');
@@ -18152,8 +13840,6 @@ async function auditorReplyAck(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// POST { note_id, body } — Jiyah writes back in the thread of a note SHE
-// wrote. The note pops back up for its recipients (see notesActive).
 async function auditorThreadPost(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const noteId = String((body && body.note_id) || ''), text = String((body && body.body) || '').trim();
@@ -18167,7 +13853,6 @@ async function auditorThreadPost(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data && data.id });
 }
 
-// POST { id, pinned } — Jiyah pins one of her own notes. Only she sees it.
 async function auditorNotePin(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = String((body && body.id) || '');
@@ -18179,13 +13864,6 @@ async function auditorNotePin(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// GET — every photo Jiyah has ever attached to a note, across every
-// recipient, gathered into one place. Owner rule 2026-09-23: "give it a new
-// folder only accessible to me called Jiyah Photos" -- owner-only, strictly
-// (not the auditor token itself: Jiyah can see her own Sent list via
-// auditor_notes_sent, but not this aggregated owner view). Flattens
-// staff_notes.photo_urls (several photos can live on one note) into one
-// row per photo, newest note first.
 async function jiyahPhotos(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { data, error } = await db.from('staff_notes')
@@ -18197,7 +13875,7 @@ async function jiyahPhotos(req, res, db, auth) {
   if (error) throw error;
   const photos = [];
   for (const n of (data || [])) {
-    const recipient = n.to_owner ? 'Owner' : n.target_slug === 'handy-andy' ? 'Heather' : n.target_slug === 'doms' ? 'Joey' : 'Both secretaries';
+    const recipient = n.to_owner ? 'Owner' : n.target_slug === 'tidyhaus' ? 'Heather' : n.target_slug === 'doms' ? 'Joey' : 'Both secretaries';
     for (const url of (n.photo_urls || [])) {
       if (!url) continue;
       photos.push({ id: `${n.id}:${photos.length}`, url, note_id: n.id, note_body: n.body, created_at: n.created_at, recipient });
@@ -18206,10 +13884,6 @@ async function jiyahPhotos(req, res, db, auth) {
   return res.status(200).json({ photos });
 }
 
-// Editing a posted note. The composer sends the same fields as a fresh post.
-// Timing: a new schedule reschedules it; "send now" on a not-yet-sent note
-// sends it now; otherwise the original window is kept. Returns the patch to
-// apply, or { error } for a 400.
 function noteEditPatch(existing, body) {
   const text = (body.body || '').toString().trim();
   if (!text) return { error: 'Write something first' };
@@ -18223,14 +13897,11 @@ function noteEditPatch(existing, body) {
   } else if (noteIsScheduled(existing)) {
     patch.send_at = null; patch.show_from = denverToday();
   }
-  // The audience already ticked the old wording off; a changed note needs to
-  // show again or nobody sees the fix.
   patch.reshow = text !== existing.body
     || JSON.stringify(patch.photo_urls) !== JSON.stringify(existing.photo_urls || []);
   return { patch };
 }
 
-// POST { id, body, target, mode, photos, send_date?, send_time? } — edit one.
 async function notesUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18238,9 +13909,6 @@ async function notesUpdate(req, res, db, auth, body) {
   if (!id) return res.status(400).json({ error: 'id required' });
   const { data: existing } = await db.from('staff_notes').select('id, body, mode, show_from, send_at, photo_urls, created_by').eq('id', id).is('deleted_at', null).maybeSingle();
   if (!existing) return res.status(404).json({ error: 'That note is gone' });
-  // A secretary may only touch what THEY posted (owner rule 2026-09-23: the
-  // notes system opened up to secretaries, but editing someone else's note
-  // -- including the owner's -- stays off limits).
   if (auth.role === 'secretary' && existing.created_by !== auth.name) return res.status(403).json({ error: 'You can only edit your own notes' });
   const r = noteEditPatch(existing, body);
   if (r.error) return res.status(400).json({ error: r.error });
@@ -18249,7 +13917,7 @@ async function notesUpdate(req, res, db, auth, body) {
     const toOwner = body.target === 'owner';
     const person = /^person:(Heather|Joey|Alex|Joe)$/.exec(String(body.target || ''));
     patch.to_owner = toOwner;
-    patch.target_slug = !toOwner && !person && ['handy-andy', 'doms'].includes(body.target) ? body.target : null;
+    patch.target_slug = !toOwner && !person && ['tidyhaus', 'doms'].includes(body.target) ? body.target : null;
     patch.target_name = person ? person[1] : null;
   }
   const { error } = await db.from('staff_notes').update(patch).eq('id', id);
@@ -18258,10 +13926,6 @@ async function notesUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, reshown: reshow });
 }
 
-// ── Domain watch (Other > Domain watch) ──────────────────────────────────────
-// The owner pastes domains he wants; a daily cron (api/migrate.js
-// domain_watch_check) looks each one up and texts him when one becomes
-// registrable. Owner only. Nothing here ever buys a domain.
 const DOMAIN_WATCH_MAX = 500;
 
 async function domainWatchList(req, res, db, auth) {
@@ -18273,7 +13937,6 @@ async function domainWatchList(req, res, db, auth) {
   return res.status(200).json({ domains: data || [], owner_phone_set: !!process.env.OWNER_PHONE_NUMBER });
 }
 
-// POST { text } — paste any list; junk lines are reported back, never silently dropped.
 async function domainWatchAdd(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -18289,12 +13952,6 @@ async function domainWatchAdd(req, res, db, auth, body) {
       .insert(fresh.map(domain => ({ domain, created_by: auth.name || 'Owner' }))).select('id');
     if (error) throw error;
     added = data || [];
-    // Check the new ones right now so the list shows a real answer immediately
-    // (an already-available one still texts once, then stays quiet).
-    // A pasted batch sends AT MOST one text and one email, and nothing at all
-    // if a domain-watch message already went out in the last 10 minutes (so
-    // several pastes in a row stay quiet). The banner and list still show
-    // everything either way; the daily check goes back to its normal rules.
     try {
       const since = new Date(Date.now() - 10 * 60 * 1000).toISOString();
       const { data: recent } = await db.from('domain_watch').select('id').gte('notified_at', since).limit(1);
@@ -18305,18 +13962,15 @@ async function domainWatchAdd(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, added: added.length, duplicates: good.length - fresh.length, skipped: bad });
 }
 
-// GET — domains in an alert state the owner has not dismissed (dashboard banner).
 async function domainWatchAlerts(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(200).json({ alerts: [] });
   const { data, error } = await db.from('domain_watch')
     .select('id, domain, status, status_since, expires_at, alert_dismissed_status')
     .in('status', ['available', 'pending_delete', 'likely_available']);
-  if (error) return res.status(200).json({ alerts: [] });   // never let this break the dashboard
+  if (error) return res.status(200).json({ alerts: [] });
   return res.status(200).json({ alerts: (data || []).filter(r => r.alert_dismissed_status !== r.status) });
 }
 
-// POST { id } — hide the banner for the domain's CURRENT state. If it later
-// changes to a different alert state the banner comes back.
 async function domainWatchDismiss(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -18339,7 +13993,6 @@ async function domainWatchDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, removed: ids.length });
 }
 
-// POST {} — "check now": the same run the daily cron does.
 async function domainWatchCheck(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -18347,16 +14000,7 @@ async function domainWatchCheck(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, ...summary });
 }
 
-// ── Notes for technicians ────────────────────────────────────────────────────
-// Same idea as the secretary notes, aimed at the tech app: the owner writes a
-// note, it shows at the top of the tech's Jobs screen until its window ends or
-// the tech taps the X (a per-tech dismissal, so a note for several techs is
-// cleared by each one separately). Three targets: one technician, every tech
-// in a city, or everyone. City is matched by service-area NAME across
-// businesses, because Denver is one place to the owner even though TidyHaus
-// and Dom's each have their own Denver service area.
 
-// GET — what the composer offers to aim at.
 async function techNotesTargets(req, res, db, auth) {
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
   const { data, error } = await db.from('technicians')
@@ -18371,7 +14015,6 @@ async function techNotesTargets(req, res, db, auth) {
   return res.status(200).json({ techs, cities });
 }
 
-// POST { body, target_type, technician_id?, city?, mode, photos } — write one.
 async function techNotesAdd(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18404,15 +14047,9 @@ async function techNotesAdd(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: data && data.id });
 }
 
-// GET — recent tech notes with who has dismissed each. Owner sees every
-// tech note; a secretary sees only their own (owner rule 2026-09-23, same
-// created_by scoping as notesList).
 async function techNotesList(req, res, db, auth) {
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
   const today = denverToday();
-  // tech_notes reaches technicians two ways (technician_id, and through
-  // tech_note_dismissals), so the embed has to name the FK or PostgREST
-  // refuses with "more than one relationship was found".
   let tnq = db.from('tech_notes')
     .select('id, body, target_type, technician_id, city, mode, show_from, send_at, photo_urls, created_by, created_at, tech:technicians!tech_notes_technician_id_fkey ( name )')
     .is('deleted_at', null).order('created_at', { ascending: false }).limit(40);
@@ -18426,8 +14063,6 @@ async function techNotesList(req, res, db, auth) {
       .select('note_id, dismissed_at, tech:technicians ( name )').in('note_id', ids);
     (ds || []).forEach(d => { (dismissedBy[d.note_id] = dismissedBy[d.note_id] || []).push({ name: d.tech?.name || 'Tech', at: d.dismissed_at }); });
   }
-  // Who the note is FOR (same audience rule the tech app uses), so the office
-  // can see who has NOT dismissed it, not just who has.
   const { data: roster } = await db.from('technicians')
     .select('id, name, area:service_areas ( name )').eq('active', true).order('name');
   const audience = (n) => (roster || []).filter(t => n.target_type === 'all'
@@ -18445,7 +14080,6 @@ async function techNotesList(req, res, db, auth) {
   return res.status(200).json({ notes });
 }
 
-// POST { id } — pull a tech note back (soft delete; dismissal history stays).
 async function techNotesDelete(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18461,7 +14095,6 @@ async function techNotesDelete(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// POST { id, body, target_type, technician_id?, city?, mode, photos, send_* } — edit one.
 async function techNotesUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18492,7 +14125,6 @@ async function techNotesUpdate(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, reshown: reshow });
 }
 
-// POST { id } — pull a note back. Soft delete, so its read history survives.
 async function notesDelete(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -18525,7 +14157,6 @@ async function secretaryChanges(req, res, db, auth) {
   return res.status(200).json({ changes, unseen: changes.filter(c => !c.seen).length });
 }
 
-// POST — mark schedule changes read. { id } for one, or { all:true } for the lot.
 async function secretaryChangesSeen(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -18541,14 +14172,12 @@ async function secretaryChangesSeen(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// GET — owner roster and Joey's read-only team schedule: secretary work/off
-// patterns, date exceptions where those are tracked, and Alex/Joe's routed days.
 async function secretariesList(req, res, db, auth) {
   const isOwner = auth.role === 'owner';
   const isJoey = auth.role === 'secretary' && auth.name === 'Joey';
   if (!isOwner && !isJoey) return res.status(403).json({ error: 'Not available for this login' });
   const { data: bizRows, error: bizErr } = await db.from('businesses')
-    .select('id, slug').in('slug', ['handy-andy', 'doms']);
+    .select('id, slug').in('slug', ['tidyhaus', 'doms']);
   if (bizErr) throw bizErr;
 
   const [{ data: staffPhones, error: phoneErr }, { data: scheduleRows, error: scheduleErr }, { data: xrows }] = await Promise.all([
@@ -18581,16 +14210,7 @@ async function secretariesList(req, res, db, auth) {
   return res.status(200).json({ secretaries, day_names: DOW_NAMES });
 }
 
-// ── Team directory (owner 2026-10-08) ──────────────────────────────────────
-// Every secretary (not Jiyah, not techs) sees who's on the team, their work
-// phone, days/hours and which businesses they cover. Coverage comes from
-// staff-access.js coveredSlugsFor -- the same rule as access + lead texts.
-// No pay, no passwords, no emails.
 const BIZ_CITY = {
-  doms: 'Denver, OKC, Tulsa', 'handy-andy': 'Denver, Houston, Austin, LA',
-  atxmountpros: 'Austin', atxtvmount: 'Austin', austin: 'Austin', austinmountingpros: 'Austin', austintvinstall: 'Austin', precision: 'Austin',
-  houstonmounting: 'Houston', houstonperfectviewtvmounting: 'Houston', houstontvinstallation: 'Houston', houstontvmountingpros: 'Houston', htvmounting: 'Houston', tvhanginghouston: 'Houston',
-  'mile-high': 'Denver', tvmountingdenver: 'Denver', lainstall: 'LA', latvpro: 'LA', tvmountinglosangeles: 'LA', a1tvmounting: 'Dallas',
 };
 async function teamDirectory(req, res, db, auth) {
   const isOwner = auth.role === 'owner';
@@ -18619,7 +14239,7 @@ async function teamDirectory(req, res, db, auth) {
     const rows = (sched || []).filter(r => r.name === name);
     let days, hours = null, exceptions = [];
     if (rows.length) {
-      exceptions = (xrows || []).filter(x => String(x.name).toLowerCase() === name.toLowerCase()).map(x => ({ date: String(x.on_date).slice(0, 10), on: !!x.business_slug }));   // one-off dates (0197)
+      exceptions = (xrows || []).filter(x => String(x.name).toLowerCase() === name.toLowerCase()).map(x => ({ date: String(x.on_date).slice(0, 10), on: !!x.business_slug }));
       days = [...new Set(rows.map(r => Number(r.day_of_week)))];
       hours = { start: String(rows[0].start_time || '').slice(0, 5), end: String(rows[0].end_time || '').slice(0, 5), tz: rows[0].timezone || 'Asia/Manila' };
     } else {
@@ -18634,7 +14254,6 @@ async function teamDirectory(req, res, db, auth) {
   }
   const order = { Heather: 0, Joey: 1, Alex: 2, Joe: 3 };
   people.sort((a, b) => (order[a.name] ?? 9) - (order[b.name] ?? 9) || a.name.localeCompare(b.name));
-  // Bookings per business, last 30 days by created_at (not cancelled, not imports). One query.
   const bookings30 = {};
   const { data: bk } = await db.from('bookings').select('business_id, source')
     .gte('created_at', new Date(Date.now() - 30 * 864e5).toISOString()).neq('status', 'cancelled')
@@ -18649,10 +14268,6 @@ async function teamDirectory(req, res, db, auth) {
   });
 }
 
-// ── Virtual Assistants board (owner 2026-10-12) ───────────────────────────
-// Owner + every secretary. Who works today (shift, group) and where every
-// active tracking line rings RIGHT NOW, computed by analytics.js routeNow()
-// -- the exact chain the live call webhook runs. No pay, no money.
 const VA_ORDER = [];
 const VA_JOEY_SHIFT = d => (d === 0 || d === 6) ? { s: '11:00', e: '23:00' } : { s: '06:00', e: '18:00' };
 async function vaBoard(req, res, db, auth) {
@@ -18668,9 +14283,8 @@ async function vaBoard(req, res, db, auth) {
   ]);
   if (e1 || e2 || e3 || e4) throw (e1 || e2 || e3 || e4);
   const bizBySlug = new Map((bizs || []).map(b => [b.slug, b]));
-  // Whole-day time off (My Availability) for the two business handsets.
   const timeOff = {};
-  for (const [slug, who] of [['handy-andy', 'Heather'], ['doms', 'Joey']]) {
+  for (const [slug, who] of [['tidyhaus', 'Heather'], ['doms', 'Joey']]) {
     const b = bizBySlug.get(slug); if (!b) continue;
     const [{ data: ex }, { data: pat }] = await Promise.all([
       db.from('secretary_availability_exceptions').select('is_available').eq('business_id', b.id).eq('exception_date', today).maybeSingle(),
@@ -18689,7 +14303,6 @@ async function vaBoard(req, res, db, auth) {
       const offDays = new Set(pat.filter(p => p.is_available === false).map(p => Number(p.day_of_week)));
       week = [0, 1, 2, 3, 4, 5, 6].filter(d => !offDays.has(d)).map(d => ({ d, ...VA_JOEY_SHIFT(d), tz: 'Asia/Manila', g: 'all' }));
     } else week = [];
-    // One-off date exception (0197) replaces today's weekly row.
     const ex = (exc || []).find(e => String(e.name).toLowerCase() === name.toLowerCase());
     let note = null;
     if (ex && rows.length) {
@@ -18703,9 +14316,7 @@ async function vaBoard(req, res, db, auth) {
     week.sort((a, b) => a.d - b.d);
     return { name, phone: (rows[0] && rows[0].phone) || (u && u.phone) || null, week, note };
   });
-  // lite=1: people only (the owner dashboard's Profit-box clocks), no line routing.
   if (String(req.query.lite || '') === '1') return res.status(200).json({ now: new Date().toISOString(), today, people, lines: [] });
-  // Destination number -> who.
   const who = new Map();
   for (const p of people) if (p.phone) who.set(String(p.phone).replace(/\D/g, '').slice(-10), p.name);
   const ownerDigits = String(process.env.OWNER_PHONE_NUMBER || '').replace(/\D/g, '').slice(-10);
@@ -18722,9 +14333,6 @@ async function vaBoard(req, res, db, auth) {
       rings: r.rings ? { name: who.get(d10) || null, number: r.rings } : null, reason: r.reason,
     };
   }));
-  // Jobs in the last 30 days per line (owner 2026-10-19: lines with 1+ job/month go bold, on top).
-  // A line counts a job when a call to that number booked it, or the job is its brand's
-  // (and, for multi-city brands, its city named in the line label).
   try {
     const since = new Date(Date.now() - 30 * 864e5).toISOString();
     const [{ data: bk }, { data: cl }, { data: areas }] = await Promise.all([
@@ -18737,7 +14345,7 @@ async function vaBoard(req, res, db, auth) {
     const d10 = v => String(v || '').replace(/\D/g, '').slice(-10);
     const byNum = new Map();
     for (const c of (cl || [])) { const k = d10(c.grasshopper_number); if (!byNum.has(k)) byNum.set(k, new Set()); byNum.get(k).add(c.booking_id); }
-    const multiCity = new Set(['handy-andy', 'doms']);
+    const multiCity = new Set(['tidyhaus', 'doms']);
     for (const r of routed) {
       const ids = new Set(byNum.get(d10(r.number)) || []);
       const bid = bizIdBySlug.get(r.business_slug), label = String(r.line || '').toLowerCase();
@@ -18753,8 +14361,6 @@ async function vaBoard(req, res, db, auth) {
   return res.status(200).json({ now: new Date().toISOString(), today, people, lines: routed });
 }
 
-// POST { name, day:0-6, group:'doms'|'handy-andy'|null } -- owner sets one day
-// of a day-gated secretary's week (staff_schedules: also drives shift routing).
 async function secretaryWeekSet(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -18762,7 +14368,7 @@ async function secretaryWeekSet(req, res, db, auth, body) {
   const day = Number(body && body.day);
   const group = body && body.group ? String(body.group) : null;
   if (!name || isAllCoverage(name) || !(day >= 0 && day <= 6)) return res.status(400).json({ error: 'Bad request' });
-  if (group && !['doms', 'handy-andy'].includes(group)) return res.status(400).json({ error: 'Bad group' });
+  if (group && !['doms', 'tidyhaus'].includes(group)) return res.status(400).json({ error: 'Bad group' });
   const { data: rows, error: rErr } = await db.from('staff_schedules').select('*').eq('name', name);
   if (rErr) throw rErr;
   if (!(rows || []).length) return res.status(400).json({ error: 'No weekly schedule for this person' });
@@ -18780,7 +14386,6 @@ async function secretaryWeekSet(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// POST { name, slugs:[...] } or { name, reset:true }. Owner only. Joey is all.
 async function secretaryCoverageSet(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   if (req.method !== 'POST') return res.status(405).json({ error: 'POST only' });
@@ -18804,18 +14409,7 @@ async function secretaryCoverageSet(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// ── Bracket Inventory ────────────────────────────────────────────────────────
-// Get current bracket inventory for all technicians in the business
 async function bracketInventory(req, res, db, auth) {
-  // A tech carries ONE physical stock of brackets in their truck regardless of
-  // which company's customer they're serving that day (see the matching
-  // comment on adjustBracketInventory) — same "shared resource" reasoning
-  // bracketPurchases already uses. So this reads across EVERY active
-  // business's technicians, not just the one currently loaded in the
-  // dashboard (found 2026-09-02: the Inventory tab only ever showed whoever
-  // belonged to the currently-viewed company, silently hiding the other
-  // company's techs entirely). resolveBusiness still runs first, purely to
-  // enforce the caller's own auth/scope.
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
 
   const { data: bizes } = await db.from('businesses').select('id, slug').eq('active', true);
@@ -18826,16 +14420,12 @@ async function bracketInventory(req, res, db, auth) {
     .select(`id, business_id, technician_id, flat_qty, tilting_qty, full_motion_qty, wire_plate_qty, appletv_bracket_qty, updated_at,
              technician:technicians ( id, name )`)
     .in('business_id', bizIds);
-  // appletv_bracket_qty arrives with migration 0087; degrade to the pre-0087
-  // select, then the pre-0039 select, so this endpoint never breaks on an
-  // environment that hasn't run every migration yet.
   if (error && /appletv_bracket_qty/.test(error.message || '')) {
     ({ data: inv, error } = await db.from('bracket_inventory')
       .select(`id, business_id, technician_id, flat_qty, tilting_qty, full_motion_qty, wire_plate_qty, updated_at,
                technician:technicians ( id, name )`)
       .in('business_id', bizIds));
   }
-  // wire_plate_qty arrives with migration 0039; degrade gracefully if not applied yet.
   if (error && /wire_plate_qty/.test(error.message || '')) {
     ({ data: inv, error } = await db.from('bracket_inventory')
       .select(`id, business_id, technician_id, flat_qty, tilting_qty, full_motion_qty, updated_at,
@@ -18844,12 +14434,9 @@ async function bracketInventory(req, res, db, auth) {
   }
   if (error) throw error;
 
-  // Ensure every active tech (on ANY business) has an inventory row (create if missing)
   let { data: techs } = await db.from('technicians')
     .select('id, name, business_id').in('business_id', bizIds).eq('active', true).order('name');
-  // Inventory-exempt techs (0171) never appear on inventory screens or counts.
   const { data: exemptRows } = await db.from('technicians').select('id').eq('skip_inventory', true);
-  // Shown on inventory but NOT counted yet (owner 2026-10-26: David until he gets stock).
   const exemptIds = new Set((exemptRows || []).map(r => r.id).filter(id => !INVENTORY_SHOW_UNCOUNTED.has(id)));
   if (exemptIds.size) {
     inv = (inv || []).filter(i => !exemptIds.has(i.technician_id));
@@ -18883,15 +14470,6 @@ async function bracketInventory(req, res, db, auth) {
     }))
   );
 
-  // Which BUSINESSES actually stock wire-concealment plates? The wire_plate_qty
-  // column is `not null default 0`, so a 0 can mean either "ran out" or "never
-  // tracked". Businesses that don't do behind-the-wall wire concealment (e.g.
-  // TidyHaus) sit at 0 forever, so a blanket "0 <= 3 = low" fires a permanent
-  // false alarm. Distinguish via purchase history: a business is plate-tracked
-  // if it has ever ordered plates; a tech is plate-tracked if THEIR business is
-  // OR they currently hold >0. Untracked techs are excluded from plate low-stock
-  // warnings; a tracked tech who genuinely burns to 0 STILL warns (real shortage).
-  // Computed per business now (was a single bool for just the loaded business).
   const plateTrackedBizIds = new Set();
   try {
     const { data: plateRows } = await db.from('wire_plate_purchases')
@@ -18920,12 +14498,7 @@ async function bracketInventory(req, res, db, auth) {
   });
 }
 
-// Get purchase history (Walmart orders)
 async function bracketPurchases(req, res, db, auth) {
-  // Brackets are a SHARED resource — every order is shown on BOTH platforms.
-  // Resolve the requested business only to enforce the token scope, then read
-  // across all active businesses and dedupe by Walmart order number (the sync
-  // mirrors each order to both businesses).
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const limit = Math.min(parseInt(req.query.limit) || 50, 1000);
 
@@ -18938,7 +14511,6 @@ async function bracketPurchases(req, res, db, auth) {
   let { data: purch, error } = await db.from('bracket_purchases')
     .select(baseCols.replace('{TOTAL}', 'order_total, ').replace('{RCV}', 'received_at, received_by, received_flat, received_tilting, received_full_motion, short_flat, short_tilting, short_full_motion, '))
     .in('business_id', ids).order('created_at', { ascending: false }).limit(limit * 2);
-  // order_total arrives with its migration; degrade gracefully if not applied yet.
   if (error && /order_total|received_|short_/.test(error.message || '')) {
     ({ data: purch, error } = await db.from('bracket_purchases')
       .select(baseCols.replace('{TOTAL}', '').replace('{RCV}', ''))
@@ -18946,8 +14518,6 @@ async function bracketPurchases(req, res, db, auth) {
   }
   if (error) throw error;
 
-  // Dedupe by order number. Prefer the ASSIGNED row (shows who has it); among
-  // unassigned rows prefer THIS platform's business so its Assign button works.
   const score = (r) => (r.technician ? 2 : 0) + (r.business_id === biz.id ? 1 : 0);
   const byOrder = new Map();
   for (const p of (purch || [])) {
@@ -18971,8 +14541,6 @@ async function bracketPurchases(req, res, db, auth) {
       order_date: p.order_date,
       delivered_date: p.delivered_date,
       order_url: p.order_url || null,
-      // Owner-only: what brackets cost stays private from secretaries (same
-      // rule as bracket_cost in computeJobEconomics).
       order_total: (auth.role === 'owner' && p.order_total != null) ? Number(p.order_total) : null,
       received_at: p.received_at || null,
       received_by: p.received_by || null,
@@ -18984,12 +14552,6 @@ async function bracketPurchases(req, res, db, auth) {
   });
 }
 
-// Manually set an order's delivery status (in_route | delivered | canceled).
-// Applies to EVERY row of that Walmart order across businesses so both
-// platforms stay in sync. Owner-only.
-// Add/subtract PLATES for an Amazon order on a tech's on-hand count (delta can
-// be negative). Ledger move (0205), keyed on the order, so a double-click
-// lands once. Exempt techs (0171) are skipped inside plateOrderMove.
 async function creditWirePlateInv(db, businessId, technicianId, delta, ref = {}) {
   if (!delta || !technicianId) return;
   await plateOrderMove(db, {
@@ -18998,17 +14560,6 @@ async function creditWirePlateInv(db, businessId, technicianId, delta, ref = {})
   });
 }
 
-// Owner-only manual override for one wire-plate (Amazon) order's status. The
-// automated path (scripts/bracket-email-sync.mjs) only ever learns of a
-// delivery if Amazon actually SENDS a "Delivered" email to the scanned
-// mailbox — it doesn't always (often it's an app-only push notification, no
-// email at all) — so an order Amazon's own site shows as delivered can sit
-// stuck "En route" here forever with nothing to fix it. The Walmart bracket
-// table already had this exact control (bracketSetStatus below); the Amazon
-// wire-plate table never got one. Mirrors wirePlateSync's (api/migrate.js)
-// own crediting rule: plates only count toward a tech's on-hand total the
-// moment the order is DELIVERED, and only once (credited is a one-way latch
-// until a cancel/return claws them back out).
 async function wirePlateSetStatus(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can change plate order status.' });
@@ -19032,8 +14583,6 @@ async function wirePlateSetStatus(req, res, db, auth, body) {
 
   const wasCredited = hasCredited && !!row.credited;
   if (wasCredited) {
-    // Already counted toward a tech's on-hand total — a status change from here
-    // is cosmetic EXCEPT a cancel/return, which claws the credited plates back.
     if (status === 'canceled' && row.status !== 'canceled') {
       await creditWirePlateInv(db, row.business_id, row.technician_id, -(row.plates || 0),
         { orderNum: row.amazon_order_num, purchaseId: row.id, reason: 'Amazon plate order canceled (office)', actor: auth.name || 'owner' });
@@ -19058,8 +14607,6 @@ async function wirePlateSetStatus(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, status, credited });
 }
 
-// Office/owner marks an order received for the tech (owner 2026-10-24). Counts
-// per type; fewer than ordered = shortfall on the purchase. Stock posts once.
 async function bracketReceive(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   const id = (body.id || '').toString().trim();
@@ -19084,12 +14631,6 @@ async function bracketSetStatus(req, res, db, auth, body) {
   }
   if (!orderNum && !id) return res.status(400).json({ error: 'walmart_order_num or id required' });
 
-  // The owner's dropdown looked like a stock control but used to be JUST a
-  // label — flipping it to "Delivered" never moved inventory (found in the
-  // 2026-09-03 audit: an auto-assigned order marked delivered this way was
-  // NEVER credited, and the cron would never credit it either since its status
-  // already read 'delivered'). Fetch the row(s) first so a status change here
-  // can credit/reverse through the ledger exactly like the automated sync does.
   let sel = db.from('bracket_purchases')
     .select('id, business_id, technician_id, status, walmart_order_num, flat_qty, tilting_qty, full_motion_qty');
   sel = orderNum ? sel.eq('walmart_order_num', orderNum) : sel.eq('id', id);
@@ -19098,7 +14639,6 @@ async function bracketSetStatus(req, res, db, auth, body) {
   if (!rows || !rows.length) return res.status(404).json({ error: 'Order not found' });
 
   const patch = { status, delivered_date: status === 'delivered' ? new Date().toISOString().slice(0, 10) : null };
-  // Stock: Received posts it (bracket_receive); cancel/return reverses via the 0239 trigger.
   let q = db.from('bracket_purchases').update(patch);
   q = orderNum ? q.eq('walmart_order_num', orderNum) : q.eq('id', id);
   const { error } = await q;
@@ -19106,14 +14646,11 @@ async function bracketSetStatus(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, status });
 }
 
-// Google listings + review counts (owner 2026-10-13). Read-only. Count =
-// the hand-checked total in the registry + reviews ingested since that check.
 async function gbpListings(req, res, db, auth) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const { data: rows, error } = await db.from('google_reviews')
     .select('location_key, review_date, rating, source_mailbox, created_at').not('location_key', 'is', null);
   if (error) throw error;
-  // Review-count watch (0216): latest Places snapshot + open drops.
   let snaps = [], drops = [];
   try {
     const since = new Date(Date.now() - 3 * 864e5).toISOString();
@@ -19139,18 +14676,9 @@ async function gbpListings(req, res, db, auth) {
       posts: GBP_POST_KEYS.includes(l.key) ? (posts || []).filter((x) => x.location_key === l.key).slice(0, 3) : null,
     };
   });
-  // Review velocity (owner 2026-10-21). Events only; the page bins weeks. Days are Central
-  // dates. Adds: app.google_reviews rows, plus day-over-day increases in
-  // app.gbp_count_snapshots (same place_id). Source is picked per listing PER DAY: email rows
-  // from the listing's first mailbox-fed row on (backfills have no mailbox), snapshots
-  // before that, so a first email never rewrites old weeks. Rows with no listing (the feed
-  // before 9/02) count under 'biz:<slug>', in All listings only. Lost: gbp_count_drops plus
-  // snapshot decreases on days with no drop row. from / fromAll = first day a key's adds are
-  // complete (alone / inside All listings); the page compares only fully covered weeks.
   const vSince = new Date(Date.now() - 98 * 864e5).toISOString(), vDay = vSince.slice(0, 10);
   const chi = (t) => new Date(t).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
   const nextDay = (d) => new Date(Date.parse(d + 'T00:00:00Z') + 864e5).toISOString().slice(0, 10);
-  // review_date is the email's UTC date; a row stored that same UTC day gives the Central date.
   const rDay = (r) => { const d = r.review_date.slice(0, 10); return r.created_at && new Date(r.created_at).toISOString().slice(0, 10) === d ? chi(r.created_at) : d; };
   const vel = { added: [], lost: [], from: {}, fromAll: {}, biz: {} };
   const live = {}, pool = {};
@@ -19171,7 +14699,6 @@ async function gbpListings(req, res, db, auth) {
   for (const b in pool) vel.from['biz:' + b] = vel.fromAll['biz:' + b] = pool[b][0];
   let vs = [], vd = [];
   try {
-    // Paged: PostgREST caps a response at 1000 rows whatever .limit() says (~15 rows/day).
     const [snapRows, drops98] = await Promise.all([
       fetchAllPages((cols, opts) => db.from('gbp_count_snapshots').select(cols || 'location_key, place_id, review_count, taken_at', opts)
         .gte('taken_at', vSince).order('taken_at', { ascending: true }).order('id', { ascending: true })),
@@ -19192,29 +14719,20 @@ async function gbpListings(req, res, db, auth) {
     }
     for (let i = 1; i < ds.length; i++) {
       const diff = day[ds[i]] - day[ds[i - 1]];
-      // An add is dated midway between the two reads (the 13:40 UTC read is 8:40am Central).
       const mid = chi((Date.parse(at[ds[i - 1]]) + Date.parse(at[ds[i]])) / 2);
       if (diff > 0 && !(C && mid >= C)) vel.added.push({ k: l.key, d: mid, n: diff, s: 1 });
       if (diff < 0 && !vel.lost.some((y) => y.k === l.key && y.d === ds[i])) vel.lost.push({ k: l.key, d: ds[i], n: -diff });
     }
-    // Snapshots cover from the day after the first read. Email covers from C, or from the day
-    // after the business's last untagged row when that came later (those reviews sit in the pool).
     const S = S0 ? nextDay(S0) : null, p = pool[l.business], viaEmail = C && !(S && S < C);
     const from = viaEmail ? (p && p[1] >= C ? nextDay(p[1]) : C) : S;
     if (from) vel.from[l.key] = from;
-    // In All listings the untagged pool holds an email listing's pre-tagging reviews.
     const fa = viaEmail && p && p[0] < from ? p[0] : from;
     if (fa) vel.fromAll[l.key] = fa;
   }
   return res.status(200).json({ listings, vel });
 }
 
-// ── Rankings (owner 2026-10-20): local rank grid via DataForSEO ──
-// Map pins for listings with a public address (SABs have none).
 const RANK_PINS = { 'ha-greenway': { lat: 29.7311, lng: -95.4339 } };
-// Competitor table from the latest scan per keyword (rank_competitors RPC, 0227):
-// share = points in the top 3, avg = average position with not found = 21.
-// The owner's own listings/domains (any city) are flagged You, never competitors.
 function rankCompTable(rows, kind) {
   const nameOf = (k) => (GMB_LOCATIONS.find((g) => g.key === k) || {}).name;
   const out = (rows || []).map((r) => {
@@ -19226,7 +14744,6 @@ function rankCompTable(rows, kind) {
   const by = (a, b) => b.share - a.share || (a.avg_rank ?? 99) - (b.avg_rank ?? 99);
   return [...out.filter((x) => x.you), ...out.filter((x) => !x.you && x.share > 0).sort(by).slice(0, 15)].sort(by);
 }
-// Fallback if the RPC is missing: stored top3 (first 3 non-own), counted only at ranks 1-3.
 async function rankCompFallback(db, ids, kind, targets) {
   if (!ids.length) return [];
   const { data } = await db.from('rank_points').select('our_rank, top3').in('scan_id', ids);
@@ -19246,7 +14763,7 @@ async function rankCompFallback(db, ids, kind, targets) {
       e.n++; e.sum += r;
     }
   }
-  const denom = (data || []).length;   // real point count (grids are not always 5x5)
+  const denom = (data || []).length;
   return Object.values(comp).map((e) => ({ ...e, share: denom ? Math.round(100 * e.n / denom) : 0, avg_rank: +(e.sum / e.n).toFixed(1) })).sort((a, b) => b.n - a.n).slice(0, 15);
 }
 async function rankOverview(req, res, db, auth) {
@@ -19256,8 +14773,6 @@ async function rankOverview(req, res, db, auth) {
   const kind = req.query.kind === 'organic' ? 'organic' : 'maps';
   const kw = keywordsFor(city).includes(req.query.keyword) ? req.query.keyword : keywordsFor(city)[0];
   let collect = null;
-  // Speed 2026-10-20: first paint never waits on DataForSEO. Only the page's poll
-  // (collect=1, while runs are processing) picks up finished tasks.
   if (keys && req.query.collect === '1') { try { collect = await collectPending(db, 8000); } catch (e) { collect = { error: String(e.message || e) }; } }
   const [stQ, scQ, spQ] = await Promise.all([
     db.from('rank_settings').select('weekly_enabled').eq('id', 1).maybeSingle(),
@@ -19266,17 +14781,14 @@ async function rankOverview(req, res, db, auth) {
   ]);
   const st = stQ.data;
   let S = scQ.data || [];
-  // Sample scans never sit on top of real data.
   if (S.some((s) => !s.dry && s.status === 'done')) S = S.filter((s) => !s.dry);
   const cities = RANK_CITIES.map((c) => ({ city: c.city, cols: c.cols || 5, rows: c.rows || 5, mi: c.mi || +(3.5 / 1.609344).toFixed(1), keywords: keywordsFor(c),
     listings: c.listings.map((k) => ({ key: k, name: (GMB_LOCATIONS.find((g) => g.key === k) || {}).name || k, domain: siteOf(k), ...(RANK_PINS[k] || {}) })) }));
   const mine = S.filter((s) => s.kind === kind && s.keyword === kw && s.status === 'done').slice(0, 12);
   const ids = mine.map((s) => s.id);
-  // Latest done scan per keyword (this kind) feeds the competitor table.
   const latestPerKw = keywordsFor(city).map((k) => S.find((s) => s.kind === kind && s.keyword === k && s.status === 'done')).filter(Boolean);
   const compIds = latestPerKw.map((s) => s.id);
   const latestScan = mine.find((s) => String(s.id) === String(req.query.scan || '')) || mine[0] || null;
-  // Light rows for the timeline; the shown scan also gets map points + top3. Full lists come from rank_point.
   const lightIds = ids.filter((id) => id !== latestScan?.id);
   const [a, b, cq] = await Promise.all([
     lightIds.length ? db.from('rank_points').select('scan_id, idx, our_rank').in('scan_id', lightIds) : { data: [] },
@@ -19287,7 +14799,6 @@ async function rankOverview(req, res, db, auth) {
   const targets = kind === 'maps' ? city.listings : OUR_DOMAINS;
   const trend = mine.slice().reverse().map((s) => {
     const P = pts.filter((p) => p.scan_id === s.id); const o = { id: s.id, run_at: s.run_at, dry: s.dry };
-    // Avg rank: not found (outside top 20) counts as 21 -- same rule as the page tile.
     for (const t of targets) { const r = P.map((p) => (p.our_rank || {})[t]); o[t] = { avg: P.length ? +(r.reduce((a, x) => a + (x || 21), 0) / P.length).toFixed(1) : null, top3: r.filter((x) => x && x <= 3).length, found: r.filter((x) => x).length, n: P.length }; }
     return o;
   });
@@ -19332,14 +14843,12 @@ async function rankRun(req, res, db, auth, body) {
   if (!which.length) return res.status(400).json({ error: 'city required' });
   if (body?.dry) return res.status(200).json(await dryRun(db, which[0]));
   if (!hasKeys()) return res.status(400).json({ error: 'Add DataForSEO keys in Vercel' });
-  // Paid-scan guard: refuse a city that is still running or started < 10 min ago.
   const busy = await busyCities(db); const go = which.filter((c) => !busy.includes(c));
   if (!go.length) return res.status(409).json({ error: 'Already running' });
   try { const scans = await postScans(db, go); return res.status(200).json({ ok: true, scans, skipped: which.filter((c) => busy.includes(c)), errors: scans.errors || [] }); }
   catch (e) { return res.status(502).json({ error: String(e.message || e) }); }
 }
 
-// Keyword volume (owner 2026-10-20): cached per city; refresh at most every 30 days.
 const KW_EVERY_MS = 30 * 864e5;
 async function rankKeywords(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
@@ -19364,7 +14873,6 @@ async function rankKeywords(req, res, db, auth, body) {
     last, next: last ? new Date(new Date(last).getTime() + KW_EVERY_MS).toISOString() : null, est: KW_PRICE });
 }
 
-// Google Ads competitors (owner 2026-10-20): paid ads on page 1 for the money keywords.
 async function rankAds(req, res, db, auth, body) {
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
   const city = RANK_CITIES.find((c) => c.city === (body?.city || req.query.city)) || RANK_CITIES[0];
@@ -19399,8 +14907,6 @@ async function gbpDropSeen(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// Prefill for the office's per-TV bracket picker on Mark complete.
-// tv_count 0 = no question (handyman etc. or an all-exempt crew).
 async function bracketConfirmInfo(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const id = (req.query.id || '').toString();
@@ -19410,12 +14916,9 @@ async function bracketConfirmInfo(req, res, db, auth) {
   if (b.technician_id && await isInventoryExempt(db, b.technician_id)) return res.status(200).json({ tv_count: 0, picks: [] });
   const { data: li } = await db.from('booking_line_items').select('name, quantity').eq('booking_id', id);
   const pf = bracketPrefill(li || [], detectBracketQtys(li || []), b.metadata?.brackets_used);
-  // Wire plates used (owner 2026-10-13): prefilled from the ticket, or the
-  // answer already confirmed on a reopened job.
   const ticketPlates = detectWirePlateQty(li || []);
   const pu = b.metadata?.plates_used;
   pf.plates = (pf.tv_count > 0 || ticketPlates > 0) ? { qty: pu?.confirmed_at ? (Number(pu.qty) || 0) : ticketPlates, ticket: ticketPlates } : null;
-  // Two-tech: whose stock (prefilled: recorded supplier, else the primary).
   try {
     const { data: c } = await db.from('bookings').select('secondary_technician_id, bracket_supplied_by').eq('id', id).maybeSingle();
     if (pf.tv_count > 0 && c?.secondary_technician_id && b.technician_id) {
@@ -19428,8 +14931,6 @@ async function bracketConfirmInfo(req, res, db, auth) {
   return res.status(200).json(pf);
 }
 
-// Update bracket inventory (manual adjustment or usage logging)
-// Owner-only: secretaries (Heather/Joey) get read-only access to inventory.
 async function bracketUpdate(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can edit bracket inventory.' });
@@ -19437,19 +14938,14 @@ async function bracketUpdate(req, res, db, auth, body) {
   const bizId = biz.id;
 
   const techId = (body.technician_id || '').toString();
-  const action = (body.action || 'adjust').toString(); // 'adjust' | 'set' | 'usage'
+  const action = (body.action || 'adjust').toString();
 
   if (!techId) return res.status(400).json({ error: 'technician_id required' });
 
-  // Brackets are shared across companies (same reasoning as bracket_inventory
-  // and bracketAssign) — the Inventory tab now lists every business's techs
-  // together, so this edits the tech's OWN home business row, not whichever
-  // business tab happened to be loaded when the office opened the modal.
   const { data: tech } = await db.from('technicians').select('id, business_id').eq('id', techId).single();
   if (!tech) return res.status(404).json({ error: 'Technician not found' });
   const techBizId = tech.business_id;
 
-  // Get or create inventory row
   let { data: inv } = await db.from('bracket_inventory')
     .select('*').eq('technician_id', techId).eq('business_id', techBizId).maybeSingle();
 
@@ -19464,11 +14960,7 @@ async function bracketUpdate(req, res, db, auth, body) {
     inv = { flat_qty: 0, tilting_qty: 0, full_motion_qty: 0, wire_plate_qty: 0 };
   }
 
-  // Calculate new quantities. 'set' writes the EXACT counts the owner typed (can
-  // go up or down); 'adjust'/'usage' apply a +/- delta to the current count.
   const isSet = action === 'set';
-  // A recount needs a reason (owner 2026-10-13). A blank field = not counted,
-  // left alone (null survives to bracket_move, which keeps the current count).
   const reasonText = (body.notes || '').toString().trim();
   if (isSet && !reasonText) return res.status(400).json({ error: 'Reason required.' });
   const setVal = (v) => (v == null || v === '') ? null : Math.max(0, Math.round(Number(v) || 0));
@@ -19476,34 +14968,19 @@ async function bracketUpdate(req, res, db, auth, body) {
   const tilting = isSet ? setVal(body.tilting) : (inv.tilting_qty || 0) + (body.tilting_delta || 0);
   const fullMotion = isSet ? setVal(body.full_motion) : (inv.full_motion_qty || 0) + (body.full_motion_delta || 0);
   if (isSet && flat == null && tilting == null && fullMotion == null && !(body.wire_plate != null && body.wire_plate !== '') && !body.wire_plate_delta) return res.status(400).json({ error: 'Enter at least one count.' });
-  // Wire concealment plates (migration 0039). Only touch the column when a
-  // delta is supplied AND the column exists, so the action still works on a DB
-  // where 0039 hasn't run yet.
-  // Office recount types an absolute plate count (body.wire_plate); +/- sends a delta.
   const plateSet = isSet && body.wire_plate != null && body.wire_plate !== '' ? Math.max(0, Math.round(Number(body.wire_plate) || 0)) : null;
   const wantsWirePlate = plateSet != null || (body.wire_plate_delta != null && body.wire_plate_delta !== 0);
   const hasWirePlateCol = Object.prototype.hasOwnProperty.call(inv, 'wire_plate_qty');
   const wirePlate = plateSet != null ? plateSet : (inv.wire_plate_qty || 0) + (body.wire_plate_delta || 0);
 
-  // Apple TV brackets (migration 0087). No email pipeline for these -- Amazon's
-  // order-confirmation email for this product carries no distinguishing text,
-  // so a tech's stock is credited by typing the new total here, same as wire
-  // plates, just always by hand instead of usually by the Amazon sync.
   const wantsAppleTv = body.appletv_bracket_delta != null && body.appletv_bracket_delta !== 0;
   const hasAppleTvCol = Object.prototype.hasOwnProperty.call(inv, 'appletv_bracket_qty');
   const appleTv = (inv.appletv_bracket_qty || 0) + (body.appletv_bracket_delta || 0);
 
-  // Ensure no negative inventory
   if (flat < 0 || tilting < 0 || fullMotion < 0 || (wantsWirePlate && wirePlate < 0) || (wantsAppleTv && appleTv < 0)) {
     return res.status(400).json({ error: 'Insufficient inventory for this operation' });
   }
 
-  // flat/tilting/full_motion go ONLY through bracket_move (migration 0088) —
-  // it is the sole writer of those three columns and it always logs a signed
-  // ledger row with a reason, which is exactly what was missing when TK/Greg/
-  // Juan/Steve's manual resets left no trace for the 2026-09-02 backfill to
-  // check against. wire_plate/appletv_bracket are not on the ledger yet and
-  // still go through the direct update below.
   const actor = auth.name || auth.role || 'owner';
   if (isSet && (flat != null || tilting != null || fullMotion != null)) {
     await ledgerRecount(db, {
@@ -19521,7 +14998,6 @@ async function bracketUpdate(req, res, db, auth, body) {
     });
   }
 
-  // Wire plates: ledger (0205). A recount needs the same reason as brackets.
   if (wantsWirePlate && hasWirePlateCol) {
     if (plateSet != null) {
       await plateRecount(db, { businessId: techBizId, technicianId: techId, qty: plateSet,
@@ -19532,7 +15008,6 @@ async function bracketUpdate(req, res, db, auth, body) {
         reason: body.notes || (action === 'usage' ? 'manual usage log by office' : (isSet ? `office recount: ${reasonText}` : 'manual adjustment by office')), actor });
     }
   }
-  // appletv_bracket: still a direct update (not on the ledger).
   const patch = {};
   if (wantsAppleTv && hasAppleTvCol) patch.appletv_bracket_qty = appleTv;
   if (Object.keys(patch).length) {
@@ -19541,9 +15016,6 @@ async function bracketUpdate(req, res, db, auth, body) {
     if (e1) throw e1;
   }
 
-  // Log wire_plate/appletv manual corrections the old way — flat/tilting/
-  // full_motion are now logged by bracket_move itself, so only mention those
-  // two columns here to avoid a duplicate/contradictory ledger entry.
   if ((action === 'set' || action === 'adjust') && (wantsAppleTv && hasAppleTvCol && (inv.appletv_bracket_qty || 0) !== appleTv)) {
     try {
       const changes = [];
@@ -19556,8 +15028,6 @@ async function bracketUpdate(req, res, db, auth, body) {
     } catch (e) { console.error('[bracket] manual-change log failed:', e.message); }
   }
 
-  // Log wire_plate/appletv usage the old way (flat/tilting/full_motion usage
-  // is now logged by bracket_move itself).
   if (action === 'usage' && wantsAppleTv) {
     const log = {
       business_id: techBizId,
@@ -19571,10 +15041,6 @@ async function bracketUpdate(req, res, db, auth, body) {
     await db.from('bracket_usage_logs').insert(log);
   }
 
-  // A positive Apple TV delta from a non-usage action is a manual "these
-  // arrived" entry -- log it for a future history view even though nothing
-  // reads this table yet. Best-effort: never blocks the inventory write above,
-  // which already succeeded by this point.
   if (wantsAppleTv && hasAppleTvCol && action !== 'usage' && body.appletv_bracket_delta > 0) {
     try {
       await db.from('appletv_bracket_log').insert({
@@ -19585,9 +15051,6 @@ async function bracketUpdate(req, res, db, auth, body) {
     } catch (e) { console.error('[appletv_bracket] arrival log failed:', e.message); }
   }
 
-  // Re-read after bracket_move's atomic write — flat/tilting/full_motion may
-  // differ from the locally-computed values above if another mover (a job
-  // completing, a delivery landing) raced this request.
   const { data: freshInv } = await db.from('bracket_inventory')
     .select('flat_qty, tilting_qty, full_motion_qty, wire_plate_qty, appletv_bracket_qty')
     .eq('technician_id', techId).eq('business_id', techBizId).maybeSingle();
@@ -19607,9 +15070,6 @@ async function bracketUpdate(req, res, db, auth, body) {
   });
 }
 
-// Company BRACKETS a job uses, by type (skips customer-supplied / own brackets).
-// Mirror of tech.js detectBracketQtys so the dashboard completion path deducts
-// the same way the tech app does.
 function detectBracketQtys(lineItems) {
   const out = { flat: 0, tilting: 0, full_motion: 0 };
   for (const li of lineItems || []) {
@@ -19620,24 +15080,12 @@ function detectBracketQtys(lineItems) {
     else if (/tilt/.test(name)) out.tilting += qty;
     else if (/\bflat\b|fixed/.test(name)) out.flat += qty;
   }
-  // A job can't use more brackets than it has TVs. A ticket carrying BOTH a
-  // bracket option line and a hand-typed hardware line ("Tilting Mounts")
-  // otherwise double-counts (Throckmorton, 2026-08-21: 6 tilting deducted from
-  // a 4-TV / 3-bracket job). Keep in sync with api/tech.js's copy.
   clampBracketQtysToTvCount(out, lineItems);
   return out;
 }
 function bracketTotal(q) { return (q.flat || 0) + (q.tilting || 0) + (q.full_motion || 0); }
 
-// flat/tilting/full_motion go through api/_lib/bracket-moves.js and wire
-// plates through api/_lib/plate-moves.js (migrations 0088 / 0205). Only
-// appletv_bracket_qty is still a direct write.
 
-// Apple TV brackets used on a job: one per unit of "Apple TV installation
-// (mounting bracket included)". Requires BOTH "apple tv" and "bracket" in the
-// name, not just "apple tv install" -- the catalog also has a plain "Apple TV
-// installation" option (no bracket, presumably the customer already has one
-// mounted) that must never decrement stock.
 function detectAppleTvBracketQty(lineItems) {
   let n = 0;
   for (const li of lineItems || []) {
@@ -19647,14 +15095,10 @@ function detectAppleTvBracketQty(lineItems) {
   return n;
 }
 
-// Subtract Apple TV brackets from a tech's inventory (floor 0) and log it.
-// No-ops gracefully if migration 0087 isn't applied; never throws into the
-// completion path. Same cross-hire fix as the other adjust* functions above:
-// the STOCK row lives under the tech's own home business, never the job's.
 async function adjustAppleTvBracketInventory(db, businessId, techId, qty, bookingId) {
   if (!qty || !techId) return;
   const { data: techRow } = await db.from('technicians').select('business_id, skip_inventory').eq('id', techId).maybeSingle();
-  if (techRow?.skip_inventory) return; // inventory-exempt tech (0171)
+  if (techRow?.skip_inventory) return;
   const homeBizId = techRow?.business_id || businessId;
   let { data: inv, error } = await db.from('bracket_inventory')
     .select('id, appletv_bracket_qty')
@@ -19681,8 +15125,6 @@ async function adjustAppleTvBracketInventory(db, businessId, techId, qty, bookin
   } catch (_) { /* usage log is best-effort */ }
 }
 
-// Parse Walmart email to create bracket purchase record
-// Called by: scheduled email watcher or manual submission
 async function bracketParseEmail(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can record bracket orders.' });
@@ -19699,14 +15141,12 @@ async function bracketParseEmail(req, res, db, auth, body) {
   if (!techName) return res.status(400).json({ error: 'technician_name required' });
   if (!walmartOrderNum && !emailBody) return res.status(400).json({ error: 'walmart_order_num or email_body required' });
 
-  // Find technician by name (case-insensitive, partial match)
   const { data: techs } = await db.from('technicians')
     .select('id, name').eq('business_id', bizId).eq('active', true);
 
   const tech = (techs || []).find(t => t.name.toLowerCase().includes(techName.toLowerCase()));
   if (!tech) return res.status(404).json({ error: `Technician "${techName}" not found` });
 
-  // Check if we already have this order
   let existing = null;
   if (walmartOrderNum) {
     const { data: e } = await db.from('bracket_purchases')
@@ -19714,7 +15154,6 @@ async function bracketParseEmail(req, res, db, auth, body) {
     existing = e;
   }
 
-  // Extract order date from email or use today
   let orderDate = new Date().toISOString().slice(0, 10);
   const dateMatch = emailBody.match(/order\s+(?:number|#|date)?[:\s]*(\d{1,2}[\/\-]\d{1,2}[\/\-]\d{2,4})/i);
   if (dateMatch) {
@@ -19730,7 +15169,6 @@ async function bracketParseEmail(req, res, db, auth, body) {
 
   let result;
   if (existing) {
-    // Update existing order
     const { error: e } = await db.from('bracket_purchases').update({
       flat_qty: flatQty,
       tilting_qty: tiltingQty,
@@ -19739,7 +15177,6 @@ async function bracketParseEmail(req, res, db, auth, body) {
     if (e) throw e;
     result = { id: existing.id, action: 'updated' };
   } else {
-    // Create new purchase record
     const { data: p, error: e } = await db.from('bracket_purchases').insert({
       business_id: bizId,
       technician_id: tech.id,
@@ -19753,19 +15190,6 @@ async function bracketParseEmail(req, res, db, auth, body) {
     result = { id: p.id, action: 'created' };
   }
 
-  // Inventory is deliberately NOT credited here. This endpoint records that an
-  // order EXISTS; brackets are credited only when that order is DELIVERED, by
-  // the email sync (api/migrate.js bracketSync), the Assign button, or the
-  // status dropdown -- all of which go through bracket_move() keyed on the
-  // order number, so an order can only ever be credited once no matter how
-  // many of those paths see it.
-  //
-  // It used to credit right here, with a read-then-write and no idempotency
-  // key: re-submitting the same order credited it again every time, it
-  // credited at ORDER time (a rule superseded 2026-07-07 by commit 3e13303,
-  // which moved every other path to credit-on-delivery), and it wrote to the
-  // currently-loaded business rather than the tech's home business, spawning
-  // the phantom-row bug. Found in the 2026-09-03 post-implementation review.
   return res.status(200).json({
     ok: true,
     purchase: result,
@@ -19780,9 +15204,6 @@ async function bracketParseEmail(req, res, db, auth, body) {
   });
 }
 
-// ── Pending deliveries: brackets that arrived but aren't assigned to a tech yet
-// A bracket_purchases row with technician_id IS NULL is a "just delivered, not
-// yet assigned" delivery (recorded by the email watcher or seeded manually).
 async function bracketPending(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const bizId = biz.id;
@@ -19811,8 +15232,6 @@ async function bracketPending(req, res, db, auth) {
   });
 }
 
-// Assign a pending delivery to a technician: stamp the purchase with the tech
-// and add the delivered quantities to that tech's bracket_inventory. Owner-only.
 async function bracketAssign(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can assign brackets.' });
@@ -19823,44 +15242,26 @@ async function bracketAssign(req, res, db, auth, body) {
   const techId = (body.technician_id || '').toString().trim();
   if (!purchaseId || !techId) return res.status(400).json({ error: 'purchase_id and technician_id required' });
 
-  // Fetch the pending purchase (must belong to this business and be unassigned).
   const { data: purchase } = await db.from('bracket_purchases')
     .select('id, flat_qty, tilting_qty, full_motion_qty, technician_id, walmart_order_num, status')
     .eq('id', purchaseId).eq('business_id', bizId).maybeSingle();
   if (!purchase) return res.status(404).json({ error: 'Delivery not found' });
   if (purchase.technician_id) return res.status(400).json({ error: 'This delivery is already assigned.' });
 
-  // Brackets are shared across companies (same "one truck stock" reasoning as
-  // bracket_inventory/bracketPurchases) — the delivery is a real physical
-  // package, and the tech who actually receives it may belong to either
-  // business, not just the one whose purchase-row copy is loaded here. So this
-  // does NOT filter by bizId, unlike the purchase lookup above (which legitimately
-  // is one specific business's mirrored copy of the order).
   const { data: tech } = await db.from('technicians')
     .select('id, name, business_id').eq('id', techId).eq('active', true).maybeSingle();
   if (!tech) return res.status(404).json({ error: 'Technician not found' });
-  // The tech's OWN home business, not the purchase-row's bizId — a TidyHaus
-  // tech assigned from the Dom's tab must still credit HIS bracket_inventory
-  // row, or this creates a phantom duplicate stock row under the wrong
-  // business (the exact bug class just fixed in bracket_inventory itself).
   const techBizId = tech.business_id;
 
   const flat = purchase.flat_qty || 0;
   const tilting = purchase.tilting_qty || 0;
   const full_motion = purchase.full_motion_qty || 0;
 
-  // Stamp the order with the tech. Do NOT touch status — an order can be
-  // assigned while it's still in route; its delivery status updates on its own
-  // when the delivery email arrives.
   const { error: stampErr } = await db.from('bracket_purchases')
     .update({ technician_id: techId })
     .eq('id', purchaseId);
   if (stampErr) throw stampErr;
 
-  // The sync mirrors every Walmart order to BOTH businesses as unassigned
-  // twins. Now that this one is assigned to a specific tech, drop the still-
-  // unassigned duplicate(s) of the same order in other businesses so the same
-  // physical delivery isn't shown or counted twice.
   if (purchase.walmart_order_num) {
     await db.from('bracket_purchases')
       .delete()
@@ -19869,13 +15270,6 @@ async function bracketAssign(req, res, db, auth, body) {
       .neq('business_id', bizId);
   }
 
-  // Inventory moves ONLY on delivery. If the owner assigns an order that's still
-  // in route, we just reserve it to the tech — the brackets are added to the
-  // count when the delivery email arrives. Assigning an already-delivered order
-  // credits it now. Keyed on walmart_order_num (migration 0088) so a double-
-  // click on Assign, or the sync crediting the same order moments later,
-  // credits exactly once instead of twice.
-  // Owner 2026-10-24: assigning never adds stock; the tech taps Received.
   const credited = false;
 
   return res.status(200).json({
@@ -19886,7 +15280,6 @@ async function bracketAssign(req, res, db, auth, body) {
   });
 }
 
-// Unassigned Amazon plate deliveries for this business (mirror of bracketPending).
 async function wirePlatePending(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const { data: pending, error } = await db.from('wire_plate_purchases')
@@ -19894,7 +15287,6 @@ async function wirePlatePending(req, res, db, auth) {
     .eq('business_id', biz.id)
     .is('technician_id', null)
     .order('created_at', { ascending: false });
-  // Table arrives with migration 0040; degrade to empty if not applied yet.
   if (error) {
     if (/wire_plate_purchases/.test(error.message || '')) return res.status(200).json({ pending: [] });
     throw error;
@@ -19914,9 +15306,6 @@ async function wirePlatePending(req, res, db, auth) {
   });
 }
 
-// All Amazon plate orders for the dashboard's "Recent Amazon Orders" list —
-// across businesses, deduped by order number (like bracketPurchases), with
-// status + assigned tech + whether the plates have been counted on-hand yet.
 async function wirePlateOrders(req, res, db, auth) {
   let biz; try { biz = await resolveBusiness(db, auth, req.query.business); } catch (e) { return bail(res, e); }
   const limit = Math.min(parseInt(req.query.limit) || 30, 500);
@@ -19924,7 +15313,6 @@ async function wirePlateOrders(req, res, db, auth) {
   const { data: bizes } = await db.from('businesses').select('id, slug').eq('active', true);
   const ids = (bizes || []).map(b => b.id);
 
-  // `credited` arrives with 0041; degrade without it.
   const cols = 'id, business_id, amazon_order_num, units, plates, status, order_date, delivered_date, order_url, created_at, technician:technicians ( id, name )';
   let { data: rows, error } = await db.from('wire_plate_purchases')
     .select(cols + ', credited').in('business_id', ids)
@@ -19939,7 +15327,6 @@ async function wirePlateOrders(req, res, db, auth) {
     throw error;
   }
 
-  // Dedupe by order number; prefer the assigned row, then this platform's row.
   const score = (r) => (r.technician ? 2 : 0) + (r.business_id === biz.id ? 1 : 0);
   const byOrder = new Map();
   for (const r of (rows || [])) {
@@ -19967,10 +15354,6 @@ async function wirePlateOrders(req, res, db, auth) {
   });
 }
 
-// Assign (reserve) an Amazon plate order to a technician. The plates are added to
-// the tech's ON-HAND count only if the order is already DELIVERED; for an
-// en-route order this just reserves it, and the delivery sync credits the plates
-// when it actually arrives. Owner-only.
 async function wirePlateAssign(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can assign plates.' });
@@ -19981,7 +15364,6 @@ async function wirePlateAssign(req, res, db, auth, body) {
   const techId = (body.technician_id || '').toString().trim();
   if (!purchaseId || !techId) return res.status(400).json({ error: 'purchase_id and technician_id required' });
 
-  // `credited` arrives with 0041; degrade (reserve only, never credit) without it.
   let hasCredited = true;
   let { data: purchase, error: pErr } = await db.from('wire_plate_purchases')
     .select('id, plates, status, technician_id, amazon_order_num, credited')
@@ -19998,17 +15380,12 @@ async function wirePlateAssign(req, res, db, auth, body) {
   if (!purchase) return res.status(404).json({ error: 'Delivery not found' });
   if (purchase.technician_id) return res.status(400).json({ error: 'This order is already assigned.' });
 
-  // Brackets/plates are shared across companies (same reasoning as
-  // bracketAssign) — the tech who actually receives the order may belong to
-  // either business, not just the one whose purchase-row tab is loaded here.
   const { data: tech } = await db.from('technicians')
     .select('id, name, business_id').eq('id', techId).eq('active', true).maybeSingle();
   if (!tech) return res.status(404).json({ error: 'Technician not found' });
   const techBizId = tech.business_id;
 
   const plates = purchase.plates || 0;
-  // Only count plates on-hand when the order is actually delivered AND we can
-  // record that it was counted (credited). Otherwise this is just a reservation.
   const credit = hasCredited && (purchase.status === 'delivered');
 
   const stamp = { technician_id: techId };
@@ -20016,7 +15393,6 @@ async function wirePlateAssign(req, res, db, auth, body) {
   const { error: stampErr } = await db.from('wire_plate_purchases').update(stamp).eq('id', purchaseId);
   if (stampErr) throw stampErr;
 
-  // Drop the unassigned twin(s) of the same order mirrored to other businesses.
   if (purchase.amazon_order_num) {
     await db.from('wire_plate_purchases')
       .delete()
@@ -20026,7 +15402,6 @@ async function wirePlateAssign(req, res, db, auth, body) {
   }
 
   if (credit) {
-    // Add plates to the tech's on-hand count (ledger, 0205).
     await creditWirePlateInv(db, techBizId, techId, plates,
       { orderNum: purchase.amazon_order_num, purchaseId, reason: 'Amazon plate delivery (assigned)', actor: auth.name || 'owner' });
   }
@@ -20041,10 +15416,6 @@ async function wirePlateAssign(req, res, db, auth, body) {
   });
 }
 
-// Owner-only: remove a wire-plate order from tracking (e.g. a phantom/duplicate
-// the email parser mis-created). Deletes every row for the order number across
-// businesses; if a row was already CREDITED to a tech, subtract those plates back
-// out of that tech's on-hand count so the inventory stays honest.
 async function wirePlateRemove(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner') return res.status(403).json({ error: 'Only the owner can remove orders.' });
@@ -20054,7 +15425,6 @@ async function wirePlateRemove(req, res, db, auth, body) {
   const orderNum   = (body.amazon_order_num || '').toString().trim();
   if (!purchaseId && !orderNum) return res.status(400).json({ error: 'purchase_id or amazon_order_num required' });
 
-  // Resolve the order number (so we can clean up its twins in every business).
   const cols = (withCredited) => `id, business_id, technician_id, plates, amazon_order_num${withCredited ? ', credited' : ''}`;
   let hasCredited = true;
   let on = orderNum;
@@ -20063,7 +15433,6 @@ async function wirePlateRemove(req, res, db, auth, body) {
     on = one?.amazon_order_num || '';
   }
 
-  // Gather every matching row (by order number when known, else the single id).
   const fetchRows = async () => {
     let q = db.from('wire_plate_purchases').select(cols(hasCredited));
     q = on ? q.eq('amazon_order_num', on) : q.eq('id', purchaseId);
@@ -20077,7 +15446,6 @@ async function wirePlateRemove(req, res, db, auth, body) {
 
   let removed = 0;
   for (const r of rows) {
-    // Reverse any inventory credit so removing a counted order doesn't leave phantom plates.
     if (hasCredited && r.credited && r.technician_id && (r.plates || 0) > 0) {
       await creditWirePlateInv(db, r.business_id, r.technician_id, -(r.plates || 0),
         { orderNum: r.amazon_order_num, purchaseId: r.id, reason: 'Amazon plate order removed (office)', actor: auth.name || 'owner' });
@@ -20085,10 +15453,6 @@ async function wirePlateRemove(req, res, db, auth, body) {
     const { error: delErr } = await db.from('wire_plate_purchases').delete().eq('id', r.id);
     if (!delErr) removed++;
   }
-  // Deleting the row alone doesn't stop the email scanner from re-adding this
-  // order next pass — the confirmation email is still sitting in the inbox,
-  // and the row itself was the only "already handled" signal. Recording the
-  // order number here so wirePlateSync (api/_lib migrate.js) skips it forever.
   if (on) {
     const { error: ignoreErr } = await db.from('wire_plate_ignored_orders')
       .upsert({ amazon_order_num: on }, { onConflict: 'amazon_order_num' });
@@ -20097,50 +15461,15 @@ async function wirePlateRemove(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, removed, amazon_order_num: on || null });
 }
 
-// ============================================================================
-// Two-way SMS — the Messages tab (migration 0109)
-// ----------------------------------------------------------------------------
-// A customer texts one of our published numbers; the office reads it here and
-// texts back. Before this, handleSmsInbound relayed the text to a handset and
-// discarded it, so there was nothing to read and no way to answer.
-//
-// A conversation is the PAIR (our_phone, customer_phone) — not (business,
-// customer). The same person can text two of our brands, and those must stay
-// separate threads so a reply goes back out from the number they actually
-// texted. Everything below keys on that pair.
-//
-// None of these check auth.role. That is deliberate: answering customer texts
-// is a secretary's job. They scope on business instead, exactly like calls().
-// ============================================================================
 
-// The thread list pulls this many messages and groups them in JS. PostgREST has
-// no GROUP BY, and a DISTINCT ON view would need its own migration for a screen
-// showing a few dozen conversations. Revisit if text volume ever gets serious.
 const MESSAGES_SCAN_LIMIT = 1000;
 
-// Which business owns one of our numbers, with the caller's access enforced.
-// Throws the same {status} shape resolveBusiness does, so callers bail() it.
 async function businessForOurPhone(db, auth, ourPhoneRaw, customerPhoneRaw) {
   const ourPhone = digitsOf(ourPhoneRaw);
   if (!ourPhone) { const e = new Error('our number is required'); e.status = 400; throw e; }
   const { data: line } = await db.from('tracking_numbers')
     .select('phone, business_slug, label').eq('phone', ourPhone).maybeSingle();
   if (!line || !line.business_slug) {
-    // The number isn't in tracking_numbers. This is NOT hypothetical: every
-    // automated text this system sends goes out from the toll-free
-    // TWILIO_PHONE_NUMBER, which is not a tracking number — so a customer who
-    // simply REPLIES to their booking confirmation or "on the way" text lands
-    // here. That is probably the most common inbound text we get.
-    //
-    // handleSmsInbound already stores it (with business_id null), so the thread
-    // exists; it just belongs to no brand. The owner reads all of these. A
-    // secretary can open ONE too, but only when the SAME brand guess the
-    // Messages list already labels it with (brandForUnmappedTexters — their
-    // latest booking/estimate/call) lands inside her own allow-list — e.g.
-    // Heather couldn't open a Mile High customer's reply to their "on the way"
-    // text just because it happened to arrive on the shared number. Guessing
-    // wrong and showing her someone else's customer would be the real
-    // mistake, so a guess that isn't hers (or no guess at all) still blocks.
     const viewerSlugs = allowedSlugsFor(auth);
     if (viewerSlugs !== null) {
       const customerPhone = digitsOf(customerPhoneRaw);
@@ -20148,27 +15477,19 @@ async function businessForOurPhone(db, auth, ourPhoneRaw, customerPhoneRaw) {
       if (!guess || !viewerSlugs.includes(guess.slug)) {
         const e = new Error('That number is not one of ours'); e.status = 404; throw e;
       }
-      // resolveBusiness re-runs mayUseBusiness() — belt and braces alongside
-      // the allow-list check just above.
       const biz = await resolveBusiness(db, auth, guess.slug);
       return { biz, ourPhone, label: (line && line.label) || null, guessed: true };
     }
     return { biz: null, ourPhone, label: (line && line.label) || null };
   }
-  // resolveBusiness runs mayUseBusiness() — a secretary cannot open another
-  // brand's conversation by guessing its number.
   const biz = await resolveBusiness(db, auth, line.business_slug);
   return { biz, ourPhone, label: line.label || null };
 }
 
-// The toll-free TWILIO_PHONE_NUMBER is the NOTIFICATION sender — confirmations,
-// on-the-way, review and estimate texts for EVERY brand go out from it. It is
-// not a business, so a thread on it must never be labeled as one by its line.
 function isNotifyLine(ourPhone) {
   const d10 = (v) => { const d = digitsOf(v || ''); return d.length === 11 && d[0] === '1' ? d.slice(1) : d; };
   const o = d10(ourPhone);
   if (!o) return false;
-  // The env number, plus the known 888 toll-free sender as a fallback.
   return o === d10(process.env.TWILIO_PHONE_NUMBER) || o === '0000000000';
 }
 
@@ -20178,20 +15499,10 @@ const BRAND_SOURCE_LABEL = {
   call: 'they called that brand',
 };
 
-// Which brand is a texter on an UNMAPPED line (the notification number)
-// talking to? Nothing on the text itself says — so look at what we last sent
-// them: every automated 888 text is tied to a booking or an estimate, and the
-// brand of the NEWEST one is the brand they are replying to. Calls to a
-// tracking line are a weaker fallback, used only when there is no booking or
-// estimate at all.
-//
-// Returns Map(customerPhone -> { business_id, slug, name, source, customer_name,
-// others: [brand names] }). `others` lists the other brands this person is ALSO
-// a customer of, so the office can double-check before answering in one voice.
 async function brandForUnmappedTexters(db, phones, bizById) {
   const out = new Map();
   if (!phones.length) return out;
-  const cands = new Map(phones.map(p => [p, []]));   // phone -> [{business_id, at, source, name}]
+  const cands = new Map(phones.map(p => [p, []]));
   const push = (p, c) => { if (cands.has(p) && c.business_id) cands.get(p).push(c); };
 
   const { data: custs } = await db.from('customers')
@@ -20208,8 +15519,6 @@ async function brandForUnmappedTexters(db, phones, bizById) {
     }
   }
 
-  // estimates.customer_phone is free-form ("(206) 451-0606", bare digits, ...),
-  // so match the formats it is actually stored in.
   const estForms = phones.flatMap(p => [p, prettyPhone(p), `${p.slice(0, 3)}-${p.slice(3, 6)}-${p.slice(6)}`, `+1${p}`]);
   const { data: ests } = await db.from('estimates')
     .select('customer_phone, customer_name, business_id, created_at')
@@ -20235,9 +15544,6 @@ async function brandForUnmappedTexters(db, phones, bizById) {
     if (!best) continue;
     const biz = bizById.get(best.business_id);
     if (!biz) continue;
-    // A customer name only from the SAME brand we picked — never borrow one
-    // brand's customer identity for another (see the 26-shared-phones note).
-    // Some estimates carry the phone number in customer_name — that isn't a name.
     const sameBrand = list.find(c => c.business_id === best.business_id && c.name && /[a-z]/i.test(c.name));
     const others = [...new Set(list.map(c => c.business_id))]
       .filter(id => id !== best.business_id)
@@ -20257,9 +15563,8 @@ async function businessesById(db) {
   return new Map((data || []).map(b => [b.id, b]));
 }
 
-// GET ?action=messages_list — one row per conversation, newest activity first.
 async function messagesList(req, res, db, auth) {
-  const viewerSlugs = allowedSlugsFor(auth);   // null = owner, no filter
+  const viewerSlugs = allowedSlugsFor(auth);
   let q = db.from('messages')
     .select('customer_phone, our_phone, direction, body, created_at, read_at, status, business_id')
     .order('created_at', { ascending: false })
@@ -20270,16 +15575,8 @@ async function messagesList(req, res, db, auth) {
     const { data: viewerBiz } = await db.from('businesses').select('id').in('slug', viewerSlugs);
     viewerBizIds = (viewerBiz || []).map(b => b.id);
     if (!viewerBizIds.length) {
-      // Same sentinel the calls list uses: an empty allow-list must match
-      // nothing, not everything.
       q = q.in('business_id', ['00000000-0000-0000-0000-000000000000']);
     } else {
-      // ALSO fetch business_id IS NULL rows — threads on the shared
-      // toll-free/notification number. A scoped viewer keeps one of THOSE
-      // only if the brand guess below (the same one that labels it for the
-      // owner) lands inside her own businesses; the filter for that runs
-      // further down, once every thread has been guessed. Nothing here
-      // leaves this function un-narrowed.
       q = q.or(`business_id.in.(${viewerBizIds.join(',')}),business_id.is.null`);
     }
   }
@@ -20291,8 +15588,6 @@ async function messagesList(req, res, db, auth) {
     const key = `${m.our_phone}|${m.customer_phone}`;
     let t = threads.get(key);
     if (!t) {
-      // Rows arrive newest-first, so the first one seen for a pair IS the
-      // latest message — that is the preview line.
       t = {
         our_phone: m.our_phone,
         our_phone_pretty: prettyPhone(m.our_phone),
@@ -20313,13 +15608,6 @@ async function messagesList(req, res, db, auth) {
   }
   const list = [...threads.values()];
 
-  // Names and which line they texted, in two batched lookups rather than one
-  // query per thread.
-  // Scoped by business, not phone alone. 26 phone numbers in this database
-  // belong to a customer under MORE THAN ONE brand, so an unscoped
-  // .in('phone', ...) will happily put Dom's customer's name on a TidyHaus
-  // thread — showing one brand's customer identity inside another. It also
-  // misses idx_customers_phone, which leads on (business_id, phone).
   const phones = [...new Set(list.map(t => t.customer_phone))];
   const bizIds = [...new Set(list.map(t => t.business_id).filter(Boolean))];
   if (phones.length && bizIds.length) {
@@ -20340,30 +15628,15 @@ async function messagesList(req, res, db, auth) {
     }
   }
 
-  // The brand NAME, front and centre — several brands sell the same service
-  // in the same city, and a slug or a bare number is how replies end up in
-  // the wrong company's voice.
   const bizById = await businessesById(db);
   const bizBySlug = new Map([...bizById.values()].map(b => [b.slug, b]));
   for (const t of list) {
     t.notify_line = isNotifyLine(t.our_phone);
     const b = (t.business_id && bizById.get(t.business_id)) || (t.business_slug && bizBySlug.get(t.business_slug));
     t.business_name = b ? b.name : null;
-    // Backfill/overwrite business_slug from the RESOLVED business, not just the
-    // tracking_numbers lookup above. That lookup only covers per-brand lines —
-    // it misses the shared toll-free number, which automated texts now log
-    // against with business_id set directly (2026-09-14, logAutomatedMessage).
-    // Left as null there, msgBrandKey (admin.html) falls back to keying by the
-    // brand NAME string instead of its slug, splitting one brand into two rail
-    // entries whenever it has both a dedicated line and toll-free traffic —
-    // e.g. Dom's showing twice. b.slug is authoritative whenever b exists.
     if (b) t.business_slug = b.slug;
     t.brand_source = b ? 'line' : null;
   }
-  // Unmapped line (the 888 notification number): work out the brand from
-  // what we last sent this person. Only the owner ever sees these rows —
-  // secretaries are filtered to business_id above — so this adds a label,
-  // not access.
   const unmapped = list.filter(t => !t.business_name);
   const guesses = await brandForUnmappedTexters(db, [...new Set(unmapped.map(t => t.customer_phone))], bizById);
   for (const t of unmapped) {
@@ -20376,41 +15649,23 @@ async function messagesList(req, res, db, auth) {
     t.brand_others = g.others;
     if (!t.customer_name) t.customer_name = g.customer_name;
   }
-  // A scoped viewer keeps a MAPPED thread only if it's actually one of her
-  // own business ids (checked again here, not just trusted from the .or()
-  // query above — the SQL filter already restricts this, but an access
-  // boundary that only holds because one query stayed correct is exactly the
-  // kind of thing a later edit accidentally breaks), and keeps an UNMAPPED
-  // (business_id null) thread only once the guess just above puts it inside
-  // her own allow-list. Anything guessed to someone else's brand, or guessed
-  // to nothing at all, never reaches her — it was fetched only so it could be
-  // guessed, never to be shown blind.
   const visible = viewerSlugs
     ? list.filter(t => (t.business_id ? viewerBizIds.includes(t.business_id) : (t.business_slug && viewerSlugs.includes(t.business_slug))))
     : list;
   return res.status(200).json({
     threads: visible,
     unread_total: visible.reduce((n, t) => n + t.unread, 0),
-    // True when the scan cap may have hidden older conversations — better to
-    // say so than to silently look complete.
     truncated: (rows || []).length >= MESSAGES_SCAN_LIMIT,
   });
 }
 
-// GET ?action=messages_thread&our=...&customer=... — one full conversation.
 async function messagesThread(req, res, db, auth) {
   const customer = digitsOf(req.query.customer);
   if (!customer) return res.status(400).json({ error: 'customer is required' });
-  // customer goes in so a scoped viewer opening an unmapped-line thread can be
-  // checked against the SAME brand guess for THIS customer, not just the number.
   let ctx; try { ctx = await businessForOurPhone(db, auth, req.query.our, customer); } catch (e) { return bail(res, e); }
 
-  // Same cross-brand rule as messagesList: only name the customer from the
-  // business whose line they texted. Unmapped line (ctx.biz null) => no name
-  // rather than a name borrowed from whichever brand matched first.
   let cq = db.from('customers').select('id, name').eq('phone', customer);
   if (ctx.biz) cq = cq.eq('business_id', ctx.biz.id); else cq = cq.limit(0);
-  // All three at once -- speed (owner, 2026-09-24).
   const [{ data: rows, error }, { data: c }, bizById] = await Promise.all([
     db.from('messages')
       .select('id, direction, body, created_at, status, error, sent_by, read_at, media_count')
@@ -20447,29 +15702,18 @@ async function messagesThread(req, res, db, auth) {
   });
 }
 
-// POST ?action=messages_send — reply in a conversation.
-// ── New text (owner, 2026-10-04) ─────────────────────────────────────────────
-// Office staff start a text: pick the company + location to text FROM (never
-// the 888 notification number), pick one of that company's customers, write.
-// Only people who are already that company's customers (booked, asked for an
-// estimate, or texted one of its lines) and have not replied STOP can be
-// texted — the owner's consent rule (2026-09-19, see textConsentFor).
 
-// "This call is from TidyHaus Houston." -> "TidyHaus Houston"
 function lineLabel(row, bizName) {
   const fromLabel = String(row.label || '').replace(/^This call is from\s+/i, '').replace(/\.\s*$/, '').trim();
   return fromLabel || row.display_name || bizName || prettyPhone(row.phone);
 }
 
-// "%281%905%3496%" matches the free-form ways phones are stored.
 function phoneIlike(d10) {
   return '%' + d10.slice(0, 3) + '%' + d10.slice(3, 6) + '%' + d10.slice(6) + '%';
 }
 
-// HA Denver line 2 and HA Houston line 2 are not used for new texts (owner, 2026-10-04).
 const NEW_TEXT_HIDDEN = new Set(['0000000000', '0000000000']);
 
-// GET ?action=messages_new_lines — the numbers this login may text from.
 async function messagesNewLines(req, res, db, auth) {
   const allowed = allowedSlugsFor(auth);
   const { data: lines, error } = await db.from('tracking_numbers')
@@ -20485,9 +15729,6 @@ async function messagesNewLines(req, res, db, auth) {
     const b = bySlug.get(l.business_slug);
     out.push({ phone: digitsOf(l.phone), slug: l.business_slug, company: b ? b.name : l.business_slug, label: lineLabel(l, b && b.name) });
   }
-  // Can each line text yet? Its newest staff/auto text from the last 60 days
-  // says: blocked by the carriers (30034, not registered) vs delivered.
-  // Failures from before the campaign was approved (9/15) don't count.
   const since = new Date(Math.max(Date.now() - 60 * 86400000, Date.parse('2026-09-15T00:00:00Z'))).toISOString();
   const { data: sent } = await db.from('messages').select('our_phone, status, error, created_at')
     .eq('direction', 'out').in('our_phone', out.map((l) => l.phone)).gte('created_at', since)
@@ -20498,18 +15739,14 @@ async function messagesNewLines(req, res, db, auth) {
     if (m.status === 'delivered') last.set(m.our_phone, 'ok');
     else if (/30034|not been registered|unregistered/i.test(m.error || '')) last.set(m.our_phone, 'blocked');
   }
-  const MAIN = ['handy-andy', 'doms'];
+  const MAIN = ['tidyhaus', 'doms'];
   for (const l of out) { l.main = MAIN.includes(l.slug); l.status = last.get(l.phone) || 'untested'; }
-  // TidyHaus + Dom's first (owner, 2026-10-04), then everyone else.
-  // Two lines with the same name (e.g. two Houston numbers) get "line 2".
   const seen = new Map();
   out.sort((a, b) => (b.main - a.main) || a.label.localeCompare(b.label) || a.phone.localeCompare(b.phone));
   for (const l of out) { const n = (seen.get(l.label) || 0) + 1; seen.set(l.label, n); if (n > 1) l.label += ' (line ' + n + ')'; }
   return res.status(200).json({ lines: out });
 }
 
-// Is this phone one of the business's customers (booking, estimate, or a text
-// to one of its lines)? Returns the name we know them by, or null.
 async function customerOfBusiness(db, biz, d10) {
   const like = phoneIlike(d10);
   const [cust, est, lines] = await Promise.all([
@@ -20532,15 +15769,13 @@ async function customerOfBusiness(db, biz, d10) {
   return null;
 }
 
-// GET ?action=messages_new_search&our=<line>&q=<name or phone> — that
-// company's customers who can be texted.
 async function messagesNewSearch(req, res, db, auth) {
   let ctx; try { ctx = await businessForOurPhone(db, auth, req.query.our); } catch (e) { return bail(res, e); }
   if (!ctx.biz) return res.status(400).json({ error: 'Pick a company first' });
   const q = String(req.query.q || '').trim();
   if (q.length < 2) return res.status(200).json({ results: [] });
   const d = digitsOf(q);
-  const found = new Map(); // phone10 -> name
+  const found = new Map();
   let newNumber = null;
   const add = (phone, name) => {
     const p = digitsOf(phone); const p10 = p && p.length === 11 && p.startsWith('1') ? p.slice(1) : p;
@@ -20557,7 +15792,7 @@ async function messagesNewSearch(req, res, db, auth) {
     for (const r of e.data || []) add(r.customer_phone, r.customer_name);
     if (d.length === 10 && !found.has(d)) {
       const name = await customerOfBusiness(db, ctx.biz, d).catch(() => null);
-      if (name) add(d, name); else { add(d, prettyPhone(d)); newNumber = d; }   // not a customer yet: still textable once phone approval is recorded
+      if (name) add(d, name); else { add(d, prettyPhone(d)); newNumber = d; }
     }
   } else {
     const like = '%' + q.replace(/[%_,()]/g, ' ').trim() + '%';
@@ -20583,30 +15818,17 @@ async function messagesSend(req, res, db, auth, body) {
   const customer = digitsOf(body.customer);
   const text = (body.text || '').toString().trim();
   if (!customer) return res.status(400).json({ error: 'customer is required' });
-  // customer goes in so a scoped viewer replying on an unmapped-line thread
-  // can be checked against the SAME brand guess for THIS customer.
   let ctx; try { ctx = await businessForOurPhone(db, auth, body.our, customer); } catch (e) { return bail(res, e); }
-  // The 888 toll-free number can't take replies (owner, 2026-10-09).
   if (isNotifyLine(ctx.ourPhone)) return res.status(409).json({ error: 'No reply number' });
   if (!text) return res.status(400).json({ error: 'Message is empty' });
-  // One SMS segment is 160 chars and Twilio bills per segment. 1200 is generous
-  // for a service reply and stops a paste accident becoming an 8-segment text.
   if (text.length > 1200) return res.status(400).json({ error: 'Message is too long (1200 characters max)' });
 
-  // A2P 10DLC / CTIA. This screen answers conversations, it never starts
-  // them, so the customer must have texted this number. And an opt-out ends
-  // the conversation: Twilio blocks sends after a bare STOP but not after
-  // "Stop." or "opt out", which we honor the same way until they text START.
-  // Blocked numbers and STOP always win. Verbal approval (recorded by staff)
-  // lifts the "must have texted us / must be a customer" rule below.
   const pre = await staffTextGate(db, customer, true);
   if (!pre.ok) return gateRefuse(res, pre);
   const { data: inbound, error: inErr } = await db.from('messages').select('id')
     .eq('our_phone', ctx.ourPhone).eq('customer_phone', customer).eq('direction', 'in').limit(1);
   if (inErr) return res.status(503).json({ error: "Couldn't check this conversation. Try again in a moment." });
   if (!(inbound || []).length) {
-    // A NEW text (Messages > New text) may go to any of this company's own
-    // customers, not only someone who texted this exact line.
     let known = null;
     if (body.start === true && ctx.biz) { try { known = await customerOfBusiness(db, ctx.biz, customer); } catch (e) { return bail(res, e); } }
     if (!known && !(await verbalConsentFor(db, customer))) {
@@ -20614,24 +15836,15 @@ async function messagesSend(req, res, db, auth, body) {
     }
   }
 
-  // Replies go out exactly as typed — no business-name prefix on any customer
-  // text (owner rule, 2026-09-18).
   const outText = text;
 
-  // Insert BEFORE sending so the row id can ride along in the status callback.
-  // A send whose row we failed to create would be invisible in the thread —
-  // worse than a row whose send failed, which at least shows as failed.
   const { data: row, error: insErr } = await db.from('messages').insert({
-    // null when replying on a number that maps to no brand (the toll-free
-    // sender). The reply still goes out; it just isn't filed under a business.
     business_id: ctx.biz ? ctx.biz.id : null,
     customer_phone: customer,
     our_phone: ctx.ourPhone,
     direction: 'out',
-    body: outText,   // what the customer actually receives, prefix/suffix included
+    body: outText,
     status: 'queued',
-    // The PERSON, not the login's business scope (owner, 2026-09-23: the
-    // thread read "delivered · handy-andy" instead of Heather's name).
     sent_by: auth.name || adminAuthorName(auth) || null,
   }).select('id').single();
   if (insErr) return res.status(500).json({ error: insErr.message });
@@ -20641,21 +15854,12 @@ async function messagesSend(req, res, db, auth, body) {
     ? `${baseUrl}/api/analytics?action=sms_status&token=${encodeURIComponent(signToken({ kind: 'message', message_id: row.id }, 86400))}`
     : undefined;
 
-  // `from` is the whole point: the reply leaves from the number the customer
-  // texted. Until the A2P campaign is approved Twilio rejects a local number —
-  // that surfaces below as a real error rather than as silent success.
   const r = await sendSMSResult(customer, outText, { from: ctx.ourPhone, statusCallback, raw: true });
 
   if (!r.ok) {
     const why = r.error || `not sent (${r.skipped})`;
     await db.from('messages').update({ status: 'failed', error: why }).eq('id', row.id);
     if (r.skipped === 'notifications_off') return res.status(503).json({ error: 'Texting is turned off right now.' });
-    // 30034 / "not registered" is the ONE failure that is expected right now:
-    // the A2P 10DLC campaign was submitted 2026-09-09 and the carriers are
-    // still vetting it, so a local number cannot send yet. Left raw this reads
-    // as a broken feature — say what it actually is, in words the office can
-    // act on. Delete this branch once the campaign is approved and it stops
-    // being the likely explanation.
     if (/30034|A2P|not been registered|unregistered/i.test(why)) {
       return res.status(502).json({
         error: `Can't text from ${prettyPhone(ctx.ourPhone)} yet — the phone companies are still approving that number. Give them a call instead for now.`,
@@ -20669,9 +15873,6 @@ async function messagesSend(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, id: row.id, sid: r.sid || null });
 }
 
-// POST ?action=sms_verbal_consent — staff record that this person agreed to
-// our terms by phone. Owner or secretary. Unlocks MANUAL staff texts only.
-// Refused for a blocked number or someone who texted STOP.
 async function smsVerbalConsent(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   if (auth.role !== 'owner' && auth.role !== 'secretary') return res.status(403).json({ error: 'Not available for this login' });
@@ -20690,12 +15891,8 @@ async function smsVerbalConsent(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, phone: p });
 }
 
-// POST ?action=messages_read — clear the unread badge on one conversation.
 async function messagesRead(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
-  // Pass the customer too: threads on the shared toll-free number only resolve
-  // for a secretary via the customer's brand guess, so without it her read
-  // 404'd and the badge never cleared (Heather, 2026-10-22).
   let ctx; try { ctx = await businessForOurPhone(db, auth, body.our, body.customer); } catch (e) { return bail(res, e); }
   const customer = digitsOf(body.customer);
   if (!customer) return res.status(400).json({ error: 'customer is required' });
@@ -20707,14 +15904,6 @@ async function messagesRead(req, res, db, auth, body) {
   return res.status(200).json({ ok: true });
 }
 
-// POST ?action=messages_block — block a texter, owner or secretary, from
-// the Messages thread itself (2026-09-10 — same request as the Calls tab's
-// 🚫 Block button, but for text harassment/spam instead of robocalls). Reuses
-// the exact blocked_numbers table callBlock() writes to (migration 0101), so
-// one block covers both channels business-wide: a number blocked here is also
-// rejected before it ever rings a tracking line, and vice versa. Same auth
-// gate as messagesSend/messagesRead — any office login that can open this
-// thread can block the number that's in it.
 async function messagesBlock(req, res, db, auth, body) {
   if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
   let ctx; try { ctx = await businessForOurPhone(db, auth, body.our); } catch (e) { return bail(res, e); }
@@ -20729,14 +15918,9 @@ async function messagesBlock(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, phone: customer });
 }
 
-// ── Task list: Owner gives Joey (his assistant) tasks (owner 2026-10-02) ────
-// Red = urgent, yellow = today, green = when you can. A task keeps its color
-// until done; done tasks show crossed out. Joey can add her own. Optional
-// linked job opens the job ticket. Only the owner and Joey see this.
 function taskAccess(auth) {
   return auth && (auth.role === 'owner' || (auth.role === 'secretary' && auth.name === 'Joey'));
 }
-// Each secretary's 7-day booking rate (owner dashboard + Joey's home card).
 async function secretaryWeekConversion(db, tz) {
       const last7Start = localDayStartUTC(tz, -6);
       const rosterSince = new Date(last7Start.getTime() - 28 * 24 * 60 * 60 * 1000);
@@ -20749,8 +15933,8 @@ async function secretaryWeekConversion(db, tz) {
         const who = (c.handled_by || '').trim();
         if (!who || /^andrew/i.test(who) || /^unknown$/i.test(who)) continue;
         const p = by[who] || (by[who] = { person: who, calls: 0, booked: 0 });
-        if (new Date(c.occurred_at) < last7Start) continue;   // roster only
-        if (!(c.booking_id || c.reached_extras)) continue;   // owner 2026-09-25: counts once they reached "anything else"
+        if (new Date(c.occurred_at) < last7Start) continue;
+        if (!(c.booking_id || c.reached_extras)) continue;
         p.calls++;
         if (c.booking_id || c.resolution === 'booked') p.booked++;
       }
@@ -20758,9 +15942,6 @@ async function secretaryWeekConversion(db, tz) {
         .map(p => ({ ...p, conversion: p.calls ? Math.round((p.booked / p.calls) * 1000) / 10 : 0 }))
         .sort((a, b) => b.calls - a.calls);
 }
-// Joey's home cards (owner 2026-10-03): who covers each business today, jobs on
-// the schedule today (all businesses), open urgent tasks, secretaries' 7-day
-// booking rate. Joey only; nothing else from the owner payload.
 async function joeyMetrics(req, res, db, auth) {
   if (!(auth && auth.role === 'secretary' && auth.name === 'Joey')) return res.status(403).json({ error: 'Not available for this login' });
   const DOW = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
@@ -20768,21 +15949,17 @@ async function joeyMetrics(req, res, db, auth) {
   const [bizRes, ha, doms, tasks, secs] = await Promise.all([
     db.from('businesses').select('id, slug, timezone'),
     (async () => {
-      // Same rule as applyShiftRouting for the HA lines (route_team 'handy-andy',
-      // owner 2026-10-12: Alex covers Mondays): today's staff_schedules row,
-      // lowest priority wins; Heather's whole-day time off rings the owner.
       const { data } = await db.from('staff_schedules').select('name, priority')
-        .eq('business_slug', 'handy-andy').eq('day_of_week', dowIn('Asia/Manila'))
+        .eq('business_slug', 'tidyhaus').eq('day_of_week', dowIn('Asia/Manila'))
         .order('priority', { ascending: true }).order('name', { ascending: true });
-      const who = (applyExceptions(data, await exceptionsOn(db, dateIn('Asia/Manila')), 'handy-andy')[0] || {}).name || 'Owner';
+      const who = (applyExceptions(data, await exceptionsOn(db, dateIn('Asia/Manila')), 'tidyhaus')[0] || {}).name || 'Owner';
       if (who !== 'Heather') return who;
-      const { data: biz } = await db.from('businesses').select('id').eq('slug', 'handy-andy').maybeSingle();
+      const { data: biz } = await db.from('businesses').select('id').eq('slug', 'tidyhaus').maybeSingle();
       if (!biz) return who;
       const { data: ex } = await db.from('secretary_availability_exceptions').select('is_available').eq('business_id', biz.id).eq('exception_date', dateIn('Asia/Manila')).maybeSingle();
       return ex && ex.is_available === false ? 'Owner' : who;
     })(),
     (async () => {
-      // Same rule as applyShiftRouting: today's staff_schedules row, lowest priority wins.
       const { data } = await db.from('staff_schedules').select('name, priority')
         .eq('business_slug', 'doms').eq('day_of_week', dowIn('Asia/Manila'))
         .order('priority', { ascending: true }).order('name', { ascending: true });
@@ -20801,11 +15978,9 @@ async function joeyMetrics(req, res, db, auth) {
   }));
   const list = secs.filter(p => p.person !== 'Joey').map(p => ({ person: p.person, calls: p.calls, booked: p.booked, conversion: p.conversion }));
   for (const n of ['Heather', 'Alex', 'Joe']) if (!list.some(p => p.person === n)) list.push({ person: n, calls: 0, booked: 0, conversion: 0 });
-  return res.status(200).json({ covering: { 'handy-andy': ha, doms }, jobs_today: jobs, urgent_tasks: tasks.count || 0, secretaries: list });
+  return res.status(200).json({ covering: { 'tidyhaus': ha, doms }, jobs_today: jobs, urgent_tasks: tasks.count || 0, secretaries: list });
 }
 const TASK_COLORS = ['red', 'yellow', 'green', 'white'];
-// Owner's add form has "Text Joey" / "Email Joey" boxes, both off by default
-// (owner 2026-10-07). Nothing is sent unless a box is ticked. Never blocks the save.
 async function joeyContact(db) {
   try { const { data } = await db.from('staff_users').select('*').eq('name', 'Joey').eq('active', true).maybeSingle(); return data || {}; }
   catch { return {}; }
@@ -20831,7 +16006,6 @@ async function assistantTasks(req, res, db, auth, body) {
   const who = auth.name || (auth.role === 'owner' ? 'Owner' : 'Joey');
   if (req.method === 'GET') {
     if (req.query.q != null) {
-      // Job search for linking: customer name or phone, newest first.
       const q = String(req.query.q || '').trim();
       if (q.length < 2) return res.status(200).json({ jobs: [] });
       const digits = q.replace(/\D/g, '');
@@ -20846,7 +16020,6 @@ async function assistantTasks(req, res, db, auth, body) {
         label: `${b.customer?.name || 'Customer'} · ${b.scheduled_at ? new Date(b.scheduled_at).toLocaleDateString('en-US', { timeZone: 'Asia/Manila', month: 'short', day: 'numeric' }) : ''}${b.price ? ' · $' + Math.round(Number(b.price)) : ''} · ${b.business?.name || ''}` }));
       return res.status(200).json({ jobs });
     }
-    // Owner-only history: every done or removed task (soft-deleted rows still exist), newest first.
     if (req.query.prev != null) {
       if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
       const { data, error } = await db.from('assistant_tasks').select('*').or('done_at.not.is.null,deleted_at.not.is.null').limit(1000);
@@ -20854,7 +16027,6 @@ async function assistantTasks(req, res, db, auth, body) {
       const when = t => String(t.deleted_at || t.done_at || '');
       return res.status(200).json({ prev: (data || []).sort((a, b) => (when(a) < when(b) ? 1 : -1)) });
     }
-    // Keep active tasks separate from the latest 300 archived tasks; no seven-day expiry.
     const [active, archived] = await Promise.all([
       db.from('assistant_tasks').select('*').is('deleted_at', null).is('done_at', null)
         .order('created_at', { ascending: true }).limit(300),
@@ -20869,7 +16041,6 @@ async function assistantTasks(req, res, db, auth, body) {
   const op = String(body.op || '');
   if (op === 'add') {
     const title = String(body.title || '').trim().slice(0, 300);
-    // Joey's own tasks go in their own list, no color pick (owner 2026-10-02).
     const color = auth.role !== 'owner' ? 'joey' : TASK_COLORS.includes(body.color) ? body.color : null;
     if (!title) return res.status(400).json({ error: 'Write the task first.' });
     if (!color) return res.status(400).json({ error: 'Pick a color.' });
@@ -20884,7 +16055,6 @@ async function assistantTasks(req, res, db, auth, body) {
     const [texted, emailed] = await Promise.all([wantText ? textJoeyTask(db, j, title) : false, wantEmail ? emailJoeyTask(db, j, title, row.notes) : false]);
     return res.status(200).json({ ok: true, task: data, texted, emailed });
   }
-  // Owner drags tasks into any order (owner 2026-10-06): ids in the new order.
   if (op === 'order') {
     if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const ids = (Array.isArray(body.ids) ? body.ids : []).filter(x => /^[0-9a-f-]{36}$/i.test(String(x))).slice(0, 300);
@@ -20895,13 +16065,10 @@ async function assistantTasks(req, res, db, auth, body) {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return res.status(400).json({ error: 'id required' });
   if (op === 'done') {
     const done = !!body.done;
-    // Done immediately archives the task for either login (owner 2026-10-10).
-    // Done stays on the board crossed out; Joey can undo any time (owner 2026-10-10).
     const { error } = await db.from('assistant_tasks').update(done ? { done_at: new Date().toISOString(), done_by: who, cleared_at: null } : { done_at: null, done_by: null, cleared_at: null }).eq('id', id);
     if (error) throw error;
     return res.status(200).json({ ok: true });
   }
-  // Owner taps a crossed-out task: off the board, into Done (owner 2026-10-07).
   if (op === 'clear') {
     if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     const { error } = await db.from('assistant_tasks').update({ cleared_at: new Date().toISOString() }).eq('id', id).not('done_at', 'is', null);
@@ -20913,7 +16080,6 @@ async function assistantTasks(req, res, db, auth, body) {
     if (error) throw error;
     return res.status(200).json({ ok: true });
   }
-  // Owner edits a task's title or color any time (owner 2026-10-03).
   if (op === 'title' || op === 'color') {
     if (auth.role !== 'owner') {
       const { data: own } = await db.from('assistant_tasks').select('color').eq('id', id).maybeSingle();
@@ -20930,8 +16096,6 @@ async function assistantTasks(req, res, db, auth, body) {
     }
     const { data: prev } = await db.from('assistant_tasks').select('title, color').eq('id', id).maybeSingle();
     if (!prev) return res.status(404).json({ error: 'Not found' });
-    // Same color again (re-tapping the one it already has): nothing to save
-    // or text, and the client must not warn that Joey's text failed (owner 2026-10-03).
     const already = op === 'color' && prev.color === body.color;
     if (!already) {
       const { error } = await db.from('assistant_tasks').update(patch).eq('id', id);
@@ -20940,7 +16104,6 @@ async function assistantTasks(req, res, db, auth, body) {
     return res.status(200).json({ ok: true, texted, already });
   }
   if (op === 'photos') {
-    // Pictures on a task (owner 2026-10-02): the full list, already uploaded via notes_photo.
     const { error } = await db.from('assistant_tasks').update({ photo_urls: cleanNotePhotos(body.photos) }).eq('id', id);
     if (error) throw error;
     return res.status(200).json({ ok: true });

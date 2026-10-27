@@ -1,18 +1,6 @@
-// api/_lib/en-route.js
-// Single source of truth for the customer-facing "your tech is on the way"
-// text and its delivery tracking.
-//
-// Two callers produce the SAME customer experience:
-//   * api/tech.js  — the tech taps "On My Way" inside the tech app
-//   * api/book.js  — the tech taps the one-tap link sent by the pre-job nudge
-//                    (see _lib/tech-late.js). No app login required.
-// The wording and the Twilio status-callback wiring live here precisely so the
-// two paths can't drift into saying different things to the customer.
 import { sendSMSResult, logAutomatedMessage } from './sms.js';
 import { signToken } from './auth.js';
 
-// Matches the tech app's existing default (api/tech.js passed 30 when the tech
-// didn't pick an ETA). The nudge link has no ETA picker, so it lands here too.
 export const DEFAULT_ETA_MINUTES = 30;
 
 function baseUrl() {
@@ -20,28 +8,11 @@ function baseUrl() {
     || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
 }
 
-// No business-name prefix on customer texts (owner rule, 2026-09-18). The
-// bizName/bizSlug params stay so call sites don't change.
 export function enRouteMessage(techName, bizName, etaMinutes, bizSlug) {
   const who = (techName && String(techName).trim().split(/\s+/)[0]) || 'Your tech';
-  return `${who} is on the way, about ${etaMinutes} min out. See you soon!`;   // owner 2026-10-17
+  return `${who} is on the way, about ${etaMinutes} min out. See you soon!`;
 }
 
-// Send the customer their en-route text and record delivery status on the
-// booking.
-//
-//   db            service-role Supabase client
-//   bookingId     job the text is about
-//   technicianId  whose first name goes in the message
-//   customerPhone destination (falsy = nothing to do)
-//   smsConsent    the booking's opt-in flag; false means we stay silent
-//   etaMinutes    optional override
-//
-// Best-effort and never throws: the status change that triggered this has
-// already committed by the time we're called, so a provider hiccup must not
-// surface as a failure to the tech. AWAIT it anyway — Vercel can freeze the
-// lambda the instant the HTTP response goes out, and an un-awaited send simply
-// never happens.
 export async function sendEnRouteSms(db, opts = {}) {
   const {
     bookingId,
@@ -51,14 +22,9 @@ export async function sendEnRouteSms(db, opts = {}) {
     etaMinutes = DEFAULT_ETA_MINUTES,
   } = opts;
 
-  // A skip is stamped on the booking so the dashboard's notification log can
-  // say WHY nothing went out. Before this the column stayed NULL and the office
-  // had no trace at all that the customer was never texted.
   const skipped = !customerPhone ? 'no_customer_phone' : !smsConsent ? 'no_sms_consent' : null;
   if (skipped) {
     try {
-      // .is(sent_at, null): a skip never overwrites a real send (reopen →
-      // texts turned off → tapped again must keep the earlier 'delivered').
       const { error } = await db.from('bookings').update({
         on_the_way_sms_status: skipped === 'no_sms_consent' ? 'skipped_no_consent' : 'skipped_no_phone',
       }).eq('id', bookingId).is('on_the_way_sms_sent_at', null);
@@ -67,19 +33,9 @@ export async function sendEnRouteSms(db, opts = {}) {
     return { ok: false, skipped };
   }
 
-  // The company name must be the JOB's business, not the tech's home company.
-  // TidyHaus and Dom's cross-hire each other, and every Mile High job is
-  // worked by a TidyHaus tech — looking it up off the technician row (as the
-  // tech app used to) told a Mile High customer that a TidyHaus man was on
-  // the way. Caller can pass bizName when it already has it.
   let techName = null;
   let bizName = opts.bizName || null;
   let bizSlug = opts.bizSlug || null;
-  // Always looked up now (previously skipped when a caller already passed
-  // bizName) so there is a business_id for the messages row below even on
-  // that path. Runs in parallel with the technician lookup, so it costs
-  // nothing extra today — neither current caller (api/tech.js's "On My Way",
-  // api/book.js's one-tap nudge link) passes bizName.
   let businessId = null;
   try {
     const [techRes, bookRes] = await Promise.all([
@@ -94,10 +50,6 @@ export async function sendEnRouteSms(db, opts = {}) {
 
   const msg = enRouteMessage(techName, bizName, etaMinutes, bizSlug);
 
-  // Delivery tracking (admin dashboard only, never shown to techs): a signed
-  // token carries the booking id through Twilio's status callback, the same
-  // pattern the review SMS uses. 'pending' is written on a successful send;
-  // the callback later flips it to delivered/failed.
   const token = signToken({ kind: 'on_the_way', booking_id: bookingId }, 3600);
   const statusCallback = `${baseUrl()}/api/analytics?action=sms_status&token=${encodeURIComponent(token)}`;
 

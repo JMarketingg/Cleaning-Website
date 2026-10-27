@@ -1,23 +1,3 @@
-// ============================================================================
-// "Red alert" notes (owner 2026-10-09, migration 0191). An owner-made, red,
-// sticky banner with a step checklist for one business's secretaries.
-//
-//   * Shared progress: the FIRST person to mark a step done wins (the
-//     app.red_alert_step() function locks the row), and everyone else sees
-//     "✓ Joe · 7:42 PM" -- nobody needs to do it twice.
-//   * A step with needs_prev unlocks only after the step right before it.
-//   * Shown at the top of every CRM screen to the targeted secretaries + the
-//     owner until every step is done; then a small "✓ Done" line for the rest
-//     of that day (in the alert's tz). The owner can edit or close it any time.
-//   * A step's Call button goes through call_start source 'red_alert': the
-//     number is read from THIS row (owner-written), never from the browser.
-//
-// GET  red_alerts                 -> { alerts, owner, me }  (open + done-today)
-// GET  red_alerts?all=1           -> owner: recent alerts incl. closed
-// GET  red_alerts?targets_for=slug-> owner: { targets, secretaries }
-// POST red_alerts { op:'create' | 'update' | 'close' }  owner only
-// POST red_alerts { op:'step', id, step_id, done }       anyone who sees it
-// ============================================================================
 import { allowedSlugsFor, isAllCoverage, weeklyScheduleFor, coverageOverrideFor, SECRETARY_EXTRA_BUSINESSES, groupSlugs, targetedToday } from './staff-access.js';
 import { pipelineCallTarget, phone10 } from './pipeline.js';
 import { localDayStartUTC, localDateTimeUTC } from './time.js';
@@ -33,7 +13,6 @@ const ownerOf = (auth) => auth && auth.role === 'owner';
 const meOf = (auth) => String((auth && auth.name) || (ownerOf(auth) ? 'Owner' : 'Office')).slice(0, 40);
 const newStepId = () => 's' + Math.random().toString(36).slice(2, 10);
 
-// Business id/name/tz by slug, cached per warm instance (the banner polls).
 let BIZ = null; let bizAt = 0;
 async function bizMap(db) {
   if (BIZ && Date.now() - bizAt < 600000) return BIZ;
@@ -43,8 +22,6 @@ async function bizMap(db) {
   return BIZ;
 }
 
-// Who sees an alert: the owner always. A secretary when she is named in
-// targets; an alert with no targets falls back to business coverage.
 export function canSeeRedAlert(auth, a) {
   if (!auth || !a) return false;
   if (ownerOf(auth)) return true;
@@ -55,8 +32,6 @@ export function canSeeRedAlert(auth, a) {
   return allowed === null || allowed.includes(a.business_slug);
 }
 
-// Default targets: every active secretary who covers the business on ANY day
-// (weekly schedule, else per-person coverage, else the seed map) + Joey.
 function coversAnyDay(name, home, slug) {
   if (isAllCoverage(name)) return true;
   const w = weeklyScheduleFor(name);
@@ -80,7 +55,6 @@ async function defaultTargets(db, slug) {
   return out;
 }
 
-// The shape the dashboard gets: the row + business name + progress.
 function shape(r, biz) {
   const steps = Array.isArray(r.steps) ? r.steps : [];
   const done = steps.filter((s) => s && s.done_by);
@@ -104,8 +78,6 @@ async function loadOne(db, id) {
   return data || null;
 }
 
-// Owner input -> clean steps. prevSteps (an edit) keeps each kept step's
-// done_by/done_at, matched by id, so editing never wipes progress.
 function cleanSteps(input, tz, prevSteps) {
   if (input == null) return [];
   if (!Array.isArray(input)) throw httpErr(400, 'Steps must be a list');
@@ -183,7 +155,6 @@ export async function redAlertsAction(req, res, db, auth, body) {
       for (const r of data || []) {
         if (!canSeeRedAlert(auth, r)) continue;
         const a = shape(r, biz);
-        // Finished: a small "✓ Done" line for the rest of that day, then gone.
         if (!all && a.all_done_at && Date.parse(a.all_done_at) < localDayStartUTC(a.tz).getTime()) continue;
         alerts.push(a);
       }
@@ -228,8 +199,6 @@ export async function redAlertsAction(req, res, db, auth, body) {
 
     if (op === 'update') {
       const f = await cleanFields(db, body);
-      // Optimistic retry on rev: a secretary can mark a step done between our
-      // read and write; re-merge her progress instead of overwriting it.
       for (let i = 0; i < 4; i++) {
         const row = await loadOne(db, body.id);
         if (!row) return res.status(404).json({ error: 'Alert not found' });
@@ -260,10 +229,6 @@ export async function redAlertsAction(req, res, db, auth, body) {
   }
 }
 
-// call_start source 'red_alert': who to ring and from which line. The number
-// comes only from the step on an alert this login can see. Line: the one the
-// person last called/texted us on (pipelineCallTarget), else -- a number the
-// CRM has never seen, like a tech's cell -- the alert brand's own line.
 export async function redAlertCallTarget(db, auth, alertId, stepId) {
   const a = await loadOne(db, alertId);
   if (!a || a.closed_at || !canSeeRedAlert(auth, a)) throw httpErr(404, 'Alert not found');

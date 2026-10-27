@@ -1,103 +1,43 @@
-// api/_lib/pipeline.js
-// "Pipeline" -- every customer inquiry as one card, from the first touch to
-// Paid (owner approved 2026-09-24: "build it"). Owner + secretaries; never
-// the call auditor (refused here, and the action is deliberately NOT on
-// admin.js AUDITOR_ADMIN_ACTIONS). One action (admin.js `pipeline`): GET
-// builds the board, POST { op } records a person's decision about a card.
-// Tables: migration 0141 (pipeline_marks, call_attempts, estimates.call_id,
-// calls.inbound_call_id) and 0142 (pipeline_marks.closed_windows).
-//
-// There is no card table. Cards are computed on every read from rows the CRM
-// already writes (calls, Take a Call rows, texts, estimates, bookings,
-// callback attempts), so a card can never drift out of sync with the job it
-// describes. The only stored state is what a person decided about a card
-// (pipeline_marks) and each outbound callback try (call_attempts).
-//
-// Owner rules this encodes (2026-09-24):
-//   - Stages: New lead -> Talked to -> Quoted -> Booked -> Done -> Paid, plus
-//     Lost (with a reason).
-//   - Card = one inquiry. Later touches from the same phone join the OPEN
-//     card; once it is Paid or marked Lost, the next touch opens a new card.
-//     Grouped by phone + brand FAMILY (Dom's family vs TidyHaus family vs
-//     the owner-only brands): a shopper who rings both brands is two
-//     inquiries, and each secretary only ever sees her own family's card.
-//   - Every conversation must end in a booking or a sent estimate. Talked to
-//     and neither an hour later = a red leak.
-//   - Estimate not approved in 7 days -> Lost "No reply after estimate".
-//     Missed caller not reached in 2 tries or 48 h -> Lost "Never reached".
-//     Both are soft: the customer coming back within 14 days revives the
-//     same card.
-//   - "Not a lead" (existing customer's question, vendor, wrong number) is not
-//     a Lost reason: it hides the card from the board and every count.
-//   - Nothing before the phone port (PIPELINE_FLOOR) is shown or counted: the
-//     main lines' calls before it never reached the database.
-//
-// Everything from buildTouches() to buildPipeline() is PURE (plain arrays in,
-// a 'now' passed in, no DB) so scripts/pipeline-selftest.mjs can pin every
-// rule with fixtures. Only the loaders and pipelineHandler touch Supabase.
 import { paymentState } from './payroll.js';
 import { allowedSlugsFor, mayUseBusiness, SECRETARY_EXTRA_BUSINESSES } from './staff-access.js';
-// Pipeline = own business + its family only, never access-only brands
-// (owner 2026-09-30: Dom's staff see Dom's family, not TidyHaus).
-// Every write and dial (card ops, notes, the Call button) uses this list.
-// Jiyah (auditor) acts on nothing: every card view_only (owner 2026-10-07).
 const pipelineWriteSlugsFor = (auth) => { if (auth && auth.role === 'auditor') return []; const a = allowedSlugsFor(auth); return a === null ? null : [auth.scope, ...(SECRETARY_EXTRA_BUSINESSES[auth.scope] || [])].filter(Boolean); };
-// Joey sees every brand's Pipeline (owner 2026-10-03) -- read only outside
-// her family, like her all-jobs view (admin.js resolveBusiness).
 const pipelineSlugsFor = (auth) => ((auth && ((auth.role === 'secretary' && auth.scope === 'doms' && auth.name === 'Joey') || auth.role === 'auditor')) ? null : pipelineWriteSlugsFor(auth));
 import { localDayStartUTC } from './time.js';
-// Needs review collection (owner 2026-10-10): EVERY secretary (Alex, Joe, Joey,
-// Heather) sees and works ALL businesses' cards in this stage, whatever her
-// coverage, today's exceptions or shift. Auditor stays look-only.
 export const isReviewCard = (c) => !!c && !!c.st && (c.st.stage === 'paid' || (c.st.stage === 'booked' && !!c.st.doneUnpaid));
 export const reviewAllFor = (auth) => !!auth && auth.role === 'secretary';
 
 export const PIPELINE_FLOOR = '2026-09-22T15:00:00Z';
-// Exact list and order are the owner's (2026-09-24) -- do not reword.
 export const LOST_REASONS = ['Too expensive', 'Went with someone else', 'Just shopping', 'Out of area', "We don't do that", 'No reply after estimate', 'Never reached', 'Spam', 'Other'];
-export const STAGES = ['new', 'talked', 'quoted', 'booked', 'completed', 'paid', 'lost'];   // 'done' folded into Booked (owner, 2026-09-26)
+export const STAGES = ['new', 'talked', 'quoted', 'booked', 'completed', 'paid', 'lost'];
 
 const TOLL_FREE = '0000000000';
-// Los Angeles lines (owner 2026-10-02): logged, but never on the Pipeline.
-const LA_LINES = new Set(['0000000000', '0000000000', '0000000000']);          // the notification sender: every brand's automated texts
-// Heather's own phone until 2026-09-18 (she changed numbers). Forwarded calls
-// before then rang it, and it is not in staff_users any more.
+const LA_LINES = new Set(['0000000000', '0000000000', '0000000000']);
 const HEATHER_OLD_PHONE = '0000000000';
 const MIN = 60000, HOUR = 60 * MIN, DAY = 24 * HOUR;
 const LEAK_AFTER_MS = HOUR;
 const QUOTE_LOST_MS = 7 * DAY;
 const CALL_TODAY_MS = 12 * HOUR;
 const NEVER_REACHED_MS = 48 * HOUR;
-const NEW_CALLBACK_MS = 30 * 60 * 1000;   // new leads get a call back within 30 minutes
+const NEW_CALLBACK_MS = 30 * 60 * 1000;
 const NEVER_REACHED_TRIES = 2;
 const SOFT_REVIVE_MS = 14 * DAY;
 const NEW_CARD_GAP_MS = 30 * DAY;
-// Answered-call length rules (owner/audit finding 2026-09-24): a Google Voice
-// or carrier voicemail picking up the forwarded leg reads answered=true, so
-// under 20 s is a miss, 2 min or more is a real talk, and the band between
-// needs a person to say which (Talked / Voicemail buttons on the card).
 const TALK_MIN_SEC = 20;
 const TALK_SURE_SEC = 120;
-// A forwarded call still ringing or in progress has answered=null until the
-// <Dial> ends (analytics.js voice_status) -- only an OLD null is a voicemail
-// line or the AI bot.
 const IN_PROGRESS_MS = 30 * MIN;
-const ATTEMPT_PENDING_MS = 5 * MIN;      // a bridge call this fresh may still be ringing
-const LOOKBACK_DAYS = 120;               // grouping context kept behind the 30-day view
+const ATTEMPT_PENDING_MS = 5 * MIN;
+const LOOKBACK_DAYS = 120;
 const CARD_CAP = 600;
 const TIMELINE_CAP = 40;
-const AUTO_TEXT_OTHER_CAP = 3;           // on-the-way / review / auto-ack texts shown per card
-const CHICAGO = 'Asia/Manila';       // "today" on the board (owner, 2026-09-24)
-const RANGE_DAYS = { today: 0, 2: 1, 3: 2, yesterday: 1, 7: 6, 30: 29 };   // '3' = today + the 2 days before (owner 2026-10-02 default)   // '2' = today + yesterday (owner 2026-09-29 default)
+const AUTO_TEXT_OTHER_CAP = 3;
+const CHICAGO = 'Asia/Manila';
+const RANGE_DAYS = { today: 0, 2: 1, 3: 2, yesterday: 1, 7: 6, 30: 29 };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const CARD_KEY = /^c_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const TEST_NAME = /\(ignore\)|e2e test/i;
-// A text that's selling something to us, not asking for a job: links, app
-// stores, lead/marketing/payment pitches.
 const SPAM_TEXT = /https?:\/\/|www\.|apps\.apple|play\.google|download .*free|\bupfront\b|\bour (system|director|platform)\b|\bproviders?\b.*\bjoin\b|\bleads? (for|to) (you|your)\b|\bW-?9\b|\bSEO\b|google (listing|ranking|reviews? for your)|\bmerchant\b|\bfunding\b|\bbusiness loan\b|\bgrow your business\b|reply stop to (opt|unsub)/i;
 const REPEATED = /^(\d)\1{9}$/;
 
-// ── Small helpers ───────────────────────────────────────────────────────────
 function msOf(v) {
   if (v == null || v === '') return null;
   if (v instanceof Date) return Number.isFinite(v.getTime()) ? v.getTime() : null;
@@ -111,15 +51,11 @@ const clip = (s, n) => { const t = String(s || '').replace(/\s+/g, ' ').trim(); 
 const clean = (s, max) => String(s == null ? '' : s).trim().replace(/\s+/g, ' ').slice(0, max);
 function httpErr(status, message) { const e = new Error(message); e.status = status; return e; }
 
-// Any stored spelling -> the last 10 digits ('' when there aren't 10). An
-// "ext 1234" tail is dropped first so it can't shift the digits.
 export function phone10(p) {
   const s = String(p == null ? '' : p).replace(/\s*(?:ext\.?|extension|x)\s*\d+\s*$/i, '');
   const d = s.replace(/\D/g, '').slice(-10);
   return d.length === 10 ? d : '';
 }
-// Call rows are stricter (owner rule 2026-09-24): 'unknown', a 12-digit
-// foreign number or anything else that isn't a US 10-digit number opens nothing.
 function strictPhone(p) {
   const d = String(p == null ? '' : p).replace(/\D/g, '');
   if (d.length === 10) return d;
@@ -129,25 +65,15 @@ function strictPhone(p) {
 export function prettyPhone10(d) {
   return d && d.length === 10 ? `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}` : null;
 }
-// The spellings phones are actually stored in (customers.phone and
-// estimates.customer_phone are never normalised on write).
 export function phoneVariants(d) {
   return [d, '+1' + d, '1' + d, `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`, `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`];
 }
 const DOMS_FAMILY = new Set(['doms', ...(SECRETARY_EXTRA_BUSINESSES.doms || [])]);
-const HA_FAMILY = new Set(['handy-andy', ...(SECRETARY_EXTRA_BUSINESSES['handy-andy'] || [])]);
-// Brand family: Dom's and the lead-gen brands Joey answers; TidyHaus and
-// the lead-gen brands Heather answers; and 'owner' for every brand no
-// secretary works (lainstall, latvpro, tvmountinglosangeles -- staff-access.js
-// keeps them owner-only). An owner-only brand's calls must never fold into a
-// TidyHaus card Heather can see: "showing her someone else's customer would
-// be the real mistake" (admin.js businessForOurPhone; review 2026-09-24).
-// website_form estimates are filed under doms on purpose (api/migrate.js) and
-// so stay in the Dom's family.
+const HA_FAMILY = new Set(['tidyhaus', ...(SECRETARY_EXTRA_BUSINESSES['tidyhaus'] || [])]);
 export function familyOf(slug) {
   if (!slug) return null;
   if (DOMS_FAMILY.has(slug)) return 'doms';
-  return HA_FAMILY.has(slug) ? 'handy-andy' : 'owner';
+  return HA_FAMILY.has(slug) ? 'tidyhaus' : 'owner';
 }
 function fmtDur(sec) {
   const s = Math.max(0, Math.round(Number(sec) || 0));
@@ -160,12 +86,10 @@ function fmtAgo(ms) {
   return h < 48 ? `${h}h` : `${Math.round(ms / DAY)}d`;
 }
 const dollars = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
-// A name that is really just the phone number again (36 of 82 estimates) is no name.
 function realName(s) {
   const t = clean(s, 80);
   return t && !/^[\d\s()+.\-]+$/.test(t) ? capName(t) : null;
 }
-// Names start with a capital (owner 2026-10-13; DB trigger app.cap_name does the same).
 function capName(t) { return t.includes('@') ? t : t.replace(/(^|[\s.\-]|\b[Oo]')([a-z])/g, (m, a, b) => a + b.toUpperCase()); }
 function lineTotal(items) {
   let sum = 0;
@@ -191,7 +115,6 @@ function byTime(a, b) {
 }
 const isCustomerTouch = (t) => t.type === 'call_in' || t.type === 'text_in' || t.type === 'wizard';
 
-// ── Lookups shared by every step ────────────────────────────────────────────
 export function makeContext(raw) {
   const bizById = new Map(), bizBySlug = new Map();
   for (const b of raw.businesses || []) { bizById.set(b.id, b); bizBySlug.set(b.slug, b); }
@@ -200,7 +123,6 @@ export function makeContext(raw) {
     const p = phone10(l.phone); if (!p) continue;
     lines.set(p, { phone: p, slug: l.business_slug || null, name: l.display_name || null, market: l.market || null, active: l.active !== false });
   }
-  // Who a handset belongs to: staff_users plus Heather's old phone.
   const handsetName = new Map(), handsetsOf = new Map();
   const addHandset = (p, name) => {
     if (!p || !name) return;
@@ -210,26 +132,14 @@ export function makeContext(raw) {
   };
   for (const s of raw.staff || []) addHandset(phone10(s.phone), s.name);
   addHandset(HEATHER_OLD_PHONE, 'Heather');
-  // Never a customer (owner rule 2026-09-24): silent (the owner's own test
-  // phone) and blocked numbers, staff handsets, our own lines.
   const excluded = new Set([TOLL_FREE, ...handsetName.keys(), ...lines.keys()]);
   for (const r of raw.silent || []) { const p = phone10(r.phone); if (p) excluded.add(p); }
   for (const r of raw.blocked || []) { const p = phone10(r.phone); if (p) excluded.add(p); }
   const slugOf = (row) => (row && row.business && row.business.slug) || (row && bizById.get(row.business_id) && bizById.get(row.business_id).slug) || null;
-  const isExcluded = (p) => !p || excluded.has(p) || REPEATED.test(p) || /^(800|833|844|855|866|877|888)/.test(p);   // toll-free = spam (owner 2026-09-30)
+  const isExcluded = (p) => !p || excluded.has(p) || REPEATED.test(p) || /^(800|833|844|855|866|877|888)/.test(p);
   return { bizById, bizBySlug, lines, handsetName, handsetsOf, slugOf, isExcluded };
 }
 
-// ── Touches: every row that says something about an inquiry ─────────────────
-// A touch = { type, id, atMs, phone, family, slug, canOpen, ... }.
-//   call_in        inbound Twilio call            opens a card
-//   wizard         Take a Call script row         opens a card (always a talk)
-//   text_in        customer text                  opens only on a tracking line
-//   text_out_staff staff text reply               joins only
-//   text_auto      automated text                 joins only (timeline)
-//   attempt        outbound callback try          joins only
-//   estimate       estimate                       opens a card
-//   booking        booking                        opens a card
 export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
   const nowMs = msOf(now);
   const talkIds = new Set(), noTalkIds = new Set();
@@ -237,7 +147,6 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     for (const id of m.talk_call_ids || []) talkIds.add(id);
     for (const id of m.no_talk_call_ids || []) noTalkIds.add(id);
   }
-  // Jiyah's "voicemail / not a call" skips in the audit queue.
   const skipIds = new Set((raw.auditSkips || []).map((s) => s.call_id));
   const bookingById = new Map((raw.bookings || []).map((b) => [b.id, b]));
   const estimateById = new Map((raw.estimates || []).map((e) => [e.id, e]));
@@ -257,30 +166,21 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     if (ctx.isExcluded(phone)) continue;
     const atMs = msOf(c.occurred_at); if (atMs == null) continue;
     const lineP = phone10(c.grasshopper_number); const line = ctx.lines.get(lineP);
-    // An inactive line's row can carry no business_id -- fall back to the line's brand.
     const slug = ctx.slugOf(c) || (line && line.slug) || null;
     const biz = slug && ctx.bizBySlug.get(slug);
-    // Still ringing / talking only while it could be: forwarded to a handset
-    // (a line with no forward_to goes straight to voicemail and stays null
-    // for good) and not ended yet (the recording callback writes duration_sec
-    // when a voicemail or unforwarded call hangs up). Review 2026-09-24.
     const live = c.answered == null && c.duration_sec == null && !!phone10(c.forwarded_to) && c.status !== 'ignored';
     inbound.push({ c, id: c.id, phone, slug, family: familyOf(slug), atMs, fwd: phone10(c.forwarded_to), line: lineP || null,
       lineName: (line && line.name) || (biz && biz.name) || null, inProgress: live && nowMs - atMs < IN_PROGRESS_MS });
   }
   const inboundById = new Map(inbound.map((x) => [x.id, x]));
 
-  // Take a Call rows first: an inbound call the script ran for is a real talk.
   const wizardLinked = new Set();
   for (const live of calls) {
     if (live.kind !== 'live') continue;
-    // Opened on the greet card and closed again: a misclick, not a call.
     if (live.reached_step === 'greet' && !live.resolution && !live.booking_id) continue;
     const atMs = msOf(live.occurred_at); if (atMs == null) continue;
     const evs = eventsByCall.get(live.id) || [];
     const started = evs.find((e) => e.event === 'started');
-    // Who ran it: the 'started' actor. handled_by is overwritten by whoever
-    // resolves the row and nulled by Reopen (audit finding 2026-09-24).
     const person = (started && started.actor) || live.handled_by || null;
     const slug = ctx.slugOf(live), family = familyOf(slug);
     let phone = phone10(live.caller_phone);
@@ -292,9 +192,6 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     }
     if (!phone) for (const e of estimatesByCall.get(live.id) || []) { const p = phone10(e.customer_phone); if (p) { phone = p; break; } }
     let link = live.inbound_call_id ? inboundById.get(live.inbound_call_id) || null : null;
-    // A stored link to a DIFFERENT customer's call (the start auto-linked
-    // whatever rang her last, then she typed this customer's number) proves
-    // nothing about that call: it must not turn it into a talk. Review 2026-09-24.
     if (link && phone && link.phone !== phone) link = null;
     if (!link) link = matchInbound(inbound, ctx, person, family, atMs, phone, nowMs);
     if (link) { wizardLinked.add(link.id); if (!phone) phone = link.phone; }
@@ -307,10 +204,8 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
   for (const x of inbound) {
     const c = x.c, dur = num(c.duration_sec);
     let talk = null, why;
-    // Nobody picked up first: no stored Talked mark can turn a missed call, or
-    // one no person ever answered, into a conversation (review 2026-09-24).
     if (c.answered === false) why = 'missed';
-    else if (c.answered == null && !x.inProgress) why = 'no_person';   // voicemail-only line or the AI bot
+    else if (c.answered == null && !x.inProgress) why = 'no_person';
     else if (talkIds.has(x.id)) { talk = 'yes'; why = 'marked_talk'; }
     else if (noTalkIds.has(x.id)) why = 'marked_voicemail';
     else if (skipIds.has(x.id)) why = 'audit_voicemail';
@@ -322,10 +217,7 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     touches.push({ type: 'call_in', id: x.id, atMs: x.atMs, phone: x.phone, slug: x.slug, family: x.family, canOpen: true,
       staff: ctx.handsetName.get(x.fwd) || null, talk, why, dur, answered: c.answered, line: x.line, lineName: x.lineName,
       endMs: x.atMs + (dur || 0) * 1000, wizard: wizardLinked.has(x.id), rec: !!c.recording_url,
-      // Left a voicemail (owner, 2026-09-26): a missed call we recorded, or an
-      // answered call the office/auditor marked as voicemail.
       vm: (c.answered === false && !!c.recording_url) || why === 'marked_voicemail' || why === 'audit_voicemail',
-      // Short call summary for the card's story (owner 2026-09-30).
       summary: c.transcript_summary && Array.isArray(c.transcript_summary.items) ? c.transcript_summary.items.map((i) => String(i && i.text || '')).filter(Boolean).slice(0, 4) : null,
       promise: c.transcript_summary && Array.isArray(c.transcript_summary.items) ? ((c.transcript_summary.items.find((i) => i && i.kind === 'we_promised') || {}).text || null) : null });
   }
@@ -339,11 +231,6 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     const body = String(m.body || '').replace(/\s+/g, ' ').trim();
     const base = { id: m.id, atMs, phone, slug, family: familyOf(slug), our: our || null, lineName: (line && line.name) || null, body, endMs: atMs };
     if (m.direction === 'in') {
-      // Texts to the toll-free are replies to our automated texts (existing
-      // customers): they join a card but never open one.
-      // Sales pitches (owner 2026-09-30: an app ad, "jobs for $0 upfront",
-      // "we still need your W-9") never OPEN a card. A real customer who
-      // already has a card still sees the text on it.
       touches.push({ ...base, type: 'text_in', canOpen: !!line && our !== TOLL_FREE && !SPAM_TEXT.test(body) });
     } else if (!m.sent_by || m.sent_by === 'automated') {
       touches.push({ ...base, type: 'text_auto', canOpen: false, auto: autoKind(body), failed: m.status === 'failed' || m.status === 'undelivered' });
@@ -354,16 +241,9 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
 
   for (const e of raw.estimates || []) {
     const stamps = [e.texted_at, e.emailed_at, e.contacted_at].map(msOf).filter((v) => v != null);
-    // A request nobody ever answered, auto-archived after 7 days (the
-    // Estimates list does it on its own): not an inquiry we worked, so it
-    // counts for nothing. It still stays a touch, so a card it opened keeps
-    // its key -- and its Not a lead / Lost marks -- when the archive happens;
-    // a card made of nothing else is dropped (groupCards). Review 2026-09-24.
     const archivedUnsent = (e.status === 'expired' || e.status === 'lost') && !stamps.length;
     const slug = ctx.slugOf(e);
     let phone = phone10(e.customer_phone);
-    // Email-only phone estimates still belong to their explicitly linked call.
-    // Never infer a customer from an amount, email address, or nearby timestamp.
     if (!phone) {
       const linkedIds = new Set(e.call_id ? [e.call_id] : []);
       for (const ev of raw.callEvents || []) if (ev.event === 'estimate_sent' && ev.meta?.estimate_id === e.id) linkedIds.add(ev.call_id);
@@ -374,9 +254,6 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
     if (TEST_NAME.test(e.customer_name || '')) continue;
     const atMs = msOf(e.created_at); if (atMs == null) continue;
     const sent = ['sent', 'approved', 'booked'].includes(e.status) || stamps.length > 0;
-    // The quote clock (owner rule 2026-09-24): a phone estimate goes out the
-    // moment it is created; a web one when it was FIRST sent. Resends
-    // overwrite the stamps, so the earliest left is the best we have.
     const sentMs = !sent ? null : e.source === 'manual' ? atMs : (stamps.length ? Math.min(...stamps) : atMs);
     const sub = lineTotal(e.line_items);
     const total = num(e.approved_total) ?? cents(sub + Math.round(sub * (Number(e.tax_rate) || 0) * 100) / 100);
@@ -386,7 +263,6 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
       est: { source: e.source || null, status: e.status || null, sentMs,
         webRequest: (e.source === 'widget' || e.source === 'website_form') && e.status === 'unsent' && !sent,
         approvedMs: archivedUnsent ? null : msOf(e.approved_at),
-        // 'declined' is the office's "Not a fit" -- customers have no decline button.
         declinedMs: e.status === 'out_of_area' ? (msOf(e.updated_at) ?? atMs) : null,
         closedMs: e.status === 'expired' || e.status === 'lost' ? (msOf(e.updated_at) ?? atMs) : null,
         total: total > 0 ? total : null, openedMs: opened.length ? Math.min(...opened) : null,
@@ -396,17 +272,12 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
 
   for (const b of raw.bookings || []) {
     if (b.source === 'import') continue;
-    // bookings has no phone column -- the customer row's phone is the key.
     const phone = phone10(b.customer && b.customer.phone); if (ctx.isExcluded(phone)) continue;
     if (TEST_NAME.test((b.customer && b.customer.name) || '')) continue;
     const atMs = msOf(b.created_at); if (atMs == null) continue;
     const slug = ctx.slugOf(b);
     const completed = b.status === 'completed';
     const completedMs = completed ? (msOf(b.completed_at) ?? msOf(b.paid_at) ?? msOf(b.updated_at) ?? atMs) : null;
-    // Paid = completed and payroll's paymentState isn't 'deferred' (owner rule
-    // 2026-09-24): a $0 warranty/GDS job counts once it's done, a FUTURE $0
-    // job does not, and a priced job needs its payment. Done = completed but
-    // still deferred.
     const paid = completed && paymentState(b) !== 'deferred';
     const paidAt = msOf(b.paid_at);
     const paidMs = paid ? Math.max(completedMs, paidAt ?? completedMs) : null;
@@ -434,32 +305,19 @@ export function buildTouches(raw, ctx = makeContext(raw), now = Date.now()) {
       cardKey: CARD_KEY.test(a.card_key || '') ? a.card_key : null, talk: a.talked === true ? 'yes' : null, endMs: atMs + (dur || 0) * 1000,
       att: { talked: a.talked == null ? null : !!a.talked, dur, source: a.source || null, staffStatus: a.staff_status || null,
         dialStatus: a.dial_status || null, endedMs: msOf(a.ended_at), setBy: a.talked_set_by || null,
-        // Her own phone never connected, so the customer was never dialed:
-        // not a try at reaching them. Her own "No answer" tap on the Did you
-        // talk to them? chips doesn't change that -- nobody rang the customer
-        // (review 2026-09-24); only her "Yes" does. Manual log_attempt rows
-        // have no staff_status and always count.
         noRing: !!a.staff_status && a.staff_status !== 'completed' && a.talked !== true } });
   }
 
-  // A touch with no brand of its own (a reply to the toll-free, an automated
-  // text with no business) takes the family of that phone's nearest earlier
-  // touch, else its first later one.
   touches.sort(byTime);
   const firstFam = new Map(), lastFam = new Map();
   for (const t of touches) if (t.family && !firstFam.has(t.phone)) firstFam.set(t.phone, t.family);
   for (const t of touches) {
     if (t.family) { lastFam.set(t.phone, t.family); continue; }
-    t.family = lastFam.get(t.phone) || firstFam.get(t.phone) || (t.canOpen ? 'handy-andy' : null);
+    t.family = lastFam.get(t.phone) || firstFam.get(t.phone) || (t.canOpen ? 'tidyhaus' : null);
   }
   return { touches: touches.filter((t) => t.family), noPhone, ctx };
 }
 
-// Which inbound call a Take a Call row was for, when the row doesn't say
-// (calls.inbound_call_id): same person, whose handset the call rang, answered
-// (or still in progress), started 10 min before to 1 min after the script,
-// same brand family; the nearest one before it wins. Checked against the
-// script's own customer phone when it has one.
 function matchInbound(inbound, ctx, person, family, atMs, phone, nowMs) {
   const hs = person ? ctx.handsetsOf.get(person) : null;
   if (!hs) return null;
@@ -475,7 +333,6 @@ function matchInbound(inbound, ctx, person, family, atMs, phone, nowMs) {
   return best;
 }
 
-// ── Stage at a moment (first match wins) ────────────────────────────────────
 function talksOf(S) {
   const out = []; let texted = false;
   for (const t of S) {
@@ -483,7 +340,6 @@ function talksOf(S) {
     if (t.type === 'wizard') out.push({ t, atMs: t.atMs, endMs: t.atMs, sure: true });
     else if (t.type === 'call_in' && t.talk) out.push({ t, atMs: t.atMs, endMs: t.endMs, sure: t.talk === 'yes' });
     else if (t.type === 'attempt' && t.talk === 'yes') out.push({ t, atMs: t.atMs, endMs: t.endMs, sure: true });
-    // A staff text is a conversation only once the customer has texted in on this card.
     else if (t.type === 'text_out_staff' && texted) out.push({ t, atMs: t.atMs, endMs: t.atMs, sure: true });
   }
   return out;
@@ -491,26 +347,19 @@ function talksOf(S) {
 function isFailedTry(t, atMs) {
   const a = t.att;
   if (a.talked === true || a.noRing) return false;
-  if (a.talked == null && a.endedMs == null && atMs - t.atMs < ATTEMPT_PENDING_MS) return false;   // still ringing
+  if (a.talked == null && a.endedMs == null && atMs - t.atMs < ATTEMPT_PENDING_MS) return false;
   return true;
 }
-// The customer coming back after a quote (a call, a text, a script call, or
-// us reaching them) is a reply: the 7-day clock runs from the latest one.
 function lastReply(S, afterMs) {
   let last = null;
   for (const t of S) if (t.atMs > afterMs && (isCustomerTouch(t) || (t.type === 'attempt' && t.talk === 'yes'))) last = t.atMs;
   return last;
 }
-// A customer call we missed (or a text to one of our lines nobody answered)
-// after `sinceMs` that nobody has talked to / replied to since: the card
-// still owes a callback. Replies to the toll-free ("Thanks!" to a booking
-// confirmation) are left to the Messages tab rather than turning a card red.
 function openCallback(S, sinceMs) {
   let pending = null;
   for (const t of S) {
     if (t.atMs <= sinceMs) continue;
     if ((t.type === 'call_in' && !t.talk) || (t.type === 'text_in' && t.canOpen)) pending = t;
-    // Opening the script ON the voicemail call itself is not a reply (owner 2026-09-27).
     else if (pending && ((t.type === 'wizard' && t.live.inboundId !== pending.id) || (t.type === 'call_in' && t.talk) || (t.type === 'attempt' && t.talk === 'yes') || t.type === 'text_out_staff')) pending = null;
   }
   return pending;
@@ -520,23 +369,19 @@ export function evalStage(card, at, mark) {
   const atMs = msOf(at);
   const T = card.touches.filter((t) => !t.timelineOnly && t.atMs <= atMs);
   const m = mark || null;
-  // 1. Not a lead: gone from the board and every count.
   if (m && m.not_a_lead) {
     const n = msOf(m.not_a_lead_at);
     if (n == null || n <= atMs) return { stage: 'hidden', stageMs: n ?? card.openedMs };
   }
   const r = m ? msOf(m.reopened_at) : null;
   const reop = r != null && r <= atMs ? r : null;
-  // 2. Marked lost by a person (and not reopened since).
   const lostMs = m && m.lost_reason ? msOf(m.lost_at) : null;
   if (lostMs != null && lostMs <= atMs && !(reop != null && reop >= lostMs)) {
     return { stage: 'lost', stageMs: lostMs, lost: { reason: m.lost_reason, auto: false, note: m.lost_note || '', by: m.lost_by || null, atMs: lostMs } };
   }
-  // Automatic Lost is soft: a Reopen after the moment cancels it.
   const autoLost = (reason, whenMs) => (reop != null && reop >= whenMs) ? null
     : { stage: 'lost', stageMs: whenMs, lost: { reason, auto: true, note: '', by: null, atMs: whenMs } };
 
-  // 3. Bookings: the latest one still standing decides.
   let S = T;
   const bks = T.filter((t) => t.type === 'booking');
   if (bks.length) {
@@ -547,10 +392,6 @@ export function evalStage(card, at, mark) {
       if (b.bk.completedMs != null && b.bk.completedMs <= atMs) return { stage: 'booked', doneUnpaid: true, stageMs: b.bk.completedMs, booking: b, callback: openCallback(T, b.bk.completedMs) };
       return { stage: 'booked', stageMs: b.atMs, booking: b, callback: openCallback(T, b.atMs) };
     }
-    // Every booking cancelled. Unless the customer came back after (a new
-    // estimate, call or text -- judged afresh from there), it's Lost. A reply
-    // to the toll-free ("ok thanks" to the cancellation text) is not coming
-    // back, and neither is an archived request nobody answered (review 2026-09-24).
     const lastCancel = Math.max(...bks.map((t) => t.bk.cancelledMs));
     const after = T.filter((t) => t.atMs > lastCancel && t.type !== 'booking');
     if (!after.some((t) => (t.type === 'estimate' && !t.archivedUnsent) || t.type === 'call_in' || t.type === 'wizard' || (t.type === 'text_in' && t.canOpen))) {
@@ -559,37 +400,29 @@ export function evalStage(card, at, mark) {
     } else S = after;
   }
   const ests = S.filter((t) => t.type === 'estimate' && !t.archivedUnsent);
-  // 4. Approved but not on the schedule yet (office "Convert to job" pending).
   const approved = ests.filter((t) => t.est.approvedMs != null && t.est.approvedMs <= atMs);
   if (approved.length) {
     const e = approved[approved.length - 1];
     return { stage: 'booked', stageMs: e.est.approvedMs, estimate: e, approvedNoJob: true, callback: openCallback(T, e.est.approvedMs) };
   }
-  // 5. The office's "Not a fit".
   const lastEst = ests[ests.length - 1];
   if (lastEst && lastEst.est.declinedMs != null && lastEst.est.declinedMs <= atMs) {
     const l = autoLost("We don't do that", lastEst.est.declinedMs); if (l) return l;
   }
-  // 6. Quoted; 7 days with no approval and no word from them -> Lost.
   let sent = ests.filter((t) => t.est.sentMs != null && t.est.sentMs <= atMs);
   if (sent.length) {
     const e = sent[sent.length - 1];
     const clock = Math.max(e.est.sentMs, reop ?? -Infinity, lastReply(S, e.est.sentMs) ?? -Infinity);
     if (atMs - clock > QUOTE_LOST_MS) { const l = autoLost('No reply after estimate', clock + QUOTE_LOST_MS); if (l) return l; }
-    // Estimate closed as lost/expired (autoclose cron or office) and no word
-    // from them since -> Lost (owner 2026-10-22). A booking returned above.
     if (e.est.closedMs != null && e.est.closedMs <= atMs && !(lastReply(S, e.est.closedMs) > 0)) {
       const l = autoLost('Quote expired', Math.max(e.est.closedMs, e.est.sentMs)); if (l) return l;
     }
-    // Opened 12h+ ago and nobody has called since -> "Call today" (owner 2026-10-22).
     const op = e.est.openedMs;
     const callToday = op != null && atMs - op >= CALL_TODAY_MS && !S.some((t) => t.atMs >= op && (t.type === 'attempt' || t.type === 'wizard' || (t.type === 'call_in' && t.talk)));
     return { stage: 'quoted', stageMs: e.est.sentMs, estimate: e, clockMs: clock, callToday, callback: openCallback(S, e.est.sentMs) };
   }
-  // 7. A web estimate request nobody has answered yet.
   const web = ests.filter((t) => t.est.webRequest);
   if (web.length) return { stage: 'new', stageMs: web[0].atMs, webRequest: web[web.length - 1] };
-  // 8. Talked to, but no booking or sent estimate: a leak after an hour.
   const talks = talksOf(S);
   if (talks.length) {
     const first = talks[0];
@@ -597,8 +430,6 @@ export function evalStage(card, at, mark) {
     return { stage: 'talked', stageMs: first.atMs, leak: atMs - leakFrom > LEAK_AFTER_MS, unconfirmed: talks.every((x) => !x.sure),
       onCall: talks.every((x) => x.t.why === 'in_progress'), firstTalk: first };
   }
-  // 9. Only missed touches. The callback clock (2 failed tries or 48 h) runs
-  // from their LATEST call/text -- ringing again restarts it -- or a Reopen.
   const opened = S.length ? S[0].atMs : card.openedMs;
   let lastCust = null;
   for (const t of S) if (t.type === 'call_in' || t.type === 'text_in') lastCust = t;
@@ -613,7 +444,6 @@ export function evalStage(card, at, mark) {
   return { stage: 'new', stageMs: opened, tries: tries.length, lastCustomer: lastCust };
 }
 
-// ── Grouping touches into cards ─────────────────────────────────────────────
 function newCard(t, index) {
   return { key: 'c_' + t.id, phone: t.phone || null, family: t.family, opener: t, openedMs: t.atMs, lastMs: t.atMs, touches: [t], index };
 }
@@ -621,23 +451,12 @@ function addTouch(card, t, timelineOnly) {
   card.touches.push(timelineOnly ? { ...t, timelineOnly: true } : t);
   if (!timelineOnly) card.lastMs = Math.max(card.lastMs, t.atMs);
 }
-// Every span the card sat closed (marked Lost or Not a lead) before a Reopen
-// or a fresh mark replaced it (pipelineOp keeps them, migration 0142). The
-// marks row only remembers the LATEST lost_at / reopened_at, so without these
-// a card marked Lost again later would look open back then and quietly
-// swallow the separate card a touch in that span opened (review 2026-09-24).
 function inClosedWindow(mark, atMs) {
   const ws = mark && Array.isArray(mark.closed_windows) ? mark.closed_windows : [];
   return ws.some((w) => { const f = msOf(w && w.from), to = msOf(w && w.to); return f != null && to != null && f <= atMs && atMs < to; });
 }
-// May a touch at atMs still join this card? Not once it's Paid, marked Lost,
-// Not a lead, auto-Lost more than 14 days ago, or quiet for 30 days.
 function canJoin(card, atMs, mark) {
   if (inClosedWindow(mark, atMs)) return false;
-  // "Quiet" runs from the job date while a job is still standing (not
-  // cancelled, not paid): a job booked 5 weeks out, or done and awaiting
-  // payment, has no touches while it waits, and the customer calling about
-  // it is the same inquiry (review 2026-09-24).
   let active = card.lastMs;
   for (const t of card.touches) {
     if (t.type !== 'booking' || t.timelineOnly || t.atMs > atMs) continue;
@@ -651,14 +470,12 @@ function canJoin(card, atMs, mark) {
   if (st.stage === 'lost') return st.lost.auto && atMs - st.lost.atMs <= SOFT_REVIVE_MS;
   return true;
 }
-// Closed by a person (or Paid) at atMs -- nothing may join it then, whatever it's about.
 function hardClosed(card, atMs, mark) {
   if (inClosedWindow(mark, atMs)) return true;
   const st = evalStage(card, atMs, mark);
   return st.stage === 'hidden' || st.stage === 'paid' || (st.stage === 'lost' && !st.lost.auto);
 }
 
-// Touches -> cards, each with its stage evaluated at `now`. Pure.
 export function groupCards(touches, marks = [], now = Date.now(), noPhone = []) {
   const nowMs = msOf(now);
   const markBy = new Map((marks || []).map((m) => [m.card_key, m]));
@@ -666,8 +483,6 @@ export function groupCards(touches, marks = [], now = Date.now(), noPhone = []) 
   const groups = new Map();
   for (let t of [...touches].sort(byTime)) {
     if (!t.phone || !t.family || t.atMs > nowMs) continue;
-    // A try from a card's Call button follows that card even if the line it
-    // rang from sits in the other brand family.
     if (t.cardKey) { const op = byId.get(t.cardKey.slice(2)); if (op && op.phone === t.phone && op.family !== t.family) t = { ...t, family: op.family }; }
     const k = t.phone + '|' + t.family;
     (groups.get(k) || groups.set(k, []).get(k)).push(t);
@@ -676,34 +491,22 @@ export function groupCards(touches, marks = [], now = Date.now(), noPhone = []) 
   for (const list of groups.values()) {
     const mine = []; let open = null;
     for (const t of list) {
-      // A try placed from a card's own Call button belongs to that card.
       if (t.cardKey) { const target = mine.find((c) => c.key === t.cardKey); if (target) { addTouch(target, t, false); continue; } }
-      // An estimate-approval booking belongs to its estimate's card. The
-      // booking row is written ~3 s BEFORE approved_at is stamped, so judged
-      // by time alone a quote auto-Lost over 14 days ago would get a second,
-      // Booked card and keep "Approved — put it on the schedule" forever
-      // (review 2026-09-24). Not onto a card a person closed, or one Paid.
       if (t.type === 'booking' && t.bk.estimateId) {
         const target = mine.find((c) => c.touches.some((x) => x.type === 'estimate' && x.id === t.bk.estimateId));
         if (target && !hardClosed(target, t.atMs, markBy.get(target.key))) { addTouch(target, t, false); continue; }
       }
       if (open && canJoin(open, t.atMs, markBy.get(open.key))) { addTouch(open, t, false); continue; }
       if (t.canOpen) { open = newCard(t, mine.length); mine.push(open); continue; }
-      // Can't open a card: kept on the latest one's timeline (it has closed), else dropped.
       if (open) addTouch(open, t, true);
     }
-    // A card made of nothing but archived, never-answered requests was no
-    // inquiry (buildTouches) -- it only kept the grouping and keys stable.
     const kept = mine.filter((c) => c.touches.some((t) => !t.timelineOnly && !t.archivedUnsent));
     kept.forEach((c, i) => { c.index = i; });
     cards.push(...kept);
   }
-  // A script call we could not tie to any phone still counts: its own card.
   for (const t of noPhone) if (t.atMs <= nowMs) cards.push(newCard(t, 0));
   for (const c of cards) {
     c.st = evalStage(c, nowMs, markBy.get(c.key));
-    // Owner moved it forward by hand (owner 2026-09-28). Only ever forward:
-    // real activity that is already further along wins.
     const m = markBy.get(c.key);
     const MAN = ['new', 'talked', 'quoted', 'booked'];
     if (m && m.manual_stage && MAN.includes(c.st.stage) && MAN.indexOf(m.manual_stage) > MAN.indexOf(c.st.stage)) {
@@ -713,13 +516,10 @@ export function groupCards(touches, marks = [], now = Date.now(), noPhone = []) 
   return cards;
 }
 
-// Cards plus the brands on each (for scoping and the brand filter). Pure.
 export function computeCards(raw, now = Date.now()) {
   const nowMs = msOf(now);
   const ctx = makeContext(raw);
   const { touches, noPhone } = buildTouches(raw, ctx, nowMs);
-  // Calls answered for under 20 s with nothing else from that caller stay off
-  // the board (owner, 2026-09-26).
   const cards = groupCards(touches, raw.marks || [], nowMs, noPhone)
     .filter((c) => !c.touches.every((t) => t.type === 'call_in' && t.why === 'short'));
   for (const c of cards) {
@@ -728,26 +528,21 @@ export function computeCards(raw, now = Date.now()) {
     c.dealSlugs = [...new Set(deal.map((t) => t.slug))];
     const bk = [...deal].reverse().find((t) => t.type === 'booking');
     const est = [...deal].reverse().find((t) => t.type === 'estimate');
-    // Brand shown = the booking's or estimate's brand if any, else the opener's.
     c.shownSlug = (bk && bk.slug) || (est && est.slug) || c.openSlug;
     c.market = cardMarket(c, ctx);
   }
   return { cards, ctx, nowMs };
 }
 
-// Owner rule 2026-09-24: a secretary sees a card when the brand that opened
-// it OR its booking/estimate brand is one she works. Owner (null) sees all.
 export function cardVisible(card, allowed) {
   if (allowed == null) return true;
   return [card.openSlug, ...(card.dealSlugs || [])].some((s) => s && allowed.includes(s));
 }
-// Dom's city filter (owner 2026-10-13): Denver / Oklahoma City / Tulsa.
-// Line market first, then the job address, then the caller's area code.
 const TULSA_ZIP3 = ['740', '741', '743', '744', '745', '746', '747'];
 const TULSA_AC = ['918', '539'], OKC_AC = ['405', '580', '572'], DEN_AC = ['303', '720', '719', '970', '983'];
 function cardMarket(card, ctx) {
   const line = ctx.lines.get(cardLine(card, ctx));
-  if (line && line.market) return line.market === 'Oklahoma City' ? 'okc' : line.market === 'Tulsa' ? 'tulsa' : line.market === 'Denver' ? 'denver' : null;
+  if (line && line.market) return line.market === 'Oklahoma City' ? 'okc' : line.market === 'Tulsa' ? 'tulsa' : line.market === 'Manila' ? 'denver' : null;
   for (const t of [...card.touches].reverse()) {
     const l = t.loc; if (!l) continue;
     const st = String(l.state || '').trim().toUpperCase(), z3 = String(l.zip || '').slice(0, 3), city = String(l.city || '').toLowerCase();
@@ -767,13 +562,11 @@ export function rangeStartMs(range, nowMs = Date.now()) {
   const back = RANGE_DAYS[String(range)] ?? RANGE_DAYS[7];
   return Math.max(msOf(PIPELINE_FLOOR), localDayStartUTC(CHICAGO, -back, new Date(nowMs)).getTime());
 }
-// 'yesterday' stops at the start of today; every other range runs to now.
 export function rangeEndMs(range, nowMs = Date.now()) {
   return String(range) === 'yesterday' ? localDayStartUTC(CHICAGO, 0, new Date(nowMs)).getTime() : Infinity;
 }
 function normRange(r) { const s = String(r == null ? '' : r); return Object.prototype.hasOwnProperty.call(RANGE_DAYS, s) ? s : '7'; }
 
-// The tracking line to call/text from: the latest real line on the card.
 function cardLine(card, ctx) {
   let best = null;
   for (const t of card.touches) {
@@ -784,9 +577,6 @@ function cardLine(card, ctx) {
   return best ? best.p : null;
 }
 
-// ── Audits (owner only) ─────────────────────────────────────────────────────
-// By call_id when the audit names one of the card's calls, else by phone with
-// the audit inside the card's window +-3 h (call_audits times run ~1 h early).
 function attachAudits(audits, cards) {
   const byCall = new Map(), byPhone = new Map();
   for (const c of cards) {
@@ -810,8 +600,6 @@ function attachAudits(audits, cards) {
   }
   return out;
 }
-// Score = % yes of yes+no, leaving out the cust_* answers (those grade the
-// customer, not the secretary) -- the audit portal's own formula (audit.html scoreOf).
 export function auditSummary(list) {
   if (!list || !list.length) return null;
   const a = [...list].sort((x, y) => (msOf(x.occurred_at) || 0) - (msOf(y.occurred_at) || 0)).pop();
@@ -826,7 +614,6 @@ export function auditSummary(list) {
     ratings: a.ratings || {}, by: a.handled_by || null, at: iso(msOf(a.occurred_at)), count: list.length };
 }
 
-// ── Card -> response shape ──────────────────────────────────────────────────
 function sourceLabel(t, ctx) {
   const biz = t.slug && ctx.bizBySlug.get(t.slug);
   const bizName = (biz && biz.name) || null;
@@ -863,10 +650,8 @@ function nextFor(st, card, nowMs) {
       const e = st.estimate.est; const age = nowMs - e.sentMs;
       if (st.callToday) return { text: 'Call today — opened the quote', tone: 'warn' };
       if (e.bounced) return { text: 'Estimate email BOUNCED — listen to the call and check the email address', tone: 'danger' };
-      // Owner 2026-09-27: age up front, opened or not, and the 3-hour follow-up email.
       const fu = e.couponMs ? 'follow-up email sent' : age > 4 * HOUR ? 'NO follow-up email' : 'follow-up email due at 3h';
       const text = `Sent ${fmtAgo(age)} ago · ${e.openedMs ? 'opened' : 'not opened'} · ${fu}`;
-      // Red is only for emergencies like a bounced email (owner 2026-09-27).
       const tone = age >= 3 * HOUR || (!e.couponMs && age > 4 * HOUR) ? 'warn' : 'ok';
       return { text, tone };
     }
@@ -876,8 +661,6 @@ function nextFor(st, card, nowMs) {
       return { text, tone: st.leak ? 'danger' : 'warn' };
     }
     case 'new': {
-      // Owner, 2026-09-26: call new leads back within 30 minutes; orange once
-      // that's passed. Red is kept for real problems, not every new lead.
       const late = (ms) => nowMs - ms > NEW_CALLBACK_MS;
       if (st.webRequest) return { text: late(st.webRequest.atMs) ? 'Needs a response — over 30 min' : 'Needs a response', tone: late(st.webRequest.atMs) ? 'warn' : 'ok' };
       if (st.tries >= 1) return { text: 'Call back — 2nd try left', tone: 'warn' };
@@ -903,7 +686,6 @@ function timelineFor(card, st, mark, audits) {
         else if (t.why === 'no_person') out.push(item(t.atMs, 'missed', `Call not answered by a person${line}`, t.staff, 'danger'));
         else if (t.why === 'short') out.push(item(t.atMs, 'missed', `Answered ${fmtDur(t.dur)} — too short, likely voicemail${line}`, t.staff, 'danger'));
         else out.push(item(t.atMs, 'missed', `Answered ${fmtDur(t.dur)} — marked voicemail${line}`, t.staff, 'mute'));
-        // Owner 2026-09-27: voicemails + recordings playable right on the card.
         if (t.vm && t.why === 'missed') out[out.length - 1].text = `Voicemail left${line}`;
         if (t.rec) { out[out.length - 1].call_id = t.id; out[out.length - 1].rec = true; }
         if (t.summary && t.summary.length) out[out.length - 1].summary = t.summary;
@@ -911,10 +693,9 @@ function timelineFor(card, st, mark, audits) {
         break;
       case 'wizard': {
         const r = t.live.resolution;
-        // Only a real sent estimate moves a card to Quoted (owner 2026-09-27).
         const how = r === 'booked' ? ' · booked' : r === 'estimate_sent' ? (card.touches.some((x) => x.type === 'estimate' && x.est.sentMs != null) ? ' · estimate sent' : ' · estimate marked sent, none sent') : r === 'refused' ? ' · declined'
           : r === 'other' ? ' · other' : t.live.step ? ` · stopped at ${t.live.step}` : '';
-        const q = t.live.quoted ? ` · ${dollars(t.live.quoted)}` : '';   // short (owner 2026-09-30)
+        const q = t.live.quoted ? ` · ${dollars(t.live.quoted)}` : '';
         out.push({ ...item(t.atMs, 'script', `Call script${how}${q}`, t.staff, r === 'refused' ? 'warn' : 'ok'), price: t.live.quoted || null });
         break;
       }
@@ -1003,9 +784,6 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
   else if (est && est.est.total) amount = est.est.total;
   else { const w = [...wizards].reverse().find((t) => t.live.quoted); if (w) amount = w.live.quoted; }
 
-  // Who owns it: the person on the first conversation (the script's runner
-  // first, then the handset the call rang, then a callback, then a text
-  // reply); untalked = whose handset the line rang that day.
   const firstOf = (type) => { const x = talks.find((k) => k.t.type === type && k.t.staff); return x ? x.t.staff : null; };
   let secretary = firstOf('wizard') || firstOf('call_in') || firstOf('attempt') || firstOf('text_out_staff');
   if (!secretary) { const f = callsIn.find((t) => t.staff); secretary = f ? f.staff : null; }
@@ -1013,11 +791,6 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
 
   const shown = c.shownSlug && ctx.bizBySlug.get(c.shownSlug);
   const lastCall = callsIn[callsIn.length - 1] || null;
-  // The answered call the card's buttons are about (review 2026-09-24): while
-  // it asks "or was it voicemail?", the unconfirmed 20-119 s call; on a
-  // confirmed talk, the call that made it one by its length or a Talked tap
-  // (not a script's -- the script proves it). Only then the latest answered
-  // call, so a later short pickup never hides the call in question.
   const revIn = [...callsIn].reverse();
   const answered = (st.unconfirmed ? revIn.find((t) => t.why === 'unconfirmed') : revIn.find((t) => t.answered === true && t.talk === 'yes' && !t.wizard))
     || revIn.find((t) => t.answered === true) || null;
@@ -1029,8 +802,6 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
 
   const out = {
     key: c.key,
-    // Paid shows in Booked on the board (owner, 2026-09-26); 'paid' stays internal
-    // because it closes the card (the next touch opens a new one).
     stage: st.stage === 'paid' || (st.stage === 'booked' && st.doneUnpaid) ? 'completed' : st.stage,
     paid: st.stage === 'paid',
     leak: st.stage === 'talked' && !!st.leak,
@@ -1038,7 +809,6 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
     manual: st.manual || null,
     voicemail: c.touches.some((t) => t.type === 'call_in' && t.vm),
     review: st.booking && st.booking.bk ? { ...st.booking.bk.rv, booking_id: st.booking.id, completed_at: iso(st.booking.bk.completedMs) } : null,
-    // Customer reached out and nobody replied (owner 2026-09-27): drives the red banner.
     unanswered: st.callback && nowMs - st.callback.atMs > 30 * MIN
       ? { at: iso(st.callback.atMs), kind: st.callback.type === 'text_in' ? 'text' : st.callback.vm ? 'voicemail' : 'missed', hours: Math.floor((nowMs - st.callback.atMs) / HOUR), mins: Math.floor((nowMs - st.callback.atMs) / MIN) }
       : null,
@@ -1049,7 +819,7 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
     family: c.family,
     source: sourceLabel(c.opener, ctx),
     our_phone: cardLine(c, ctx),
-    city: (ctx.lines.get(cardLine(c, ctx)) || {}).market || null,   // for the local-time line (owner 2026-10-06)
+    city: (ctx.lines.get(cardLine(c, ctx)) || {}).market || null,
     secretary,
     amount: amount != null ? cents(amount) : null,
     opened_at: iso(c.openedMs),
@@ -1064,11 +834,6 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
       completed_at: iso(bk.bk.completedMs), created_at: iso(bk.atMs), review_at: iso(bk.bk.reviewMs), review_rating: bk.bk.reviewRating,
       slug: bk.slug || null } : null,
     inbound_call_id: lastCall ? lastCall.id : null,
-    // The answered inbound call the card is about (see above) and how it was
-    // read, for the card's Talked / Voicemail buttons (talk / no_talk ops):
-    // Talked + Voicemail only when state is 'unconfirmed'; "Voicemail, not a
-    // talk" only on a talked card whose state is 'talked' and not wizard.
-    // inbound_call_id is the latest call in ANY state -- never the one to mark.
     answered_call: answered ? { id: answered.id, duration_sec: answered.dur,
       state: answered.talk === 'yes' ? 'talked' : answered.talk === 'unconfirmed' ? 'unconfirmed'
         : (answered.why === 'marked_voicemail' || answered.why === 'audit_voicemail') ? 'voicemail' : 'short',
@@ -1076,38 +841,29 @@ function shapeCard(c, ctx, { nowMs, isOwner, mark, history, audits }) {
     history: { prior_cards: c.index || 0, prior_jobs: jobs.length, spent, returning: jobs.length > 0 },
     audit: isOwner ? auditSummary(audits) : null,
     timeline: timelineFor(c, st, mark, isOwner ? audits : null),
-    // Glow on the board (owner 2026-10-13; migration 0202).
-    // Off once the card moves to another stage (owner 2026-10-13).
     highlight: !!(mark && mark.highlight && (!mark.highlight_stage || mark.highlight_stage === st.stage)),
   };
-  // Internal: for the tiles/scoreboard only, stripped before sending.
   Object.defineProperty(out, '_talked', { value: talks.length > 0 });
   Object.defineProperty(out, '_converted', { value: bookings.length > 0 || ests.some((t) => t.est.sentMs != null || t.est.approvedMs != null) });
   return out;
 }
 
-// Completed jobs before a card opened (any source, imports included -- history only).
 function historyIndex(rows, ctx) {
   const by = new Map();
   for (const r of rows || []) {
     const p = phone10(r.customer && r.customer.phone); if (!p) continue;
     const fam = familyOf(ctx.slugOf(r));
     const k = p + '|' + fam;
-    // Imported (Zenbooker) jobs carry amount_paid 0 even when paid: fall back to the price.
     const paidAmt = num(r.amount_paid);
     (by.get(k) || by.set(k, []).get(k)).push({ id: r.id, completedMs: msOf(r.completed_at) ?? msOf(r.scheduled_at) ?? msOf(r.created_at), amount: paidAmt > 0 ? paidAmt : (num(r.price) ?? 0) });
   }
   return by;
 }
 
-// The whole GET response. Pure: raw rows in (see loadPipelineRaw), a clock in.
-// opts: { isOwner, allowed (allowedSlugsFor: null = all), actAllowed (write
-// list; a card outside it gets view_only: true), viewerName, range, business }
 export function buildPipeline(raw, now = Date.now(), opts = {}) {
   const { cards, ctx, nowMs } = computeCards(raw, now);
   const isOwner = !!opts.isOwner;
   const allowed = opts.allowed === undefined ? null : opts.allowed;
-  // Seen but not hers to act on (Joey's other brands, owner 2026-10-03).
   const viewOnly = (c, sc) => { if (opts.actAllowed !== undefined && !cardVisible(c, opts.actAllowed)) { if (opts.reviewAll && sc.stage === 'completed') sc.review_only_access = true; else sc.view_only = true; } return sc; };
   const seeAll = (c) => cardVisible(c, allowed) || (!!opts.reviewAll && isReviewCard(c));
   const range = normRange(opts.range);
@@ -1121,36 +877,24 @@ export function buildPipeline(raw, now = Date.now(), opts = {}) {
   const activePhones = bookedPhones(raw.activeBookings);
   let shaped = [];
   for (const c of cards) {
-    // Not a lead: this caller already has an active appointment (and this card isn't that booking).
     if (c.phone && activePhones.has(c.phone) && !c.touches.some((t) => t.type === 'booking')) continue;
     if (c.st.stage === 'hidden') continue;
-    // Owner 2026-09-27: Lost is off the board; Completed (done, no review yet)
-    // replaces it for review tracking. Any review removes the card.
     if (!opts.legacyBoard && c.st.stage === 'lost') continue;
     const doneJob = !opts.legacyBoard && (c.st.stage === 'paid' || (c.st.stage === 'booked' && c.st.doneUnpaid));
     if (doneJob) {
       const b = c.st.booking && c.st.booking.bk;
-      if (!b || b.gotReview || b.offerSent) continue;   // discount text sent = handled (owner 2026-09-27)
-      // Any phone contact after the appointment (review call logged, or a
-      // connected call either way) takes it off Completed (owner 2026-09-27).
+      if (!b || b.gotReview || b.offerSent) continue;
       const after = Math.min(b.scheduledMs ?? Infinity, b.completedMs ?? Infinity);
       if (b.rv.call_status && (!b.rv.call_at || msOf(b.rv.call_at) >= after - DAY)) continue;
       if (c.touches.some((t) => t.atMs > after && ((t.type === 'attempt' && (t.att.dialStatus === 'completed' || t.talk === 'yes')) || (t.type === 'call_in' && t.talk)))) continue;
-      // Owner 2026-10-10: a review call nobody picked up = review task done
-      // (her own phone must have connected; the card keeps its history).
-      // Owner correction 2026-10-10: ANY outbound try after the job (any outcome, even a failed ring) = review task done.
       if (c.touches.some((t) => t.atMs > after && (t.type === 'attempt' || t.type === 'wizard'))) continue;
       if (nowMs - (b.completedMs ?? b.paidMs ?? 0) > 14 * DAY) continue;
       if (!seeAll(c) || !brandMatches(c, brand)) continue;
       shaped.push(viewOnly(c, shapeCard(c, ctx, { nowMs, isOwner, mark: markBy.get(c.key), history: c.phone ? hist.get(c.phone + '|' + c.family) : null, audits: auditsBy.get(c.key) || null })));
       continue;
     }
-    // In range if it started in range OR was booked in range (owner 2026-09-27:
-    // a lead from Sep 25 that booked yesterday counts in Yesterday's Booked).
     const inRange = (ms) => ms >= fromMs && ms < toMs;
     const inR = inRange(c.openedMs) || c.touches.some((t) => t.type === 'booking' && !t.timelineOnly && inRange(t.atMs));
-    // Owner 2026-09-29: "Needs review collection" always shows the last 3 days
-    // of finished jobs, whatever day is picked.
     const recentDone = c.touches.some((t) => t.type === 'booking' && t.bk && t.bk.completedMs != null && t.bk.completedMs >= nowMs - 3 * DAY);
     if (!inR && !recentDone) continue;
     if (!seeAll(c) || !brandMatches(c, brand)) continue;
@@ -1161,11 +905,8 @@ export function buildPipeline(raw, now = Date.now(), opts = {}) {
     } else if (!inR) continue;
     shaped.push(sc);
   }
-  // Owner 2026-09-28: a finished review call (no answer, said no, do not contact,
-  // reviewed) means nobody chases this customer again -- off "Needs review collection".
   for (let i = shaped.length - 1; i >= 0; i--) {
     const c = shaped[i];
-    // Owner 2026-09-30: ANY review call logged = off the list (never called twice).
     if (c.stage === 'completed' && c.review && c.review.call_status) shaped.splice(i, 1);
   }
   if (opts.legacyBoard) for (const c of shaped) if (c.stage === 'completed') c.stage = 'booked';
@@ -1187,7 +928,6 @@ export function buildPipeline(raw, now = Date.now(), opts = {}) {
   }
   let scoreboard = [...board.values()].map((r) => ({ ...r, pct: r.talked ? Math.round((100 * r.converted) / r.talked) : 0 }))
     .sort((a, b) => b.talked - a.talked || a.name.localeCompare(b.name));
-  // A secretary sees only her own row (owner rule 2026-09-24).
   if (!isOwner) scoreboard = scoreboard.filter((r) => r.name === opts.viewerName);
   shaped.sort((a, b) => String(a.opened_at || a.last_at || '').localeCompare(String(b.opened_at || b.last_at || '')) || a.key.localeCompare(b.key));
   if (shaped.length > CARD_CAP) shaped = shaped.slice(0, CARD_CAP);
@@ -1205,11 +945,6 @@ export function buildPipeline(raw, now = Date.now(), opts = {}) {
   };
 }
 
-// ── Funnel (owner 2026-10-07) ───────────────────────────────────────────────
-// Cohort: every card counted by the day it was opened; at a stage if it
-// reached that stage or any later one. Done + Paid = one stage (Paid).
-// Reviewed = the customer left a review. Not a lead / spam / existing
-// customers' cards are left out, like the board. Exits plot on review day.
 export const FUNNEL_STAGES = ['entered', 'talked', 'quoted', 'booked', 'paid', 'reviewed'];
 const FUNNEL_DAYS = { 3: 3,  7: 7, 30: 30, 90: 90 };
 const chiDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: CHICAGO, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
@@ -1264,8 +999,6 @@ export function buildFunnel(raw, now = Date.now(), opts = {}) {
     series: Object.keys(entered).sort().map((d) => ({ d, in: entered[d], out: exited[d] || 0 })) };
 }
 
-// Phones of every touch since `sinceMs` -- the cards on the board -- for the
-// one prior-history lookup.
 export function phonesSince(raw, sinceMs) {
   const out = new Set();
   const add = (p, at) => { if (p && (msOf(at) ?? 0) >= sinceMs) out.add(p); };
@@ -1276,10 +1009,6 @@ export function phonesSince(raw, sinceMs) {
   return [...out];
 }
 
-// ── Loading (the only part that reads the database) ─────────────────────────
-// PostgREST caps every response at its max-rows (1000 by default) whatever
-// .limit() says, so everything is read in pages; a table that would need more
-// than `max` rows is cut there and logged rather than silently truncated.
 async function fetchAll(label, build, max = 20000, pageSize = 1000) {
   const out = [];
   for (let from = 0; from < max; from += pageSize) {
@@ -1307,9 +1036,6 @@ const BOOKING_COLS = `id, business_id, customer_id, status, city, state, postal_
   customer:customers ( name, phone ), technician:technicians!technician_id ( name )`;
 const AUDIT_COLS = 'id, call_id, caller_phone, occurred_at, handled_by, answers, ratings, flagged, listen_reason, complaint, business_id, direction';
 
-// Everything since the floor (bounded to LOOKBACK_DAYS so grouping context
-// never grows without limit; card keys stay stable inside that window).
-// Backup tables (*_bak_*) are never read.
 export async function loadPipelineRaw(db, { nowMs = Date.now(), withAudits = false } = {}) {
   const sinceMs = Math.max(msOf(PIPELINE_FLOOR), nowMs - LOOKBACK_DAYS * DAY);
   const since = iso(sinceMs);
@@ -1333,18 +1059,13 @@ export async function loadPipelineRaw(db, { nowMs = Date.now(), withAudits = fal
   const liveIds = calls.filter((c) => c.kind === 'live').map((c) => c.id);
   const callEvents = await inChunks(liveIds, 150, (ids) => fetchAll('call_events',
     () => db.from('call_events').select('call_id, event, actor, meta, created_at').in('call_id', ids).in('event', ['started', 'estimate_sent']).order('created_at').order('id')));
-  // Upcoming appointments (any age of booking): a caller who already has one
-  // is not a lead (owner rule 2026-09-27).
   const activeBookings = await fetchAll('active bookings', () => db.from('bookings').select('id, customer:customers ( phone, metadata )')
     .not('status', 'in', '(completed,cancelled)').is('completed_at', null).is('cancelled_at', null)
     .gte('scheduled_at', iso(nowMs - DAY)).order('id'));
-  // Card notes (owner 2026-09-28): short notes the office leaves on a card.
   const notes = await fetchAll('pipeline_notes', () => db.from('pipeline_notes').select('id, card_key, body, created_by, created_at').gte('created_at', since).order('created_at').order('id'));
   return { calls, callEvents, messages, estimates, bookings, attempts, marks, auditSkips, staff, silent, blocked, tracking, businesses, audits, activeBookings, notes, history: [] };
 }
 
-// Completed bookings (any time, any source) of these phones: one customers
-// lookup in the stored spellings, then their completed jobs.
 export async function loadHistory(db, phones) {
   if (!phones || !phones.length) return [];
   const customers = await inChunks(phones.flatMap(phoneVariants), 150, (vals) =>
@@ -1356,34 +1077,27 @@ export async function loadHistory(db, phones) {
   return jobs.map((j) => ({ ...j, customer: { phone: phoneById.get(j.customer_id) } }));
 }
 
-// ── The action ──────────────────────────────────────────────────────────────
 const OPS = new Set(['mark_lost', 'not_a_lead', 'reopen', 'no_talk', 'talk', 'log_attempt', 'attempt_outcome', 'set_stage', 'highlight']);
 
 export async function pipelineHandler(req, res, db, auth, body) {
   if (!auth) return res.status(403).json({ error: 'Not available for this login' });
-  // Off today (Needs review only): the board GET plus the review-call ops, nothing else.
   if (auth.offToday) {
     const okOp = req.method === 'POST' && body && ['add_note', 'attempt_outcome', 'log_attempt', 'talk', 'no_talk'].includes(body.op);
     const okGet = req.method === 'GET' && !req.query.funnel && !req.query.marked && !req.query.why_unseen && !req.query.why_for;
     if (!okOp && !okGet) return res.status(403).json({ error: 'Off today', off_today: true });
   }
-  // Jiyah (auditor): the plain board GET only, view only (owner 2026-10-07).
-  // No writes, no Ask why answers, no owner lists.
   if (auth.role === 'auditor' || auth.auditor) {
     if (req.method !== 'GET' || req.query.why_unseen || req.query.why_for || req.query.marked) return res.status(403).json({ error: 'Not available for this login' });
   }
-  // The owner's "Ask why" notes waiting for this secretary (cheap: polled for the nav badge).
   if (req.method === 'GET' && req.query.why_unseen === '1') {
     if (auth.role === 'owner' || !auth.name) return res.status(200).json({ notes: [] });
     const { data } = await db.from('pipeline_ask_why').select('card_key, answer, created_at, asked_by').eq('for_name', auth.name).is('seen_at', null).limit(50);
     return res.status(200).json({ notes: (data || []).map((n) => ({ card_key: n.card_key, at: n.created_at, by: n.asked_by, ...n.answer })) });
   }
-  // The saved Ask why answer for one card (owner 2026-09-30: it must stay).
   if (req.method === 'GET' && req.query.why_for) {
     const { data } = await db.from('pipeline_ask_why').select('answer, created_at, for_name, seen_at').eq('card_key', String(req.query.why_for)).maybeSingle();
     return res.status(200).json(data && data.answer ? { ...data.answer, at: data.created_at, for_name: data.for_name, seen_at: data.seen_at } : {});
   }
-  // Owner only (2026-10-03): leads staff marked Lost / Not a lead, last 30 days.
   if (req.method === 'GET' && req.query.marked === '1') {
     if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
     return res.status(200).json(await markedByStaff(db));
@@ -1406,7 +1120,6 @@ export async function pipelineHandler(req, res, db, auth, body) {
   if (body && body.op === 'add_note') {
     const key = String(body.card_key || ''), text = String(body.body || '').trim().slice(0, 10000);
     if (!/^c_[0-9a-f-]{36}$/i.test(key) || !text) return res.status(400).json({ error: 'Write a note first.' });
-    // Secretaries may add notes to every card they can see, including Joey's other brands.
     const act = pipelineSlugsFor(auth);
     if (auth.role !== 'owner') {
       const nowMs = Date.now();
@@ -1437,7 +1150,6 @@ export async function pipelineHandler(req, res, db, auth, body) {
   }
 }
 
-// A mark by the owner himself (auth.name 'Owner', or no name -> 'owner').
 const OWNER_MARK = /^(owner|andrew\b)/i;
 async function markedByStaff(db) {
   const nowMs = Date.now(), fromMs = nowMs - 30 * DAY;
@@ -1475,8 +1187,6 @@ async function pipelineOp(res, db, auth, body) {
   const who = auth.name || auth.role || 'office';
   const nowIso = new Date().toISOString();
 
-  // "Did you talk to them?" after a bridge call: confirm or correct the
-  // automatic read of the customer leg.
   if (op === 'attempt_outcome') {
     const id = String(body.attempt_id || '');
     if (!UUID.test(id)) return res.status(400).json({ error: 'attempt_id is required' });
@@ -1494,9 +1204,6 @@ async function pipelineOp(res, db, auth, body) {
     return res.status(200).json({ ok: true });
   }
 
-  // Every card op: rebuild the cards server-side and check the card is one
-  // this login may act on (her write list, not the view list) -- the key
-  // alone proves nothing.
   const key = String(body.card_key || '');
   if (!CARD_KEY.test(key)) return res.status(400).json({ error: 'card_key is required' });
   const nowMs = Date.now();
@@ -1504,7 +1211,7 @@ async function pipelineOp(res, db, auth, body) {
   const { cards, ctx } = computeCards(raw, nowMs);
   const card = cards.find((c) => c.key === key);
   if (!card) return res.status(404).json({ error: 'That card is no longer on the board. Refresh and try again.' });
-  if (op === 'not_a_lead' && !(auth.role === 'owner' || auth.name === 'Joey')) return res.status(403).json({ error: 'Owner and Joey only' });   // owner 2026-10-22
+  if (op === 'not_a_lead' && !(auth.role === 'owner' || auth.name === 'Joey')) return res.status(403).json({ error: 'Owner and Joey only' });
   const actionScope=(op==='not_a_lead'||op==='mark_lost') && auth.role==='secretary' && auth.name==='Joey' ?   // Joey: Lost + Not a lead on every card (owner 2026-10-06)
     pipelineSlugsFor(auth) : pipelineWriteSlugsFor(auth);
   if (!cardVisible(card, actionScope) && !(reviewAllFor(auth) && isReviewCard(card) && ['log_attempt', 'talk', 'no_talk'].includes(op))) return res.status(403).json({ error: 'Forbidden for this business' });
@@ -1512,7 +1219,6 @@ async function pipelineOp(res, db, auth, body) {
   const bizId = biz ? biz.id : null;
 
   if (op === 'log_attempt') {
-    // She rang them from her own phone: nothing on our side saw it.
     if (!card.phone) return res.status(400).json({ error: 'This card has no phone number' });
     if (body.phone != null && body.phone !== '' && phone10(body.phone) !== card.phone) return res.status(400).json({ error: 'That number is not on this card' });
     if (typeof body.talked !== 'boolean') return res.status(400).json({ error: 'talked must be true or false' });
@@ -1525,8 +1231,6 @@ async function pipelineOp(res, db, auth, body) {
   }
 
   if (op === 'same_customer') {
-    // This caller is an existing customer on another number: file the number
-    // under that customer, so their job takes the card off the board.
     if (!card.phone) return res.status(400).json({ error: 'This card has no phone number' });
     const other = phone10(body.phone);
     if (!other || other === card.phone) return res.status(400).json({ error: 'Enter their other number' });
@@ -1569,8 +1273,6 @@ async function pipelineOp(res, db, auth, body) {
       const callId = String(body.call_id || '');
       const hit = card.touches.find((t) => t.type === 'call_in' && t.id === callId);
       if (!hit) return res.status(400).json({ error: 'That call is not on this card' });
-      // A missed call, or one nobody answered, was never a conversation
-      // (review 2026-09-24): Talked needs a call a person picked up.
       if (op === 'talk' && hit.answered !== true) return res.status(400).json({ error: 'Only an answered call can be marked as a talk' });
       const talk = new Set(cur ? cur.talk_call_ids || [] : []), noTalk = new Set(cur ? cur.no_talk_call_ids || [] : []);
       if (op === 'talk') { talk.add(callId); noTalk.delete(callId); } else { noTalk.add(callId); talk.delete(callId); }
@@ -1579,19 +1281,13 @@ async function pipelineOp(res, db, auth, body) {
     }
     default: return res.status(400).json({ error: 'Unknown op' });
   }
-  // Any other mark turns the glow off (owner 2026-10-13).
   if (op !== 'highlight' && cur && cur.highlight) patch.highlight = false;
-  // Reopening (or re-marking) a card that is closed right now: keep the span
-  // it sat closed, so touches that arrived then stay on their own cards
-  // whatever later marks say (canJoin; migration 0142, review 2026-09-24).
   const closedFrom = op === 'highlight' ? null : op === 'reopen' || op === 'mark_lost' || op === 'not_a_lead' ? closedSince(cur) : null;
   if (closedFrom != null && closedFrom < msOf(nowIso)) {
     patch.closed_windows = [...(Array.isArray(cur.closed_windows) ? cur.closed_windows : []), { from: iso(closedFrom), to: nowIso }];
   }
   const row = { card_key: key, business_id: bizId, phone: card.phone || null, ...patch, updated_at: nowIso };
   let { error } = await db.from('pipeline_marks').upsert(row, { onConflict: 'card_key' });
-  // Migration 0142 not applied yet: the person's decision still saves; only
-  // the closed span is not kept (the card behaves as it did before 0142).
   if (error && row.closed_windows && ['42703', 'PGRST204'].includes(error.code) && /closed_windows/.test(error.message || '')) {
     console.warn('[pipeline] pipeline_marks.closed_windows missing (migration 0142) -- saved without it');
     const rest = { ...row }; delete rest.closed_windows;
@@ -1600,8 +1296,6 @@ async function pipelineOp(res, db, auth, body) {
   if (error) throw error;
   return res.status(200).json({ ok: true });
 }
-// Phones with an upcoming job: the customer's phone plus any number marked
-// "same customer" (customers.metadata.alt_phones, owner 2026-10-09).
 function bookedPhones(list) {
   const out = new Set();
   for (const b of list || []) {
@@ -1610,8 +1304,6 @@ function bookedPhones(list) {
   }
   return out;
 }
-// When the card is closed by a person right now (marked Lost and not reopened
-// since, or Not a lead): the moment it closed (ms). Else null.
 function closedSince(m) {
   if (!m) return null;
   const from = [];
@@ -1627,15 +1319,6 @@ async function readMark(db, key) {
   return data || null;
 }
 
-// ── Helpers admin.js uses for the call hooks ────────────────────────────────
-// call_start source 'pipeline' (amendment 14, 2026-09-24): which line to ring
-// the customer From, and proof the number is one this login already works.
-// The number must appear on an inbound call, a text, an estimate or a booking
-// in a business she may use. Line: the latest inbound call's line -> the
-// latest text thread's tracking line -> the card brand's first active
-// forwarded line -> the toll-free. Returns { phone, line, businessId } (10-digit).
-// Needs-review card check for the Call now button: true when `cardKey` is a
-// done-job card of this very phone (then any secretary may ring from its line).
 export async function isReviewCardFor(db, cardKey, rawPhone) {
   if (!CARD_KEY.test(String(cardKey || ''))) return false;
   const nowMs = Date.now();
@@ -1646,12 +1329,8 @@ export async function isReviewCardFor(db, cardKey, rawPhone) {
 export async function pipelineCallTarget(db, auth, rawPhone, cardSlugIn, anyBusiness) {
   const phone = phone10(rawPhone);
   if (!phone || REPEATED.test(phone)) throw httpErr(400, 'A 10-digit customer number is required');
-  // The card's brand only steers which line is picked; one this login can't
-  // use is ignored (the proof below is scoped to her businesses anyway).
   const bizSlug = cardSlugIn && (anyBusiness || mayUseBusiness(auth, cardSlugIn)) ? cardSlugIn : null;
   const fam = bizSlug ? familyOf(bizSlug) : null;
-  // Dialing follows the dashboard's access list (Joey may call TidyHaus customers
-  // from a job card, owner 2026-09-29) -- never her view-only brands.
   const allowed = anyBusiness ? null : allowedSlugsFor(auth);
   const [bizR, linesR] = await Promise.all([
     db.from('businesses').select('id, slug'),
@@ -1663,22 +1342,16 @@ export async function pipelineCallTarget(db, auth, rawPhone, cardSlugIn, anyBusi
   const idBySlug = new Map((bizR.data || []).map((b) => [b.slug, b.id]));
   const okIds = (bizR.data || []).filter((b) => allowed === null || allowed.includes(b.slug)).map((b) => b.id);
   if (!okIds.length) throw httpErr(403, 'Forbidden for this business');
-  // An empty .in() list would mean "no filter" -- okIds is never empty here.
   const scoped = (q) => (allowed === null ? q : q.in('business_id', okIds));
   const variants = phoneVariants(phone);
   const lineBy = new Map((linesR.data || []).map((l) => [phone10(l.phone), l]));
   const [callsR, msgsR, estsR, custsR] = await Promise.all([
-    // Calls are read unscoped and judged below: a row on an inactive line
-    // can carry no business_id, and the board shows it by its line's brand.
     db.from('calls').select('business_id, grasshopper_number, occurred_at').eq('kind', 'inbound').eq('caller_phone', phone).order('occurred_at', { ascending: false }).limit(50),
     scoped(db.from('messages').select('business_id, our_phone, created_at').eq('customer_phone', phone)).order('created_at', { ascending: false }).limit(50),
     scoped(db.from('estimates').select('business_id').in('customer_phone', variants)).limit(1),
     scoped(db.from('customers').select('id').in('phone', variants)).limit(200),
   ]);
   for (const r of [callsR, msgsR, estsR, custsR]) if (r.error) throw r.error;
-  // The same rule the board's visibility uses (buildTouches: business_id,
-  // else the line's brand), so every card she can see has a working Call
-  // button (review 2026-09-24).
   const callRows = [];
   for (const r of callsR.data || []) {
     const lineSlug = (lineBy.get(phone10(r.grasshopper_number)) || {}).business_slug || null;
@@ -1698,8 +1371,6 @@ export async function pipelineCallTarget(db, auth, rawPhone, cardSlugIn, anyBusi
   if (!callRows.length && !(msgsR.data || []).length && !(estsR.data || []).length && !bookingBiz) {
     throw httpErr(404, 'No call, text, estimate or booking from this number in your businesses.');
   }
-  // A line of the card's own brand family, so the try and the caller ID match
-  // the inquiry the card is about.
   const usable = (p) => {
     const l = p && lineBy.get(p);
     return l && l.active !== false && p !== TOLL_FREE && (allowed === null || allowed.includes(l.business_slug))
@@ -1723,23 +1394,11 @@ export async function pipelineCallTarget(db, auth, rawPhone, cardSlugIn, anyBusi
   return { phone, line: tollFree, businessId: (cardSlug && idBySlug.get(cardSlug)) || null };
 }
 
-// call_live_start (amendment 5, 2026-09-24): tie a Take a Call row to the
-// inbound call it is for, so the card joins cleanly. An explicit
-// inbound_call_id (the script opened from a card) must be an inbound call
-// this login may use; otherwise the latest inbound call that rang this
-// person's handset in the last 15 min and isn't already another script's --
-// from the script's own customer number when it knows one.
-// That call is normally still IN PROGRESS when the script starts (answered is
-// only written when the forward ends), so "not missed" -- answered true or
-// still null -- is the test, not answered=true. Best-effort: never throws,
-// returns {} when nothing fits. Returns { inbound_call_id?, caller_phone? }.
 export async function inboundForLiveStart(db, auth, body) {
   const out = {};
   try {
     const typed = strictPhone(body && body.caller_phone);
     if (typed && !REPEATED.test(typed)) out.caller_phone = typed;
-    // A call row on an inactive line can carry no business_id: judge it by
-    // the line's brand, the same rule the board uses to show it (review 2026-09-24).
     const lineSlugs = new Map();
     const slugOfCall = async (c) => {
       if (c.business && c.business.slug) return c.business.slug;
@@ -1773,13 +1432,7 @@ export async function inboundForLiveStart(db, auth, body) {
     const list = [];
     for (const c of cands || []) {
       if (c.answered === false || c.status === 'ignored') continue;
-      // A pickup under 20 s was voicemail or a hang-up, not the call she is
-      // scripting -- the board's own bar (matchInbound).
       if (c.answered === true && c.duration_sec != null && c.duration_sec < TALK_MIN_SEC) continue;
-      // The script already knows the customer's number (opened from a card,
-      // or typed): only THAT customer's call. Linking whoever rang her last
-      // would turn another customer's call into a confirmed talk on their
-      // card and use it up (review 2026-09-24).
       if (out.caller_phone && strictPhone(c.caller_phone) !== out.caller_phone) continue;
       if (!mayUseBusiness(auth, await slugOfCall(c))) continue;
       list.push(c);

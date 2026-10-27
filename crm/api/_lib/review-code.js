@@ -1,8 +1,6 @@
 import crypto from 'node:crypto';
 import { signToken, verifyToken } from './auth.js';
 
-// 16-byte booking UUID + 4-byte expiry + 12-byte MAC = 43 URL-safe characters.
-// Domain-separated from session tokens; the code grants review access only.
 function mac(body) {
   return crypto.createHmac('sha256', process.env.SESSION_SECRET || 'dev-insecure-secret-change-me')
     .update('review-code:v1:').update(body).digest().subarray(0, 12);
@@ -20,7 +18,6 @@ export function compactReviewToken(token) {
 }
 
 export function expandReviewCode(code) {
-  // Existing emailed and texted links retain their original validation path.
   if (typeof code !== 'string') return null;
   if (code.includes('.')) return code;
   if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return null;

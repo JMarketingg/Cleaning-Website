@@ -1,15 +1,3 @@
-// api/_lib/domain-watch.js
-// Daily "is this domain buyable yet?" check for the owner's watch list.
-//
-// How a domain is judged, in order of trust:
-//   1. RDAP (the registries' own lookup service; the IANA bootstrap file says
-//      which server answers for each TLD). 404 = not registered = AVAILABLE.
-//      200 = registered; its status flags say whether it is about to drop
-//      ("pending delete") or in its paid grace window ("redemption period").
-//   2. For a TLD with no RDAP server, a DNS lookup: NXDOMAIN means nothing is
-//      delegated, reported as LIKELY available (a registered-but-unused domain
-//      can also have no DNS, so this one is never called a sure thing).
-// The check never buys anything. It only tells the owner, by text.
 import { sendSMS } from './sms.js';
 import { sendEmail } from './email.js';
 
@@ -17,10 +5,8 @@ const BOOTSTRAP_URL = 'https://data.iana.org/rdap/dns.json';
 const FETCH_TIMEOUT_MS = 9000;
 const CONCURRENCY = 8;
 
-// A domain worth an alert: sure-thing available, or about to drop.
 export const ALERT_STATUSES = new Set(['available', 'pending_delete', 'likely_available']);
 
-// "https://www.Example.com/path" -> "example.com"; null when it is not a domain.
 export function cleanDomain(raw) {
   let d = String(raw || '').trim().toLowerCase();
   if (!d) return null;
@@ -29,7 +15,6 @@ export function cleanDomain(raw) {
   return d;
 }
 
-// Split a pasted blob (newlines, commas, spaces) into unique clean domains.
 export function parseDomainList(text) {
   const seen = new Set(); const good = []; const bad = [];
   for (const tok of String(text || '').split(/[\s,;]+/)) {
@@ -66,10 +51,9 @@ async function dnsSaysUnregistered(domain) {
   const r = await fetchTimeout(`https://cloudflare-dns.com/dns-query?name=${encodeURIComponent(domain)}&type=NS`, { headers: { accept: 'application/dns-json' } });
   if (!r.ok) throw new Error(`DNS lookup failed (${r.status})`);
   const j = await r.json();
-  return j.Status === 3;   // NXDOMAIN
+  return j.Status === 3;
 }
 
-// -> { status, expires_at, registrar, error }
 export async function checkDomain(domain) {
   const tld = domain.split('.').pop();
   try {
@@ -108,13 +92,6 @@ function alertText(row, res) {
   return null;
 }
 
-// Check every watched domain (or just `onlyIds`), save the results, and text
-// the owner about anything newly alert-worthy. Returns a summary.
-// digest: fold every alert from this run into ONE text and ONE email (the
-//   owner pasting 100 domains must not get 100 messages). Runs with 2+ alerts
-//   are folded automatically too.
-// quiet:  send nothing at all. The alerts are still recorded as delivered, and
-//   the dashboard banner and the list page still show them.
 export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, digest = false, quiet = false } = {}) {
   let q = db.from('domain_watch').select('*').order('created_at');
   if (onlyIds) q = q.in('id', onlyIds);
@@ -137,25 +114,17 @@ export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, di
       registrar: res.registrar !== undefined ? res.registrar : row.registrar,
     };
     if (changed && res.status !== 'error') { patch.status_since = nowISO; patch.alert_dismissed_status = null; }
-    // A transient lookup error keeps the last real answer, so one bad day
-    // never turns "taken" into "unknown" or re-arms an alert.
     if (res.status === 'error') { patch.status = row.status === 'unchecked' ? 'error' : row.status; delete patch.status_since; }
     const eff = patch.status;
     if (ALERT_STATUSES.has(eff) && row.notified_status !== eff) {
       const msg = alertText(row, { status: eff });
       if (msg) alerts.push({ id: row.id, domain: row.domain, status: eff, msg, subject: alertSubject(eff) });
     }
-    // Anything that fell back to a non-alert state re-arms future alerts.
     if (!ALERT_STATUSES.has(eff) && row.notified_status && res.status !== 'error') { patch.notified_status = null; }
     const { error: uErr } = await db.from('domain_watch').update(patch).eq('id', row.id);
     if (uErr) console.warn('[domain_watch] save failed for', row.domain, uErr.message);
   }
 
-  // Alert everywhere the owner can be reached: a text, an email, and (because
-  // the row is now in an alert state and not dismissed) a banner on the
-  // dashboard. Each channel is best-effort on its own; the row counts as
-  // notified as soon as ONE of them got through, so a dead channel never
-  // makes the other two repeat themselves every day.
   let texted = 0, emailed = 0;
   const phone = process.env.OWNER_PHONE_NUMBER;
   const ownerEmail = process.env.OWNER_EMAIL || 'owner@example.invalid';
@@ -165,7 +134,6 @@ export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, di
   if (sendAlerts && alerts.length && quiet) {
     for (const a of alerts) await markDone(a);
   } else if (sendAlerts && alerts.length && (digest || alerts.length > 1)) {
-    // ONE text and ONE email covering every alert in this run.
     const groups = [
       ['available', 'Available now'], ['likely_available', 'Likely available'], ['pending_delete', 'Dropping soon (about 5 days)'],
     ].map(([st, label]) => ({ label, items: alerts.filter(a => a.status === st).map(a => a.domain) })).filter(g => g.items.length);
@@ -178,7 +146,7 @@ export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, di
     }
     try {
       const inner = groups.map(g => `<h3 style="margin:14px 0 4px">${g.label} (${g.items.length})</h3><ul style="margin:0;padding-left:20px">${g.items.map(d => `<li>${d}</li>`).join('')}</ul>`).join('');
-      const r = await sendEmail({ slug: 'handy-andy', to: ownerEmail, subject: `Domain watch: ${alerts.length} domains need attention`, html: emailWrap(`${alerts.length} domains need attention`, inner) });
+      const r = await sendEmail({ slug: 'tidyhaus', to: ownerEmail, subject: `Domain watch: ${alerts.length} domains need attention`, html: emailWrap(`${alerts.length} domains need attention`, inner) });
       if (r && r.sent) { emailed++; ok = true; }
     } catch (e) { console.warn('[domain_watch] digest email failed:', e.message); }
     if (ok) for (const a of alerts) await markDone(a);
@@ -190,7 +158,7 @@ export async function runDomainWatch(db, { onlyIds = null, sendAlerts = true, di
         catch (e) { console.warn('[domain_watch] alert text failed for', a.domain, e.message); }
       }
       try {
-        const r = await sendEmail({ slug: 'handy-andy', to: ownerEmail, subject: `${a.subject}: ${a.domain}`, html: emailWrap(`${a.subject}: ${a.domain}`, `<p>${a.msg}</p>`) });
+        const r = await sendEmail({ slug: 'tidyhaus', to: ownerEmail, subject: `${a.subject}: ${a.domain}`, html: emailWrap(`${a.subject}: ${a.domain}`, `<p>${a.msg}</p>`) });
         if (r && r.sent) { emailed++; ok = true; }
       } catch (e) { console.warn('[domain_watch] alert email failed for', a.domain, e.message); }
       if (ok) await markDone(a);

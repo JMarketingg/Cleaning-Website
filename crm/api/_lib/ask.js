@@ -1,16 +1,3 @@
-// "Ask Owner" (owner, 2026-09-24): an AI version of the owner that staff can
-// ask anything, so a new hire does a great job from day 1. Owner-only while
-// it is being taught; later each staff role gets its own guidelines.
-//
-// Rules the owner set: extremely short, direct, accurate answers. If it does
-// not actually know, it says "I don't know" -- never makes anything up -- and
-// the question lands as an alert in the owner's Analytics tab, where he
-// answers it once and the answer becomes knowledge. It may DRAFT an estimate
-// (the office reviews and sends it); it never texts or books anything itself.
-//
-// Knowledge = app.ask_knowledge (seeded from the CRM's own phone script and
-// rules, then taught by the owner) + a live read of prices, service areas,
-// coupons and the zip in the question. Opus 5.5 only, no fallback model.
 import Anthropic from '@anthropic-ai/sdk';
 
 const MODEL = 'claude-opus-5-5';
@@ -50,11 +37,11 @@ Accuracy is everything:
 - draft_estimate only when asked for a quote/estimate and every line price is in LIVE CRM DATA; otherwise null. Line items: one line per chosen option ("Group: Option"), Travel line if the zip has a travel fee, "Service minimum" top-up if needed. Prices before tax.`;
 
 let _client;
-function staffOnly(auth) { return auth && auth.role === 'owner'; }   // owner-only while being taught
+function staffOnly(auth) { return auth && auth.role === 'owner'; }
 
 async function liveData(db, question) {
   const out = {};
-  const { data: biz } = await db.from('businesses').select('id, slug, name').in('slug', ['handy-andy', 'doms']);
+  const { data: biz } = await db.from('businesses').select('id, slug, name').in('slug', ['tidyhaus', 'doms']);
   const byId = Object.fromEntries((biz || []).map(b => [b.id, b]));
   const ids = Object.keys(byId);
   if (!ids.length) return out;
@@ -96,7 +83,7 @@ async function ask(req, res, db, auth, body) {
     liveData(db, question + ' ' + history.map(h => h.q).join(' ')),
   ]);
   const knowledge = (know || []).map(k => `- ${k.topic ? k.topic + ': ' : ''}${k.body}`).join('\n');
-  const curBiz = { 'handy-andy': 'TidyHaus', doms: "Dom's Home Cleaning" }[body.business] || null;
+  const curBiz = { 'tidyhaus': 'TidyHaus', doms: "Dom's Home Cleaning" }[body.business] || null;
   const prompt = `CURRENT BUSINESS: ${curBiz || 'not set'}
 
 KNOWLEDGE (the owner's rules):\n${knowledge || '(none yet)'}\n\nLIVE CRM DATA:\n${JSON.stringify(live)}\n\n` +
@@ -141,8 +128,6 @@ async function log(req, res, db) {
 }
 
 export async function askHandler(req, res, db, auth, body) {
-  // Owner, 2026-09-25: secretaries may ASK ("Ask the Owner"); only the owner
-  // sees the log and teaches it. Never the auditor.
   const op = String(body.op || 'ask');
   if (req.method === 'POST' && op === 'ask' && auth && ['owner', 'secretary'].includes(auth.role)) return ask(req, res, db, auth, body);
   if (!staffOnly(auth)) return res.status(403).json({ error: 'Owner only' });

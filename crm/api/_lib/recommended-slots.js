@@ -1,8 +1,3 @@
-// Recommended slots (owner 2026-10-19): the 4 emptiest weekday+slot combos over
-// the rolling last 90 days (non-cancelled, non-import jobs, business local
-// time; the 8 PM slot s5 is never counted). Staff are nudged to offer these
-// first. Cached in memory for 12h so it updates itself; seeded with the
-// 10/19 result so the first request never waits or goes blank.
 const TTL_MS = 12 * 3600 * 1000;
 const COUNTED = ['s1', 's2', 's3', 's4'];
 const SEED = ['1:s1', '6:s4', '4:s4', '0:s4'];
@@ -46,7 +41,6 @@ async function compute(db) {
   return [...counts.entries()].sort((a, b) => a[1] - b[1]).slice(0, 4).map(e => e[0]);
 }
 
-// Returns ['dow:slot_key', ...] (top 4). Never throws.
 export async function recommendedSlots(db) {
   if (Date.now() - cache.at < TTL_MS) return cache.keys;
   if (!inflight) inflight = compute(db)

@@ -1,9 +1,3 @@
-// Estimate pre-fill (owner, 2026-09-28): "Build an estimate" on a Pipeline card
-// reads the customer's last real call and ticks the same TV options the office
-// would have picked. Only option ids from this business's own price list can
-// come back, so every price still comes from the catalog, never from the AI.
-// Saved on the call (calls.estimate_prefill, keyed by business) so reopening
-// costs nothing.
 import Anthropic from '@anthropic-ai/sdk';
 
 const SYSTEM = `You read a phone call between our office ("Staff:") and a customer ("Customer:") for a home cleaning company, and pick what the customer wants from our price list.
@@ -30,7 +24,6 @@ async function tvCatalog(db, businessId) {
   return (groups || []).map(g => ({ ...g, options: (opts || []).filter(o => o.group_id === g.id) }));
 }
 
-/** @returns {{ call_id, selections: {option_id, count}[], zip: string|null } | { error }} */
 export async function estimatePrefill(db, businessId, phone) {
   const digits = String(phone || '').replace(/\D/g, '').slice(-10);
   if (digits.length !== 10) return { error: 'No phone number' };

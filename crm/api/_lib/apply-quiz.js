@@ -1,22 +1,5 @@
-// api/_lib/apply-quiz.js
-//
-// The technician-applicant screening quiz (migration 0114). Indeed sends
-// people to public/apply.html; they take this fixed quiz before they're
-// allowed to create a tech account. Correct answers live ONLY here, never in
-// anything served to the browser -- apply_start (api/tech.js) strips
-// `correct` before sending questions out, and grading happens server-side in
-// applySubmit.
-//
-// Fixed order, same question set for everyone (no randomized subset): the
-// owner chose simplicity over anti-cheating resistance for v1. Short-answer
-// questions are captured for a human to read later (Analytics tab) but never
-// scored -- only the multiple-choice section decides pass/fail.
 
-// _lib is not a route, so this file does not count against Vercel's function cap.
 
-// The correct answer sits in a different position from question to question
-// on purpose: with a fixed order (no shuffling), an all-first-choice key
-// would let anyone pass by tapping the top option every time.
 export const QUESTIONS = [
   { key: 'q1',  prompt: "What's the best tool for locating a wall stud before drilling?", choices: ['Knock and listen', 'A tape measure from the corner', 'A stud finder', 'Just eyeball it'], correct: 2 },
   { key: 'q2',  prompt: 'Standard stud spacing in most U.S. homes is:', choices: ['12 inches', '16 inches', '24 inches', "There's no standard"], correct: 1 },
@@ -45,25 +28,16 @@ export const SHORT_ANSWER_QUESTIONS = [
   { key: 'q22', prompt: 'A customer’s wall doesn’t have a stud where they want the TV, and doing it right means a heavier-duty anchor kit that costs $40 more. In your own words, how would you explain that to the customer?' },
 ];
 
-// 16 of 20 (80%) on the graded multiple-choice section. Short answers never
-// count toward this -- they're read by a human, not scored.
 export const PASS_THRESHOLD = 16;
 
-// Same-day retake block, checked against the applicant's phone number.
 export const RETAKE_COOLDOWN_HOURS = 24;
 
-// Who a pass gets invited as. Hardcoded rather than data-driven: only one
-// metro is ever "currently hiring" at a time (public/apply.html's badge), and
-// changing it is a one-line edit here plus the badge on the page -- both
-// already flagged as a single change when the owner opens a new city.
 export const HIRING = {
-  businessId: '2d93ffe1-015e-4122-8967-315dc77d9802',   // TidyHaus
-  serviceAreaId: 'fd8d3119-8dde-43c3-b0ab-24839569a09a', // Los Angeles
+  businessId: '2d93ffe1-015e-4122-8967-315dc77d9802',
+  serviceAreaId: 'fd8d3119-8dde-43c3-b0ab-24839569a09a',
   metro: 'Los Angeles',
 };
 
-// What apply.html actually fetches: no `correct` field, so the answer key
-// never reaches the browser.
 export function publicQuestions() {
   return {
     multiple_choice: QUESTIONS.map(q => ({ key: q.key, prompt: q.prompt, choices: q.choices })),
@@ -71,9 +45,6 @@ export function publicQuestions() {
   };
 }
 
-// answers: [{ key, choice }] -- choice is the index the applicant picked.
-// Unknown keys and out-of-range choices just score as wrong, never throw, so
-// a stale client can't 500 the endpoint.
 export function gradeAnswers(answers) {
   const byKey = new Map((Array.isArray(answers) ? answers : []).map(a => [a?.key, a?.choice]));
   const graded = QUESTIONS.map(q => {

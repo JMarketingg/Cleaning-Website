@@ -1,11 +1,5 @@
-// Undo a cash mark (owner 2026-10-23, Martin Heid: customer tapped Cash by
-// mistake). Flips a cash-paid booking back to unpaid card, restores any tax
-// lines the cash mark stripped, logs it to booking_notes + metadata.cash_reverted.
-// Never for a real Stripe charge: that needs a refund.
 import { bumpLiRev } from './line-items.js';
 
-// b needs: id, business_id, price, payment_status, payment_method,
-// stripe_payment_intent_id, metadata.
 export async function revertCash(db, b, { who, kind, authorId, reason }) {
   const why = String(reason || '').trim().slice(0, 300);
   if (!why) return { status: 400, error: 'Reason required.' };

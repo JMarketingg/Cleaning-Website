@@ -1,16 +1,3 @@
-// ============================================================================
-// api/_lib/daily-digest.js — one nightly "here's everything booked today" email.
-// ----------------------------------------------------------------------------
-// Replaces the per-booking "Someone just booked an appointment" alerts (which
-// piled up 10-15/day). Sends ONE summary at 8 PM Denver to OWNER_NOTIFY_EMAIL
-// listing every appointment BOOKED (created) during the current Denver day
-// across all active businesses. Best-effort: never throws.
-//
-// Scheduling: the GitHub Action fires at 02:00 AND 03:00 UTC daily; this guards
-// on "is it 8 PM in Denver right now?" so exactly one run sends, year-round
-// (handles the MDT/MST daylight-saving shift). Pass { force:true } to bypass the
-// clock (manual test), { dryRun:true } to count without sending.
-// ============================================================================
 import { serviceClient } from './supabase.js';
 import { emailConfig, sendEmail } from './email.js';
 import { emailNotificationsOn } from './notify.js';
@@ -36,38 +23,23 @@ function fmtWhen(iso, tz) {
 export async function sendDailyBookingDigest({ force = false, dryRun = false, offset: forceOffset = null } = {}) {
   try {
     const hour = denverHour();
-    // Which Denver day's digest is due right now? Robust to GitHub-cron delays,
-    // which routinely slip an on-time 02:00/03:00 UTC run by hours (that's why an
-    // exact "hour === 20" gate silently missed some nights): send tonight's from
-    // 8 PM on, and if a run only lands after midnight, still send YESTERDAY's as a
-    // catch-up. The Resend idempotency key (below) keys on the evening being
-    // summarized, so the extra hourly attempts deliver exactly one email per day.
-    // An explicit `offset` (0 = today, -1 = yesterday, …) backfills a specific day
-    // on demand, bypassing the clock — used to re-send a digest that was missed.
     let offset;
     if (Number.isFinite(forceOffset)) offset = forceOffset;
     else if (force) offset = 0;
-    else if (hour >= 20) offset = 0;        // this evening (8 PM–midnight Denver)
-    else if (hour < 8)   offset = -1;       // overnight — catch up a delayed run
-    else return { skipped: `not evening (Denver hour ${hour})`, denverHour: hour };
+    else if (hour >= 20) offset = 0;
+    else if (hour < 8)   offset = -1;
+    else return { skipped: `not evening (Manila hour ${hour})`, denverHour: hour };
 
     if (!emailNotificationsOn()) return { skipped: 'notifications off' };
-    const cfg = emailConfig('handy-andy');
+    const cfg = emailConfig('tidyhaus');
     if (!cfg.apiKey) return { skipped: 'no email API key' };
     const to = process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid';
 
     const db = serviceClient();
-    const start = localDayStartUTC(DIGEST_TZ, offset);       // 00:00 Denver of the target day
-    const end   = localDayStartUTC(DIGEST_TZ, offset + 1);   // 00:00 Denver the next day
-    const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: DIGEST_TZ }).format(start); // YYYY-MM-DD of target day
+    const start = localDayStartUTC(DIGEST_TZ, offset);
+    const end   = localDayStartUTC(DIGEST_TZ, offset + 1);
+    const dayKey = new Intl.DateTimeFormat('en-CA', { timeZone: DIGEST_TZ }).format(start);
 
-    // Everything BOOKED (created) during today's Denver day, any business, minus
-    // cancellations. Imported rows are EXCLUDED: a bulk history import stamps
-    // thousands of old jobs with the import day's created_at, which read as
-    // "booked today" -- the Jul 30 2026 Zenbooker import (7,097 jobs) produced
-    // a "1000 new appointments, 50 overdue, 277 issues" digest (the 1000 was
-    // itself a lie: Supabase's silent 1,000-row default cap; the real day had
-    // 9 bookings).
     const { data: rows } = await db.from('bookings')
       .select(`id, created_at, scheduled_at, price, status, service_area_id, source, metadata, customer_id,
                business:businesses ( name, slug, timezone ),
@@ -83,38 +55,20 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
       .order('created_at', { ascending: true });
     const bookings = rows || [];
 
-    // "Booked by" — online widget vs. whoever in the office created it manually.
     const bookedByLabel = (b) => {
       if (b.source === 'widget') return 'Online booking';
       return b.metadata?.booked_by || 'Office';
     };
-    // Coupon code, if the customer applied one (widget bookings only).
     const couponLabel = (b) => {
       const li = (b.booking_line_items || []).find(x => x.kind === 'coupon');
       return li ? li.name.replace(/^Coupon\s+/i, '') : null;
     };
-    // Per-zip flat price adjustment (api/book.js, ZIP_ADJUSTMENT_LINE_NAME —
-    // keep this string in sync with that constant). Deliberately invisible to
-    // the customer everywhere else (no line on their receipt, no mention in
-    // the widget) — this digest is the ONE place it's meant to surface, since
-    // the owner explicitly wants to know whenever a job used it.
     const ZIP_ADJUSTMENT_LINE_NAME = 'Location-based pricing';
     const zipAdjustmentLine = (b) => (b.booking_line_items || []).find(x => x.name === ZIP_ADJUSTMENT_LINE_NAME) || null;
 
-    // ── Overdue jobs — NOT limited to today's bookings. Any job, from any
-    // day, whose scheduled time has passed by 24+ hours but is still sitting
-    // in an active (non-completed, non-cancelled) status: the tech never
-    // marked it done, or something fell through the cracks entirely. Checked
-    // even on a day with zero new bookings, since a stale job from days ago
-    // is exactly the kind of thing this email exists to surface.
     let overdue = [];
     try {
       const overdueThreshold = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-      // source<>'import' for the same reason as the main query above: the
-      // Zenbooker history import carried 365 old jobs frozen mid-status
-      // ('on_the_way'/'in_progress' from the export), every one of which
-      // read as "overdue for completion" here. A real job can only become
-      // overdue through this system's own booking flows.
       const { data: overdueRows } = await db.from('bookings')
         .select(`id, scheduled_at, status, metadata,
                  business:businesses ( name ),
@@ -125,15 +79,12 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
         .neq('source', 'import')
         .order('scheduled_at', { ascending: true })
         .limit(50);
-      // Owner can silence one job's warning: bookings.metadata.digest_ignore.
       overdue = (overdueRows || []).filter(o => !(o.metadata && o.metadata.digest_ignore));
     } catch (e) {
       console.warn('[daily-digest] overdue-jobs check failed (non-fatal):', e.message);
     }
 
     if (dryRun) return { would_send: bookings.length, overdue: overdue.length, to, denverHour: hour };
-    // Nothing booked today AND nothing overdue → no email (keeps the inbox
-    // quiet on slow, clean days). Either one alone still sends.
     if (!bookings.length && !overdue.length) return { sent: false, count: 0, reason: 'no new bookings and nothing overdue' };
 
     const hoursLate = (iso) => Math.round((Date.now() - new Date(iso).getTime()) / (60 * 60 * 1000));
@@ -146,8 +97,6 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
         </div>`
       : '';
 
-    // Per-booking metro timezone (Central for Houston/Austin) so the scheduled
-    // time reads correctly.
     const areaIds = [...new Set(bookings.map(b => b.service_area_id).filter(Boolean))];
     const tzByArea = {};
     if (areaIds.length) {
@@ -162,16 +111,8 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
     const total = bookings.reduce((s, b) => s + (Number(b.price) || 0), 0);
     const dateLabel = new Intl.DateTimeFormat('en-US', { timeZone: DIGEST_TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(start);
 
-    // ── Issues — the whole point of opening this email: surface anything that
-    // looks wrong about TODAY's bookings without having to open the dashboard.
-    // Checked in priority order per booking; a booking only shows its FIRST
-    // matching issue (a bare $0 booking would otherwise also trip "low profit"
-    // and "no line items" — one clear flag beats three redundant ones).
     const who = (b) => b.customer?.name || 'A customer';
 
-    // Zip pricing adjustment — jobs today whose price was bumped/cut by the
-    // per-zip flat adjustment. Owner-requested visibility: the customer never
-    // sees this line anywhere, so this digest is the only place it's tracked.
     const zipAdjustedBookings = bookings
       .map(b => ({ b, li: zipAdjustmentLine(b) }))
       .filter(x => x.li && Number(x.li.line_total) !== 0);
@@ -188,9 +129,6 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
         </div>`
       : '';
 
-    // Customer ids that show up more than once among today's bookings — a
-    // second job for the same person on the same day, which is either a
-    // legitimate repeat customer or an accidental double-book worth a glance.
     const customerIdCounts = new Map();
     for (const b of bookings) {
       if (!b.customer_id) continue;
@@ -213,7 +151,7 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
         key: 'low_profit',
         label: 'Low or negative estimated profit',
         test: (b) => {
-          if ((Number(b.price) || 0) === 0) return false; // already covered by zero_not_gds
+          if ((Number(b.price) || 0) === 0) return false;
           const p = estimateJobProfit({ price: b.price, lines: b.booking_line_items, techName: b.technician?.name, scheduled_at: b.scheduled_at, created_at: b.created_at });
           return p != null && p < 20;
         },
@@ -277,9 +215,8 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
         </div>`
       : `<div style="margin:0 0 20px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px 18px;color:#166534;font-weight:700;font-size:14px;">&#9989; No issues found in today's bookings.</div>`;
 
-    // Short business label for the table: "HA Denver", "Dom's OKC", "A1 DFW".
     const CITY_SHORT = { 'oklahoma city': 'OKC', 'dallas-fort worth': 'DFW', 'los angeles': 'LA' };
-    const BRAND_SHORT = { 'handy-andy': 'HA', doms: "Dom's", a1tvmounting: 'A1' };
+    const BRAND_SHORT = { 'tidyhaus': 'HA', doms: "Dom's", a1tvmounting: 'A1' };
     const bizShortLabel = (b) => {
       const slug = b.business?.slug || '';
       let brand = BRAND_SHORT[slug] || String(b.business?.name || '').replace(/\s*TV (Mounting|Installation|Hanging|Pro|Pros)\b.*$/i, '').trim();
@@ -290,8 +227,6 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
       return brand.trim() || '—';
     };
 
-    // Owner 2026-10-10: the booking table shows only Customer, City, Appointment,
-    // Tech, Booked by, Total. Nothing else.
     const rowsHtml = bookings.map(b => {
       return `<tr style="border-top:1px solid #e5e7eb;">
         <td style="padding:9px 10px;vertical-align:top;font-weight:700;color:#111;">${escHtml(b.customer?.name || 'Customer')}</td>
@@ -324,16 +259,11 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
       ${overdueBlock}
       ${zipAdjustmentBlock}
       ${bookingsTable}
-      <div style="margin-top:18px;font-size:12px;color:#9ca3af;">You're getting one summary a day instead of an email per booking. Sent at 8 PM Denver.</div>
+      <div style="margin-top:18px;font-size:12px;color:#9ca3af;">You're getting one summary a day instead of an email per booking. Sent at 8 PM Manila.</div>
     </div>`;
 
-    // Cron sends keep the per-day idempotency key (exactly one delivery per
-    // Denver day even if the cron fires twice). A FORCED send gets a unique
-    // key: force exists precisely to resend a day's digest (e.g. after the
-    // Jul 30 2026 import-polluted email), and reusing the day key would make
-    // the provider silently swallow the resend as a duplicate of the bad one.
     await sendEmail({
-      slug: 'handy-andy', to,
+      slug: 'tidyhaus', to,
       subject: `Daily booking summary — ${bookings.length} new appointment${bookings.length === 1 ? '' : 's'}${overdue.length ? `, ${overdue.length} overdue` : ''}`,
       html, replyTo: cfg.from,
       idempotencyKey: force ? `daily-digest-${dayKey}-resend-${Date.now()}` : `daily-digest-${dayKey}`,

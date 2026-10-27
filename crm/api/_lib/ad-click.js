@@ -1,6 +1,3 @@
-// Google ad click IDs + utm_* a site or the widget passes along (same keys as
-// bookings' ad_click). Shared by the widget (api/estimate.js) and the website
-// quote forms (api/quote.js, api/doms-lead.js) so every estimate keeps its click.
 export function cleanAdClick(v) {
   if (typeof v === 'string') { try { v = JSON.parse(v); } catch { return null; } }
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;

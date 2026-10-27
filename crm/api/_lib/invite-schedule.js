@@ -1,9 +1,3 @@
-// Scheduled tech invite texts (owner 2026-10-06, migration 0178).
-// Runs on the 10-min tech_late_check cron:
-//  1. Texts each pending invite whose send_at has passed and that was never
-//     sent, using its custom_message.
-//  2. 24h after a text, if they still haven't signed up, puts one red task on
-//     the owner's dashboard (assistant_tasks).
 import { sendTechSms, inviteLink, smsFailReason } from './tech-invite.js';
 
 const DAY_MS = 864e5;
@@ -24,7 +18,7 @@ export async function runScheduledInvites(db, { dryRun = false } = {}) {
     const r = await sendTechSms(db, { kind: 'tech_invite', businessId: inv.business_id, phone: inv.invitee_phone, message });
     const patch = { last_sms_log_id: r.logId || null };
     if (r.ok) { patch.sent_at = now.toISOString(); patch.send_count = (inv.send_count || 0) + 1; }
-    else patch.send_at = null;   // don't retry every 10 min; the owner sees the failure on the invite
+    else patch.send_at = null;
     await db.from('tech_invites').update(patch).eq('id', inv.id);
     (r.ok ? out.sent : out.failed).push(r.ok ? inv.invitee_name : `${inv.invitee_name}: ${smsFailReason(r)}`);
   }

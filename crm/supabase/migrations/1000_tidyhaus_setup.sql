@@ -29,7 +29,7 @@ update app.businesses set
 where slug = 'handy-andy';
 
 -- 4. Service areas.
-with b as (select id from app.businesses where slug = 'handy-andy'),
+with b as (select id from app.businesses where slug in ('handy-andy','tidyhaus')),
 a as (
   insert into app.service_areas (business_id, name, state, timezone, active)
   select b.id, x.name, 'Metro Manila', 'Asia/Manila', true from b,
@@ -54,7 +54,7 @@ from app.businesses b,
   ('Airbnb & Rental',        'Turnover between guests',           1300, 150, 5),
   ('Office Cleaning',        'Small offices',                     2500, 240, 6)
 ) s(name, descr, price, mins, ord)
-where b.slug = 'handy-andy';
+where b.slug in ('handy-andy','tidyhaus');
 
 -- 6. Placeholder price list. city_key = area, section_key = price group.
 insert into app.widget_prices (business_id, city_key, section_key, option_id, label, price, sort_order, row_key)
@@ -89,8 +89,11 @@ cross join (values
   ('frequency','monthly','Monthly (discount ₱ per visit)',100,53),
   ('rules','minimum','Minimum job price',1200,60)
 ) p(section, opt, label, price, ord)
-where b.slug = 'handy-andy';
+where b.slug in ('handy-andy','tidyhaus');
 
 -- 7. Only TidyHaus remains (Manila, one location). Old sample content removed.
 delete from app.businesses where slug <> 'handy-andy';
 delete from app.prospect_tips; delete from app.multi_tv_discount_config; delete from app.launch_snapshots;
+
+-- 8. Internal business id is 'tidyhaus' (was the starter kit's id).
+update app.businesses set slug = 'tidyhaus' where slug = 'handy-andy';

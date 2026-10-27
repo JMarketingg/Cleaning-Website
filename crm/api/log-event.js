@@ -1,6 +1,3 @@
-// Website analytics for tidyhausph.com.
-// POST: the tracker script (public/t.js) sends visits, clicks and quote steps.
-// GET:  the CRM report page (public/site-analytics.html) reads totals. Needs a CRM login token.
 import { serviceClient } from './_lib/supabase.js';
 import { verifyToken } from './_lib/auth.js';
 import { isBotUserAgent } from './_lib/bot-filter.js';

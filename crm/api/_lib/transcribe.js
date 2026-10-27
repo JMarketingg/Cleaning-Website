@@ -1,14 +1,3 @@
-// Call transcripts via Twilio Voice Intelligence (owner, 2026-09-25: "add
-// transcribing to Jiyah's voice recordings ... I already have Twilio").
-//
-// Every answered call is recorded dual-channel (record-from-answer-dual):
-// channel 1 = the caller, channel 2 = whoever picked up. When a recording
-// lands, startTranscript() asks Twilio to transcribe it; Twilio calls
-// api/analytics?action=vi_webhook when it's done and finishTranscript() writes
-// "Customer: ... / Staff: ..." into calls.transcript. The webhook payload is
-// never trusted: it only names a transcript sid, which is re-read from
-// Twilio with our own credentials and matched back to the call by the
-// CustomerKey we set (the call id).
 const VI = 'https://intelligence.twilio.com/v2';
 const SERVICE_NAME = 'crm-call-transcripts';
 let _serviceSid = process.env.TWILIO_VI_SERVICE_SID || null;
@@ -75,7 +64,6 @@ export async function finishTranscript(db, transcriptSid) {
     url = next ? next.replace(VI, '') : null;
   }
   sentences.sort((a, b) => (a.sentence_index ?? 0) - (b.sentence_index ?? 0));
-  // Merge back-to-back sentences from the same side into one turn.
   const turns = [];
   for (const s of sentences) {
     const who = Number(s.media_channel) === 2 ? 'Staff' : 'Customer';
@@ -84,7 +72,6 @@ export async function finishTranscript(db, transcriptSid) {
     const last = turns[turns.length - 1];
     if (last && last.who === who) last.text += ' ' + text; else turns.push({ who, text, at: Number(s.start_time) || 0 });
   }
-  // Each turn starts with its time in the call, e.g. "Staff: [1:05] ..." (owner, 2026-09-25).
   const stamp = sec => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, '0')}`;
   const body = turns.map(x => `${x.who}: [${stamp(x.at)}] ${x.text}`).join('\n') || '(no speech)';
   await db.from('calls').update({ transcript: body, transcript_status: 'done' }).eq('id', callId).eq('transcript_sid', transcriptSid);

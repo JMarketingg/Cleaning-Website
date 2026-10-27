@@ -1,28 +1,8 @@
-// Per-sender speed limit for the public lead forms (api/quote.js,
-// api/doms-lead.js).
-//
-// Why this exists: on 2026-09-04 and 2026-09-07 a bot drove the real
-// tidyhausph.com quote form in a headless browser and fired 13 fake "New quote
-// request"s in bursts -- 6 in 12 seconds, then 1, 1, and 5 in 14 seconds --
-// every one of them texting Heather. All 13 used the same Gmail inbox with dots
-// sprinkled through the name (owner@example.invalid), which Gmail
-// treats as one address. A real customer sends one request, maybe a second if
-// they think the first didn't go through. So once the same connection, the same
-// inbox or the same phone number has sent a few in ten minutes, the rest are
-// dropped. (Phone matters for doms-lead, where email is optional -- without it
-// a request would only be counted by IP.)
-//
-// Kept in memory on purpose: no table, nothing to migrate. A burst like the
-// ones above lands on a warm function instance, which is exactly when this
-// catches it; a cold start forgets and lets a few more through, and each
-// endpoint's own honeypot/origin/timing checks still apply to those. It never
-// blocks anyone's first submission.
 
 const WINDOW_MS = 10 * 60 * 1000;
 const MAX_PER_WINDOW = 3;
-const hits = new Map(); // key -> timestamps (ms) inside the window
+const hits = new Map();
 
-/** Gmail ignores dots and anything after "+", so collapse those to one inbox. */
 export function normalizeEmail(raw) {
   const e = String(raw || '').trim().toLowerCase();
   const at = e.lastIndexOf('@');
@@ -34,7 +14,6 @@ export function normalizeEmail(raw) {
   return `${local}@${domain}`;
 }
 
-/** The visitor's IP as Vercel reports it (first hop of x-forwarded-for). */
 export function clientIp(req) {
   const xff = String((req.headers && req.headers['x-forwarded-for']) || '').split(',')[0].trim();
   return xff || String((req.headers && req.headers['x-real-ip']) || '');
@@ -47,17 +26,8 @@ function recordAndCount(key, now) {
   return recent.length;
 }
 
-/**
- * Records one submission and returns true when its sender is past the limit --
- * more than MAX_PER_WINDOW in WINDOW_MS from the same IP, the same
- * (normalized) email OR the same phone number. `scope` keeps each form's
- * counts separate.
- * @param {string} scope e.g. 'quote' or 'doms-lead'
- * @param {{ip?: string, email?: string, phone?: string}} sender
- */
 export function overSpeedLimit(scope, { ip, email, phone } = {}) {
   const now = Date.now();
-  // A long-lived instance must not grow this map forever.
   if (hits.size > 5000) {
     for (const [k, ts] of hits) if (!ts.some((t) => now - t < WINDOW_MS)) hits.delete(k);
   }
@@ -70,8 +40,6 @@ export function overSpeedLimit(scope, { ip, email, phone } = {}) {
   return over;
 }
 
-/** Random-letter bot junk ("gXYbEukFfLiqPlhicNPAh"): one long run of letters
- *  with capitals scattered through it. A real name has a space or is short. */
 export function isGibberish(v) {
   v = String(v || '').trim();
   return /^[A-Za-z]{12,}$/.test(v) && (v.slice(1).match(/[A-Z]/g) || []).length >= 3;

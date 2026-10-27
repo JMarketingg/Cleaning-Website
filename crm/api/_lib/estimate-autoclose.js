@@ -1,10 +1,3 @@
-// api/_lib/estimate-autoclose.js
-// Auto-close stale estimates (moved out of the Estimates GET, owner 2026-10-22).
-// Run by the estimate_followup_check cron (vercel.json, every 10 min).
-//   unsent 7+ days                      -> expired
-//   sent, not approved, 3+ days since
-//   the latest send                     -> lost (closed_reason 'auto')
-// Never touches approved/booked/out_of_area or deleted rows.
 import { serviceClient } from './supabase.js';
 
 const DAY = 86400000;

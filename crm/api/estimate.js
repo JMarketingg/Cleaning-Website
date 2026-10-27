@@ -1,15 +1,3 @@
-// /api/estimate.js — public estimate (quote request) endpoint.
-//
-// Powers the standalone /estimate.html page for both businesses. Runs
-// server-side with the SERVICE ROLE key (RLS denies anon on app.estimates),
-// so the page itself ships no secret.
-//
-//   GET  ?action=services&business=<slug>   -> list Handyman estimate services
-//   POST ?action=submit                     -> create estimate + notify staff
-//
-// On submit, an SMS is sent to each number in
-// businesses.settings.estimate_notify_phones (owner + secretary), and a
-// customer who ticked the SMS opt-in box gets one opt-in confirmation text.
 import { capName } from './_lib/name-case.js';
 import { serviceClient } from './_lib/supabase.js';
 import { isBlockedPhone } from './_lib/blocked.js';
@@ -23,21 +11,10 @@ import { sendEmail, requestReceivedEmail, brandFor } from './_lib/email.js';
 
 const ALLOWED = new Set(ALL_BUSINESS_SLUGS);
 
-// Brands whose CUSTOMERS get an acknowledgement (text + email) the moment an
-// unstaffed-area request lands. The tidyhausph.com LA/DFW/Phoenix/San Antonio
-// pages keep their owner-only behavior; only brands listed here promise the
-// customer a follow-up in writing. Add a slug once its Resend key/from-address
-// exist (sendEmail skips loudly, never falls back to another brand's account).
 const REQUEST_ACK_SLUGS = new Set(['tvmountinglosangeles']);
 
-// Mirrors the estimates.tax_rate column default. Only used to compute the
-// "Value:" figure in the notification text when the caller didn't send its own
-// rate, so that number matches the "Estimated total" on the dashboard card.
 const DEFAULT_ESTIMATE_TAX_RATE = 0.0875;
 
-// Pull a missing-column name out of either error wording Supabase can surface:
-//   PostgREST schema cache: Could not find the 'customer_zip' column of 'estimates' …
-//   Raw Postgres (42703):   column estimates.customer_zip does not exist
 function missingColumn(msg) {
   let m = /Could not find the '([^']+)' column/.exec(msg || '');
   if (m) return m[1];
@@ -45,12 +22,6 @@ function missingColumn(msg) {
   return m ? m[1] : null;
 }
 
-// PostgREST/Postgres rejects an insert that references a column missing from
-// this database (e.g. a migration not yet applied). Rather than lose the
-// customer's request, strip the offending column and retry. Handles
-// sms_consent, customer_zip, and any future column drift the same way.
-// `inserted` is the row as actually stored (minus any stripped column), so a
-// caller can tell whether e.g. sms_consent really landed.
 async function insertResilient(db, table, row, returning = 'id') {
   const payload = { ...row };
   for (let i = 0; i < 8; i++) {
@@ -67,12 +38,7 @@ async function insertResilient(db, table, row, returning = 'id') {
   return { data: null, error: new Error(`insert into ${table} failed after stripping unknown columns`) };
 }
 
-// SMS sending (sendSMS) now lives in ./_lib/sms.js — Twilio, still gated by
-// smsNotificationsOn().
 
-// Format a US phone number as "(222) 222-2222" for storage/display. Strips a
-// leading country code; leaves anything that isn't a 10-digit US number as-is
-// (e.g. international numbers) so we never mangle an unusual but valid input.
 function formatPhoneUS(raw) {
   if (!raw) return raw;
   let d = String(raw).replace(/\D/g, '');
@@ -107,7 +73,6 @@ async function resolveBusiness(db, slug) {
   return data;
 }
 
-// GET ?action=services&business=<slug>
 async function listServices(req, res, db) {
   const slug = (req.query.business || '').toString();
   let biz; try { biz = await resolveBusiness(db, slug); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
@@ -122,20 +87,6 @@ async function listServices(req, res, db) {
   return res.status(200).json({ business: { slug: biz.slug, name: biz.name }, services });
 }
 
-// POST ?action=submit
-// Sanitize an incoming line-item array into the estimate line-item shape used
-// EVERYWHERE else in the app: { description, qty, unit_price }. This exact
-// shape matters — the dashboard's estimate card, quote builder, totals math
-// and convert-to-job all read `description` and `qty` (see admin.html's
-// estCard()/estLineTotal()). Emitting `name`/`quantity` instead renders every
-// row as a literal "Item" at $0.00 with a $0.00 subtotal, which is precisely
-// what happened to the first real DFW request.
-//
-// Accepts either spelling on input so a caller sending {name, quantity} still
-// stores correctly. Used by the online-booking "request" flow (unstaffed
-// service areas — public/widget.js) to carry the customer's real priced TV
-// selections into the estimate, instead of a free-text description. Optional:
-// the original /estimate.html quick-quote form never sends this.
 function sanitizeEstimateLineItems(arr) {
   if (!Array.isArray(arr)) return [];
   return arr.slice(0, 40).map(it => {
@@ -150,21 +101,12 @@ function sanitizeEstimateLineItems(arr) {
   }).filter(it => it.description);
 }
 
-// Subtotal of sanitized line items — same math as the dashboard's estLineTotal().
 function estimateLineItemsTotal(items) {
   return Math.round(items.reduce((s, li) => s + li.qty * li.unit_price, 0) * 100) / 100;
 }
 
-// Lines that are money adjustments, not work being performed. Excluded from the
-// "Service:" summary in the notification text — the total already reflects them,
-// and listing them reads as if they were things to install.
 const NON_SERVICE_LINE = /^(service minimum|service area surcharge|local travel credit|location|multi-tv|coupon\b|tax\b|after-hours)/i;
 
-// One-line "what is this job" summary for the notification text. Deliberately
-// terse: drops the "TV Size: " style question prefix each line carries for the
-// dashboard, drops $0 answers (the customer saying "no fireplace" is not work),
-// and drops fee/discount rows. "TV Size: 33\"-59\"" + "Wall Surface: Brick"
-// becomes `33"-59", Brick`.
 function estimateServiceSummary(items, maxLen = 90) {
   const parts = items
     .filter(li => li.unit_price > 0 && !NON_SERVICE_LINE.test(li.description))
@@ -172,9 +114,6 @@ function estimateServiceSummary(items, maxLen = 90) {
       let short = li.description.includes(': ')
         ? li.description.slice(li.description.indexOf(': ') + 2)
         : li.description;
-      // "Yes, hide the wires OUTSIDE the wall" -> "hide the wires OUTSIDE the
-      // wall". The lead-in is the customer answering a question we no longer
-      // show, so it's pure noise here.
       short = short.replace(/^(?:yes|no)\s*[,—-]\s*/i, '').trim();
       return li.qty > 1 ? `${short} x${li.qty}` : short;
     });
@@ -188,23 +127,13 @@ function estimateServiceSummary(items, maxLen = 90) {
   return out;
 }
 
-// Deep link straight to this estimate in the dashboard (admin.html reads
-// ?estimate=<id> and scrolls to that card). Deliberately NOT falling back to
-// VERCEL_URL like tech-notify.js does: that's the per-deployment hostname, so
-// a link texted today would point at a stale build forever. This link sits in
-// someone's message history, so it has to be the stable production alias.
 const DASHBOARD_BASE_URL = (process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app').replace(/\/$/, '');
 function dashboardEstimateUrl(id) {
   return `${DASHBOARD_BASE_URL}/admin.html?estimate=${encodeURIComponent(id)}`;
 }
 
-// The one notification text for a new estimate, in the exact shape the owner
-// asked for: title, value, terse service list, link — and nothing else. The
-// link carries the customer's name, phone, address and preferred times, so
-// none of that is repeated here.
 function estimateAlertText(id, items, taxRate) {
   const subtotal = estimateLineItemsTotal(items);
-  // Match the "Estimated total" the dashboard shows for this same estimate.
   const value = Math.round(subtotal * (1 + (Number(taxRate) || 0)));
   const service = estimateServiceSummary(items);
   const url = dashboardEstimateUrl(id);
@@ -216,7 +145,6 @@ function estimateAlertText(id, items, taxRate) {
   ].filter(Boolean).join('\n');
 }
 
-// Google ad click IDs + utm_* from the widget (same keys as bookings' ad_click).
 function cleanAdClick(v) {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
   const out = {}; let n = 0;
@@ -232,9 +160,6 @@ async function submit(req, res, db) {
   let biz; try { biz = await resolveBusiness(db, (body.business || '').toString()); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
 
   const line_items = sanitizeEstimateLineItems(body.line_items);
-  // description is normally free text the customer typed; the request flow
-  // has no such box (it's all structured TV selections), so build a readable
-  // summary from the line items instead of forcing a redundant text field.
   const description = (body.description || '').toString().trim()
     || (line_items.length ? `Online booking request: ${line_items.map(li => li.description).slice(0, 8).join(', ')}` : '');
   if (!description) return res.status(400).json({ error: 'Please tell us what you need help with.' });
@@ -243,20 +168,14 @@ async function submit(req, res, db) {
   const customer = body.customer || {};
   const name = capName((customer.name || '').toString().trim());
   const phone = formatPhoneUS((customer.phone || '').toString().trim());
-  // Sitewide block list: a blocked number is a scammer on every business. Answer
-  // like a success so it learns nothing, and do nothing (no record, no alert).
   if (await isBlockedPhone(phone)) return res.status(200).json({ ok: true, id: null });
   const zip = (customer.zip || '').toString().trim() || null;
-  // Full address — optional (the original quick-quote form only ever asked
-  // for a zip). Populated by the request flow, which reuses the same address
-  // step as a normal booking.
   const address = (customer.address || '').toString().trim().slice(0, 300) || null;
   const city = (customer.city || '').toString().trim().slice(0, 100) || null;
   const state = (customer.state || '').toString().trim().slice(0, 2).toUpperCase() || null;
   if (!name)  return res.status(400).json({ error: 'Your name is required.' });
   if (!phone) return res.status(400).json({ error: 'A phone number is required.' });
 
-  // Validate the chosen service belongs to this business (optional but tidy).
   let service_id = null, service_label = (body.service_label || '').toString().trim() || null;
   if (body.service_id) {
     const { data: svc } = await db.from('services')
@@ -264,7 +183,6 @@ async function submit(req, res, db) {
     if (svc) { service_id = svc.id; service_label = svc.name; }
   }
 
-  // Preferred slots — cap at 5, keep only the shape we expect.
   let preferred_slots = [];
   if (Array.isArray(body.preferred_slots)) {
     preferred_slots = body.preferred_slots.slice(0, 5).map(s => ({
@@ -274,21 +192,16 @@ async function submit(req, res, db) {
     })).filter(s => s.date && s.slot_key);
   }
 
-  // Optional single photo (data URL from the browser, already compressed).
   let photo_url = null, photo_path = null;
   if (body.image) {
     try {
       const up = await uploadImage(body.image, `estimates/${biz.id}`);
       photo_url = up.url; photo_path = up.path;
     } catch (e) {
-      // A bad photo shouldn't lose the whole request — log and continue.
       console.warn('[estimate] photo upload failed:', e.message);
     }
   }
 
-  // Insert the estimate. insertResilient() tolerates columns that a not-yet-applied
-  // migration hasn't added to this database (e.g. sms_consent, customer_zip) by
-  // stripping them and retrying, so a request is never lost to schema drift.
   const estimateInsert = {
     business_id: biz.id,
     service_id, service_label,
@@ -301,42 +214,23 @@ async function submit(req, res, db) {
     line_items,
     source: 'widget',
     ad_click: cleanAdClick(body.ad_click),
-    // A phone number IS the opt-in (owner rule 2026-09-19); only a prior STOP says no.
     sms_consent: await textConsentFor(db, phone),
   };
 
-  // Quote at the rate the customer was actually shown (the widget sends its own
-  // TAX_RATE), instead of letting the column default apply a different one and
-  // make the office's total disagree with the customer's screen. Clamped, and
-  // only honored when sane — an absent/garbage value keeps the DB default.
   const taxRate = Number(body.tax_rate);
   if (Number.isFinite(taxRate) && taxRate >= 0 && taxRate <= 0.25) estimateInsert.tax_rate = taxRate;
 
   const { data: row, error, inserted } = await insertResilient(db, 'estimates', estimateInsert);
   if (error) throw error;
 
-  // ── Notifications ────────────────────────────────────────────────────────
-  // ALL of these are collected and AWAITED before responding. They used to be
-  // fire-and-forget (`sendSMS(...).catch()` with no await), which silently
-  // loses the send on Vercel: once the handler returns its response the lambda
-  // is frozen, so an in-flight Twilio/Resend fetch never completes and never
-  // even logs why. That's why the first real DFW request produced no owner
-  // text and no [SMS] log line at all. Awaiting costs ~1s on a form submit and
-  // makes delivery (and its logging) deterministic.
   const notifications = [];
 
-  // Text everyone who covers this business + Joey always, never the owner
-  // (owner 2026-10-08) -- see api/_lib/lead-alert-recipients.js. Replaces the
-  // per-business estimate_notify_phones list and the unstaffed-area owner text.
   const alertText = estimateAlertText(row.id, line_items, estimateInsert.tax_rate != null ? estimateInsert.tax_rate : DEFAULT_ESTIMATE_TAX_RATE);
   const isUnstaffedRequest = body.request_type === 'unstaffed_area';
   for (const r of await leadAlertRecipients(db, biz.slug)) {
     notifications.push(sendSMS(r.phone, alertText).catch(e => console.error(`[estimate] ${r.name} sms failed:`, e.message)));
   }
 
-  // Email heads-up to the business's secretary (Heather/Joey) — the ONLY
-  // per-request email they get for online activity now (real bookings no
-  // longer email them; see mirror.js).
   notifications.push(sendOwnerEstimateAlert({
     slug: biz.slug, businessName: biz.name,
     customer: { name, phone, email: customer.email || null },
@@ -344,9 +238,6 @@ async function submit(req, res, db) {
     preferredSlots: preferred_slots, photoUrl: photo_url,
   }).catch(e => console.warn('[estimate] owner email failed:', e.message)));
 
-  // Customer acknowledgement for brands that promise one. A phone number IS the
-  // opt-in (see sms_consent above), so the text goes unless the number has a
-  // prior STOP. The email only goes when the customer gave an address.
   if (isUnstaffedRequest && REQUEST_ACK_SLUGS.has(biz.slug)) {
     const brand = brandFor(biz.slug);
     const first = name.split(/\s+/)[0] || '';
@@ -367,7 +258,6 @@ async function submit(req, res, db) {
     }
   }
 
-  // A notification failure must never lose the request — it's already stored.
   await Promise.allSettled(notifications);
 
   return res.status(200).json({ ok: true, id: row.id });

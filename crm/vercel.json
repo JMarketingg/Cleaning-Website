@@ -11,10 +11,6 @@
       "destination": "/join.html"
     },
     {
-      "source": "/apply",
-      "destination": "/apply.html"
-    },
-    {
       "source": "/r/:token",
       "destination": "/api/book?action=review_click&token=:token&ch=sms"
     }

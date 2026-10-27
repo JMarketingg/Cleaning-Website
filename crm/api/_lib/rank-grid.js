@@ -1,29 +1,14 @@
-// api/_lib/rank-grid.js
-// Local rank grid (owner 2026-10-20). DataForSEO SERP API, STANDARD queue
-// (task_post now, task_get later) because it is ~3x cheaper than live.
-// Per city: 5x5 GPS grid x 3 keywords x (Maps + organic). Read-only; never
-// touches a listing. Keys: DATAFORSEO_LOGIN / DATAFORSEO_PASSWORD (Vercel env).
 import { GMB_LOCATIONS as ALL_GMB } from '../../scripts/lib/gmb-locations.mjs';
-// Never Fails is no longer the owner's (owner 2026-10-21): treat it as a competitor.
 const GMB_LOCATIONS = ALL_GMB.filter((l) => !/^neverfails/.test(l.key));
 
 const API = 'https://api.dataforseo.com/v3/serp/google';
-// Maps grid = Local Finder (what a searcher at that point sees in the local pack /
-// 'More places'), not the Maps endpoint at 14z, which only returned pins inside a
-// tiny viewport and hid service-area listings (fix 2026-10-20).
 const EP = { maps: 'local_finder', organic: 'organic' };
 const MAPS_ZOOM = '13z';
 const DEPTH = 20;
-const SPACING_KM = 3.5; // default (~2.2 mi)
-// Owner 2026-10-20: per-city spacing in miles. Wider grid -> wider zoom.
+const SPACING_KM = 3.5;
 const MI = 1.609344;
 const spacingKm = (c) => (c.mi ? c.mi * MI : SPACING_KM);
 const zoomOf = (c) => (c.mi && c.mi >= 3.5 ? '12z' : MAPS_ZOOM);
-// The 11z zoom-out retry for points with < 10 results is gone (2026-10-20): 0 of 52
-// retries reached 10. Thin points are brand searches ('tv mounting dallas' = a business
-// named "Home Cleaning Dallas"); the page says "Google shows N here" instead.
-// Standard-queue list prices (USD per task, depth <= 100 / 1 SERP page).
-// Billed per 10-result page: depth 20 = 2 pages (real runs cost $0.03 per 25 tasks).
 const PAGES = Math.ceil(DEPTH / 10);
 export const PRICE = { maps: 0.0006 * PAGES, organic: 0.0006 * PAGES };
 
@@ -31,19 +16,15 @@ export const RANK_CITIES = [
   { city: 'Manila', mi: 2, metro: 'manila', lat: 14.5547, lng: 121.0244, listings: [] },
 ];
 export const OUR_DOMAINS = ['tidyhausph.com'];
-// Every site the owner runs (redirects + lead-gen too): flagged You, never a competitor.
 export const OWN_DOMAINS = [...OUR_DOMAINS];
 export const ownDomainOf = (dm) => { dm = String(dm || '').toLowerCase().replace(/^www\./, ''); return dm ? (OWN_DOMAINS.find((d) => dm === d || dm.endsWith('.' + d)) || null) : null; };
-// Organic target for a Maps listing (Launch popup keeps the card's own site on the Organic tab).
-const SITE_OF = { 'handy-andy': 'tidyhausph.com', doms: 'tidyhausph.com', austin: 'tidyhausph.com', a1tvmounting: 'tidyhausph.com' };
+const SITE_OF = { 'tidyhaus': 'tidyhausph.com', doms: 'tidyhausph.com', austin: 'tidyhausph.com', a1tvmounting: 'tidyhausph.com' };
 export const siteOf = (key) => SITE_OF[(GMB_LOCATIONS.find((g) => g.key === key) || {}).business] || null;
-// Owner 2026-10-20: exactly these 3 per city.
-export const keywordsFor = (c) => ['tv mounting', `tv mounting ${c.metro}`, 'tv installation'];
+export const keywordsFor = () => ['house cleaning', 'condo cleaning makati', 'cleaning service bgc'];
 export const cityOf = (name) => RANK_CITIES.find((c) => c.city === name) || null;
 
 export function gridPoints(c) {
   const out = []; const km = spacingKm(c); const dLat = km / 111.32; const dLng = km / (111.32 * Math.cos(c.lat * Math.PI / 180));
-  // Non-square grids allowed (owner 2026-10-21: DFW = Fort Worth to Dallas, wide and short).
   const R = c.rows || 5, K = c.cols || 5;
   for (let r = 0; r < R; r++) for (let k = 0; k < K; k++) {
     out.push({ idx: r * K + k, lat: +(c.lat + ((R - 1) / 2 - r) * dLat).toFixed(6), lng: +(c.lng + (k - (K - 1) / 2) * dLng).toFixed(6) });
@@ -71,8 +52,6 @@ async function dfs(path, body, ms = 25000) {
 }
 
 const digits = (s) => String(s || '').replace(/\D/g, '').slice(-10);
-// gmb-locations cid is often the g.page/r/ token (protobuf: 0x09 + fixed64 LE cid),
-// not the decimal cid DataForSEO returns. Decode it so cid matching works.
 export function cidOf(l) {
   const c = String(l?.cid || '');
   if (/^\d{6,}$/.test(c)) return c;
@@ -86,18 +65,14 @@ function matchListing(it, l) {
 }
 const domOf = (it) => String(it.domain || '').toLowerCase().replace(/^www\./, '');
 const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch (_) { return null; } };
-// Decimal cid -> listing key for every listing the owner runs (any city).
 export const OWN_CID_KEY = Object.fromEntries(GMB_LOCATIONS.map((l) => [cidOf(l), l.key]).filter(([c]) => c));
 
-// Turn one task_get result into { our_rank, top3 }.
 export function parseResult(kind, items, city) {
   items = items || [];
   if (kind === 'maps') {
     const seen = new Set();
     const maps = items.filter((x) => (x.type === 'local_pack' || x.type === 'maps_search') && !x.is_paid).sort((a, b) => (a.rank_group || 99) - (b.rank_group || 99))
-      // Local Finder page 2 can repeat page 1's last listing: one row per listing.
       .filter((x) => { const k = x.cid || x.place_id || x.title; if (seen.has(k)) return false; seen.add(k); return true; })
-      // Position = place in the list the searcher sees. rank_group also counts the ads we drop.
       .map((x, i) => ({ ...x, pos: i + 1 }));
     const site = (x) => x.domain || hostOf(x.url) || null;
     const ourKeys = city.listings.map((k) => GMB_LOCATIONS.find((g) => g.key === k)).filter(Boolean);
@@ -109,13 +84,11 @@ export function parseResult(kind, items, city) {
       if (hit) (our._meta = our._meta || {})[l.key] = { rating: hit.rating?.value ?? null, reviews: hit.rating?.votes_count ?? null, website: site(hit) };
     }
     for (const k of city.listings) if (!(k in our)) our[k] = null;
-    // Competitors = first 3 listings that are not the owner's (any of his listings, any city).
     const top3 = maps.filter((x) => !ownOf(x)).slice(0, 3).map((x) => ({
       name: x.title, place_id: x.place_id || null, cid: x.cid || null, rank: x.pos,
       rating: x.rating?.value ?? null, reviews: x.rating?.votes_count ?? null, category: x.category || null, website: site(x) || x.url || null,
     }));
     our._n = maps.length;
-    // Full list per point (owner 2026-10-20): popup shows ranks 1-20, ours flagged.
     const results = maps.slice(0, DEPTH).map((x) => {
       const me = ownOf(x);
       return { rank: x.pos, name: x.title, cid: x.cid || null, rating: x.rating?.value ?? null, reviews: x.rating?.votes_count ?? null,
@@ -135,21 +108,15 @@ export function parseResult(kind, items, city) {
   return { our_rank: our, top3, results };
 }
 
-// Post every task for the given cities. Returns scans created.
-// Cities with a real scan still running or started < 10 min ago (double-click guard).
 export async function busyCities(db) {
   const since = new Date(Date.now() - 10 * 60000).toISOString(); const day = new Date(Date.now() - 864e5).toISOString();
   const { data } = await db.from('rank_scans').select('city').eq('dry', false).or(`and(status.eq.pending,run_at.gte.${day}),run_at.gte.${since}`);
   return [...new Set((data || []).map((x) => x.city))];
 }
-// n at a time, in order.
 async function pool(items, n, fn) {
   let i = 0;
   await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (i < items.length) await fn(items[i++]); }));
 }
-// Speed 2026-10-20: the old one-scan-at-a-time loop took 58 s for 42 scans (60 s limit).
-// Now: one insert for every scan row, one task_post per city + kind (75 tasks; the API
-// takes up to 100), 6 posts at a time. Returns the scans made; .errors lists failed posts.
 export async function postScans(db, cityNames) {
   if (!hasKeys()) throw new Error('Add DataForSEO keys in Vercel');
   const busy = await busyCities(db);
@@ -189,17 +156,14 @@ export async function postScans(db, cityNames) {
   return made;
 }
 
-// Fetch results for pending tasks (free). Time-boxed; call again for the rest.
 export async function collectPending(db, budgetMs = 40000) {
   if (!hasKeys()) return { collected: 0, pending: 0, nokeys: true };
   const t0 = Date.now(); const left = () => budgetMs - (Date.now() - t0);
-  // Posts that died mid-way (scan row, no points) never finish: mark error after 10 min.
   try {
     const old = new Date(Date.now() - 10 * 60000).toISOString();
     const { data: stale } = await db.from('rank_scans').select('id, points_done').eq('status', 'pending').lt('run_at', old).eq('points_done', 0);
     await Promise.all((stale || []).map(async (sc) => { const { count } = await db.from('rank_points').select('id', { count: 'exact', head: true }).eq('scan_id', sc.id); if (!count) await db.from('rank_scans').update({ status: 'error' }).eq('id', sc.id); }));
   } catch (_) {}
-  // Lock (rank_settings.collect_at): only one pickup at a time; 60 s lease.
   const now = new Date().toISOString(); const lease = new Date(Date.now() - 60000).toISOString();
   const { data: got, error: le } = await db.from('rank_settings').update({ collect_at: now }).eq('id', 1).or(`collect_at.is.null,collect_at.lt.${lease}`).select('id');
   if (!le && !(got || []).length) return { collected: 0, busy: true };
@@ -210,24 +174,21 @@ export async function collectPending(db, budgetMs = 40000) {
   const byId = Object.fromEntries((scans || []).map((s) => [s.id, s]));
   let collected = 0; const errors = [];
   for (let i = 0; i < open.length && left() > 1500; i += 20) {
-    const ms = Math.max(2000, Math.min(25000, left()));   // one slow call can't blow the budget
+    const ms = Math.max(2000, Math.min(25000, left()));
     await Promise.all(open.slice(i, i + 20).map(async (p) => {
       const s = byId[p.scan_id]; if (!s) return;
       try {
         const j = await dfs(`/${EP[s.kind]}/task_get/advanced/${p.task_id}`, null, ms);
         const t = (j.tasks || [])[0]; if (!t) return;
-        if (t.status_code === 40601 || t.status_code === 40602) return; // still queued
+        if (t.status_code === 40601 || t.status_code === 40602) return;
         const res = (t.result || [])[0];
         const parsed = res ? parseResult(s.kind, res.items, cityOf(s.city) || { listings: [] }) : { our_rank: null, top3: [], results: [] };
         if (!res && t.status_code !== 20000) errors.push(t.status_message || String(t.status_code));
-        // done_at is null guard: a second overlapping pickup never rewrites a point.
         const { data: upd } = await db.from('rank_points').update({ ...parsed, done_at: new Date().toISOString() }).eq('id', p.id).is('done_at', null).select('id');
         if ((upd || []).length) collected++;
       } catch (e) { errors.push(String(e.message || e)); /* retry next pass */ }
     }));
   }
-  // Open count per touched scan, in parallel (one big select hit the 1000-row cap on a full run
-  // and could mark scans done early).
   const openN = await Promise.all(scanIds.map((id) => db.from('rank_points').select('id', { count: 'exact', head: true }).eq('scan_id', id).is('done_at', null)
     .then((r) => (r.error ? null : r.count), () => null)));
   await Promise.all(scanIds.map((id, i) => {
@@ -240,7 +201,6 @@ export async function collectPending(db, budgetMs = 40000) {
   return { collected, pending: pending || 0, ...(errors.length ? { error: errors[0] } : {}) };
 }
 
-// Fake data for UI checks (owner sees "Sample"); no API call, no cost.
 export async function dryRun(db, cityName) {
   const c = cityOf(cityName) || RANK_CITIES[0];
   const pts = gridPoints(c); const rnd = (n) => Math.floor(Math.random() * n);
@@ -261,9 +221,6 @@ export async function dryRun(db, cityName) {
   return { ok: true, city: c.city };
 }
 
-// ── Keyword volume + Google Ads competitors (owner 2026-10-20) ──
-// Google Ads search_volume live: billed per request (any number of keywords), ~$0.075.
-// SERP organic live/advanced: ~$0.002 per keyword; 'paid' items = the ads shown.
 export const KW_PRICE = 0.075;
 export const ADS_PRICE = 0.002;
 const LOC = { Manila: 'Philippines' };
@@ -273,11 +230,12 @@ const SUBURBS = {
 export const locOf = (c) => LOC[c.city] || 'Philippines';
 export function volumeSeeds(c) {
   const m = c.metro;
-  const list = ['tv mounting', `tv mounting ${m}`, 'tv installation', `tv installation ${m}`, 'tv wall mount installation', 'tv mounting near me',
-    'mount tv on wall', 'fireplace tv mounting', 'tv mounting service', `handyman ${m}`, ...(SUBURBS[c.city] || []).map((s) => `tv mounting ${s}`)];
+  const list = ['house cleaning', 'house cleaning makati', 'condo cleaning', 'condo cleaning makati', 'deep cleaning makati',
+    'cleaning service bgc', 'move out cleaning', 'airbnb cleaning makati', 'office cleaning makati', 'cleaning service near me',
+    ...(SUBURBS[c.city] || []).map((s) => `cleaning service ${s}`)];
   return [...new Set(list)];
 }
-export const adKeywordsFor = (c) => [`tv mounting ${c.metro}`, 'tv mounting', 'tv installation'];
+export const adKeywordsFor = () => ['house cleaning makati', 'condo cleaning', 'cleaning service bgc'];
 export const adsCost = (c) => +(adKeywordsFor(c).length * ADS_PRICE).toFixed(3);
 
 async function dfsAny(path, body, ms = 40000) {
@@ -291,7 +249,6 @@ async function dfsAny(path, body, ms = 40000) {
   return t;
 }
 
-// One request per city: every seed keyword. Returns rows for app.rank_keywords.
 export async function fetchVolumes(c) {
   const t = await dfsAny('/keywords_data/google_ads/search_volume/live', [{ keywords: volumeSeeds(c), location_name: locOf(c), language_code: 'en' }]);
   const now = new Date().toISOString();
@@ -301,7 +258,6 @@ export async function fetchVolumes(c) {
   return { rows, cost: Number(t.cost) || KW_PRICE };
 }
 
-// Paid ads on page 1 for the money keywords (mobile, where most local searches happen).
 export function parseAds(keyword, items) {
   return (items || []).filter((x) => x && x.type === 'paid').map((x) => {
     const domain = String(x.domain || hostOf(x.url) || '').toLowerCase().replace(/^www\./, '');

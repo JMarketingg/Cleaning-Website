@@ -114,7 +114,7 @@
 <script>
 const API = '/api/admin';
 const BRANDS = {
-  'handy-andy': { name: 'TidyHaus',        accent: '#FF6B35' },
+  'tidyhaus': { name: 'TidyHaus',        accent: '#FF6B35' },
   'doms':       { name: "Dom's Home Cleaning", accent: '#2563EB' },
 };
 
@@ -122,7 +122,7 @@ let selectedRating = 0;
 let locked = false;
 let saving = false;
 let reviewUrl = null;
-let businessSlug = 'handy-andy';
+let businessSlug = 'tidyhaus';
 const bookingToken = new URLSearchParams(location.search).get('token');
 
 const $ = (id) => document.getElementById(id);
@@ -132,7 +132,7 @@ const stars = Array.from(document.querySelectorAll('.star'));
 function showError(msg){ const e = $('errorBox'); e.textContent = msg; e.classList.add('show'); }
 
 function applyBrand(slug){
-  const brand = BRANDS[slug] || BRANDS['handy-andy'];
+  const brand = BRANDS[slug] || BRANDS['tidyhaus'];
   document.documentElement.style.setProperty('--accent', brand.accent);
 }
 

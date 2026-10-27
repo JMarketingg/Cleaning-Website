@@ -1,18 +1,4 @@
-// Single JS entry point onto the bracket_moves ledger (migration 0088).
-//
-// Every place in this codebase that used to hand-roll "read the count, add a
-// delta, write it back" now calls one of the functions below instead. They all
-// go through the bracket_move() Postgres function, which is the ONLY thing
-// allowed to change bracket_inventory.flat_qty/tilting_qty/full_motion_qty:
-// it writes the signed delta to an append-only ledger AND updates the counter
-// in one transaction, keyed by an idempotency_key so calling the same event
-// twice (a re-run backfill, a double-click, a re-parsed email) is a no-op.
-//
-// This does NOT cover wire_plate_qty or appletv_bracket_qty yet -- those still
-// go through the old direct-write helpers. Same bug class, follow-up work.
 
-// Owner 2026-10-03: some techs are outside the inventory system entirely
-// (technicians.skip_inventory, migration 0171). True = skip every stock touchpoint.
 export async function isInventoryExempt(db, technicianId) {
   if (!technicianId) return false;
   try {
@@ -24,20 +10,10 @@ export async function isInventoryExempt(db, technicianId) {
 export function bracketTotal(q) { return Math.abs(q.flat || 0) + Math.abs(q.tilting || 0) + Math.abs(q.full_motion || 0); }
 
 async function callBracketMove(db, { businessId, technicianId, kind, flat, tilting, fullMotion, idempotencyKey, bookingId, purchaseId, orderNum, reason, actor }) {
-  // A tech carries ONE physical stock of brackets in their truck, regardless of
-  // which company's customer they're serving that day. Stock therefore lives on
-  // the row keyed by the tech's OWN home business -- never the job's or the
-  // purchase row's, which differ on a cross-hire job. Resolving it here (rather
-  // than trusting each caller) is deliberate: this is the single choke point
-  // every bracket movement goes through, so no future caller can get it wrong.
-  // Passing the job's business instead would silently create an all-zero
-  // phantom row under the other company and clamp the deduction to nothing --
-  // the bug commit 5199678 fixed on 2026-07-16, reintroduced and re-fixed here.
   let homeBizId = businessId;
   if (technicianId) {
     const { data: techRow } = await db.from('technicians')
       .select('business_id, skip_inventory').eq('id', technicianId).maybeSingle();
-    // Inventory-exempt tech (migration 0171): no ledger move, no counter change.
     if (techRow?.skip_inventory) return null;
     if (techRow?.business_id) homeBizId = techRow.business_id;
   }
@@ -45,10 +21,6 @@ async function callBracketMove(db, { businessId, technicianId, kind, flat, tilti
     p_business_id: homeBizId,
     p_technician_id: technicianId,
     p_kind: kind,
-    // An explicit null must survive to SQL: for a recount it means "leave this
-    // field alone" and the function coalesces it to the current count. Turning
-    // it into 0 (which `|| 0` and `?? 0` both do) would instead ZERO the field.
-    // undefined still becomes 0, for non-recount callers that omit a field.
     p_flat: flat === null ? null : (flat ?? 0),
     p_tilting: tilting === null ? null : (tilting ?? 0),
     p_full_motion: fullMotion === null ? null : (fullMotion ?? 0),
@@ -63,9 +35,6 @@ async function callBracketMove(db, { businessId, technicianId, kind, flat, tilti
   return Array.isArray(data) ? data[0] : data;
 }
 
-// A job consumed brackets. idempotencyKey defaults to job:<bookingId> so a
-// backfill, a retry, or a re-completion of the same job can never double-debit
-// -- calling this twice for the same booking just returns the first result.
 export async function debitForJob(db, { businessId, technicianId, qtys, bookingId, reason, actor }) {
   if (!technicianId || !bookingId || bracketTotal(qtys) <= 0) return null;
   return callBracketMove(db, {
@@ -75,8 +44,6 @@ export async function debitForJob(db, { businessId, technicianId, qtys, bookingI
   });
 }
 
-// Reverse a job's debit (reopened/cancelled/reassigned). Keyed off the ORIGINAL
-// job move so it can only ever reverse that one event once.
 export async function reverseJobDebit(db, { businessId, technicianId, qtys, bookingId, reason, actor }) {
   if (!technicianId || !bookingId || bracketTotal(qtys) <= 0) return null;
   return callBracketMove(db, {
@@ -86,8 +53,6 @@ export async function reverseJobDebit(db, { businessId, technicianId, qtys, book
   });
 }
 
-// A job's bracket quantities changed after completion (line-item edit). Keyed
-// per li_rev so each distinct edit reconciles exactly once, in either direction.
 export async function reconcileJobEdit(db, { businessId, technicianId, oldQtys, newQtys, bookingId, liRev, reason, actor }) {
   const flat = (oldQtys.flat || 0) - (newQtys.flat || 0);
   const tilting = (oldQtys.tilting || 0) - (newQtys.tilting || 0);
@@ -101,9 +66,6 @@ export async function reconcileJobEdit(db, { businessId, technicianId, oldQtys, 
   });
 }
 
-// A Walmart delivery credited a tech's stock. Keyed on the order number so the
-// same delivery (re-parsed email, re-run sync, double-click Assign) can only
-// ever credit once.
 export async function creditDelivery(db, { businessId, technicianId, qtys, purchaseId, orderNum, actor }) {
   if (!technicianId || !orderNum || bracketTotal(qtys) <= 0) return null;
   return callBracketMove(db, {
@@ -113,9 +75,6 @@ export async function creditDelivery(db, { businessId, technicianId, qtys, purch
   });
 }
 
-// A delivery's quantities were corrected by a follow-up email, or the order
-// was cancelled after being credited. Keyed so each distinct correction only
-// ever applies once.
 export async function adjustDelivery(db, { businessId, technicianId, deltaQtys, purchaseId, orderNum, tag, reason, actor }) {
   if (!technicianId || !orderNum || bracketTotal(deltaQtys) <= 0) return null;
   return callBracketMove(db, {
@@ -125,12 +84,6 @@ export async function adjustDelivery(db, { businessId, technicianId, deltaQtys, 
   });
 }
 
-// A physical recount ("I counted the truck"). Pass the ABSOLUTE counts
-// observed for each field you're recounting (omit a field to leave it
-// untouched) -- the database computes the signed delta itself, so the ledger
-// always records what actually moved. reason is REQUIRED. Idempotency key
-// includes the timestamp so it never collides across recounts, but each call
-// is still one atomic, logged event.
 export async function recount(db, { businessId, technicianId, flat, tilting, fullMotion, reason, actor, at }) {
   if (!technicianId || !reason) throw new Error('recount requires technicianId and reason');
   const ts = at || new Date().toISOString();
@@ -141,11 +94,6 @@ export async function recount(db, { businessId, technicianId, flat, tilting, ful
   });
 }
 
-// A free-form correction with a signed delta and a mandatory reason (replaces
-// the old "manual adjust" action). Pass idempotencyKey explicitly for an event
-// that can be retried (e.g. keyed on a booking id) so a retry can't double-
-// apply; otherwise a timestamp-based key is generated (fine for one-off admin
-// clicks, where "retry = a new correction" is the right behavior).
 export async function adjust(db, { businessId, technicianId, deltaQtys, bookingId, reason, actor, at, idempotencyKey }) {
   if (!technicianId || !reason || bracketTotal(deltaQtys) <= 0) return null;
   const ts = at || new Date().toISOString();

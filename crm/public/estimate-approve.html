@@ -202,7 +202,7 @@
 <script>
 const API = '/api/admin';
 const BRANDS = {
-  'handy-andy': { name: 'TidyHaus',        accent: '#FF6B35' },
+  'tidyhaus': { name: 'TidyHaus',        accent: '#FF6B35' },
   'doms':       { name: "Dom's Home Cleaning", accent: '#2563EB' },
 };
 const token = new URLSearchParams(location.search).get('token');
@@ -219,7 +219,7 @@ let taxRate = 0;
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function money(n){ const v=Math.round((Number(n)||0)*100)/100; return (v<0?'-₱':'₱') + Math.abs(v).toFixed(2); }
 function applyBrand(slug){
-  const brand = BRANDS[slug] || BRANDS['handy-andy'];
+  const brand = BRANDS[slug] || BRANDS['tidyhaus'];
   document.documentElement.style.setProperty('--accent', brand.accent);
   // brand-tinted soft background for selected cards
   const soft = (slug==='doms') ? '#eef4ff' : '#fff2ec';
@@ -345,7 +345,7 @@ function recapHtml(acceptedList, total){
   const rows = (acceptedList||[]).map(u=>`<div class="rr"><span>+ ${esc(u.description)}</span><span class="tabnums">${money(Number(u.unit_price)*(Number(u.qty)||1))}</span></div>`).join('');
   const totalRow = total!=null ? `<div class="rr g"><span>Approved total</span><span class="amt tabnums">${money(total)}</span></div>` : '';
   if (!rows && !totalRow) return '';
-  return `<div class="recap"><div class="rr"><span>Base install &amp; quote</span><span class="tabnums">${money(baseSubtotal)}</span></div>${rows}${totalRow}</div>`;
+  return `<div class="recap"><div class="rr"><span>Cleaning quote</span><span class="tabnums">${money(baseSubtotal)}</span></div>${rows}${totalRow}</div>`;
 }
 
 // ── Availability picker (real open slots) ──

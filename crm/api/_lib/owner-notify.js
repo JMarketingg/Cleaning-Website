@@ -1,8 +1,3 @@
-// Short "Someone just booked an appointment" heads-up email to the owner.
-// Used by the public booking widgets (via mirrorBooking) and by the dashboard
-// when a SECRETARY books a job. Best-effort: every send is wrapped so it can
-// never block or break a booking. Recipient defaults to owner@example.invalid;
-// override with the OWNER_NOTIFY_EMAIL env var.
 import { emailConfig, sendEmail } from './email.js';
 import { emailNotificationsOn } from './notify.js';
 import { sendSMS } from './sms.js';
@@ -10,13 +5,6 @@ import { computeJobPay } from './payroll.js';
 import { bracketItemsCost } from './bracket-costs.js';
 import { signToken } from './auth.js';
 
-// ── Owner alert email, shared by every "heads up" below ─────────────────────
-// These used to be one-line SMS pings (owner call, 2026-09-23: "reduce the
-// amount of text sent" — Twilio bills per SMS segment, and none of these are
-// time-critical the way sendReviewCallComplaintAlert is, which stays SMS on
-// purpose). One shared helper so every alert below reads the same way in the
-// inbox: a plain subject line, one paragraph, no table (these were originally
-// a single sentence each).
 async function sendOwnerAlertEmail(subject, bodyText) {
   try {
     if (!emailNotificationsOn()) return;
@@ -28,19 +16,11 @@ async function sendOwnerAlertEmail(subject, bodyText) {
   } catch (e) { console.warn('[owner-notify] alert email failed:', e.message); }
 }
 
-// ── Big-bracket-job alert (email, not SMS — 2026-09-23) ─────────────────────
-// The owner wants a heads-up whenever a single booked ticket carries 4+
-// brackets (a big multi-TV job worth eyeballing for stock and staffing).
-// Counts bracket line items by name; "I have my own bracket" is the
-// customer's own hardware, so it never counts. Shared by the public widget
-// bookings (api/book.js) and the dashboard's manual booking_create (api/admin.js).
 const BIG_BRACKET_THRESHOLD = 4;
 export function bracketCountFromLines(lines) {
   return (Array.isArray(lines) ? lines : []).reduce((n, l) => {
     const name = String(l.name || l.label || '');
-    // Customer's own hardware never counts: "I have my own bracket", and the
-    // Samsung Frame's in-the-box bracket (owner 2026-10-01: 7 Frames + 2 Flat = 2).
-    if (/\bmy own\b|\bown (mounting )?bracket|comes in the box|frame tv|using the bracket|you supply|soundbar/i.test(name)) return n;   // soundbar w/ own bracket isn't a TV bracket (owner 2026-10-07)   // 'I have my own mounting bracket' (owner 2026-10-06)
+    if (/\bmy own\b|\bown (mounting )?bracket|comes in the box|frame tv|using the bracket|you supply|soundbar/i.test(name)) return n;
     const isBracket = /\bbracket\b/i.test(name)
       || /^flat$/i.test(name.trim())
       || /^tilting/i.test(name.trim())
@@ -52,7 +32,6 @@ export async function maybeSendBigBracketAlert({ lines, customerName, whenStr, d
   try {
     const count = bracketCountFromLines(lines);
     if (count < BIG_BRACKET_THRESHOLD) return;
-    // Inventory-exempt assigned tech (migration 0171): no bracket alert.
     if (db && technicianId) {
       const { data: t } = await db.from('technicians').select('skip_inventory').eq('id', technicianId).maybeSingle();
       if (t?.skip_inventory) return;
@@ -62,48 +41,26 @@ export async function maybeSendBigBracketAlert({ lines, customerName, whenStr, d
   } catch (e) { console.warn('[big-bracket] alert error:', e.message); }
 }
 
-// ── One-time "first ever use" SMS alerts ────────────────────────────────────
-// Fires an SMS exactly once, ever, no matter how many serverless cold-starts
-// or duplicate calls happen afterward — claimed atomically via a primary-key
-// insert into system_flags (migration 0074). If two bookings somehow trigger
-// this in the same instant, only the one that wins the insert sends the text.
-// Also the dedupe primitive for bracket-sync-health.js (bracket_sync_alert:*,
-// bracket_sync_recovered:*, bracket_sync:housekeeping:* keys).
 export async function claimOnce(db, key) {
   const { error } = await db.from('system_flags').insert({ key, value: { at: new Date().toISOString() } });
-  return !error; // true only for whoever actually inserted the row first
+  return !error;
 }
 
 export async function maybeSendFirstMultiTvDiscountAlert(db, { discountAmt, customerName, whenStr }) {
   try {
     if (!discountAmt || discountAmt <= 0) return;
     const first = await claimOnce(db, 'multi_tv_discount_first_used');
-    if (!first) return; // already notified once before — never again
+    if (!first) return;
     sendOwnerAlertEmail('Multi-TV discount used for the first time',
       `The multi-TV discount was just used for the first time — ${customerName || 'a customer'}'s job (scheduled ${whenStr || 'soon'}) saved $${discountAmt.toFixed(2)}.`);
   } catch (e) { console.warn('[multi-tv-discount] alert error:', e.message); }
 }
 
-// ── $0 non-GDS / low-profit SMS alert ──────────────────────────────────────
-// The owner wants a text the moment a job books in that's either priced at $0
-// without being a real Guaranteed Dismount Service (a likely mis-priced or
-// bare ticket), or whose estimated profit (price minus estimated tech payout)
-// comes in under $20 — including negative. Detected the same way tech.js's
-// isDismountLi does (pattern match, not an exact string, so a category prefix
-// or wording variant is still caught). Profit is an ESTIMATE at booking time:
-// computeJobPay only pays out on a *completed* job, so this runs the real
-// rate table against a synthetic "already completed & paid" copy of the job
-// just to price it out — never touches or reads the real booking's status.
 const GDS_ALERT_RE = /guarante\w*\s+dismount|dismount\s+service|\btv removal\b/i;
 export function linesHaveGds(lines) {
   return (Array.isArray(lines) ? lines : []).some(l => GDS_ALERT_RE.test(String((l && (l.name || l.label)) || '')));
 }
 
-// ── "Want to upgrade?" GDS upsell link for the confirmation email ──────────
-// Returns null when the job already has GDS, isn't eligible (not a TV
-// mounting job), or there's no base URL to build an absolute link from —
-// bookingConfirmationEmail simply omits the block in any of those cases.
-// The 90-day token mirrors the estimate-approve link's TTL/shape.
 export function gdsUpsellUrlFor({ lines, bookingId, baseUrl, eligible = true }) {
   if (!eligible || !bookingId || !baseUrl) return null;
   if (linesHaveGds(lines)) return null;
@@ -111,12 +68,6 @@ export function gdsUpsellUrlFor({ lines, bookingId, baseUrl, eligible = true }) 
   return `${String(baseUrl).replace(/\/$/, '')}/add-gds.html?token=${token}`;
 }
 
-// ── Self-serve reschedule link for the confirmation email ──────────────────
-// Signed link to /reschedule.html (kind=reschedule, booking_id) -- mirrors the
-// GDS upsell/estimate-approve tokens' shape and 90-day TTL. The page itself
-// (api/admin.js reschedule_info/reschedule_submit) is what actually enforces
-// the 24-hour cutoff and blocks a completed/cancelled booking -- this helper
-// just builds the link, so it's safe to always include on every confirmation.
 export function rescheduleUrlFor({ bookingId, baseUrl }) {
   if (!bookingId || !baseUrl) return null;
   const token = signToken({ kind: 'reschedule', booking_id: bookingId }, 7776000);
@@ -129,11 +80,9 @@ export function estimateJobProfit({ price, lines, techName, scheduled_at, create
       price, subtotal: price, amount_paid: price,
       line_items: Array.isArray(lines) ? lines : [],
       scheduled_at,
-      created_at,  // real booking -> its date; new/unsaved -> absent = new rate
+      created_at,
     };
     const result = computeJobPay(synthetic, techName || '');
-    // Bracket hardware cost too (owner rule 2026-10-08, see bracket-costs.js).
-    // .total (labor + any tip line) since price includes tip lines too.
     return (Number(price) || 0) - (Number(result.total) || 0) - bracketItemsCost(synthetic.line_items);
   } catch (e) { console.warn('[low-profit] estimate error:', e.message); return null; }
 }
@@ -144,13 +93,8 @@ export function maybeSendZeroOrLowProfitAlert({ price, lines, techName, customer
     if (p === 0 && !isGds) {
       sendOwnerAlertEmail('Job booked at $0',
         `${customerName || 'A customer'}'s job (${whenStr || 'scheduled'}) was booked at $0 and is NOT Guaranteed Dismount Service — worth checking it's priced correctly.`);
-      return; // one heads-up per job — don't also fire the low-profit alert below
+      return;
     }
-    // A real GDS job is SUPPOSED to run negative every time -- $0 to the
-    // customer, $60 out to the tech, by design (a free-redo goodwill service).
-    // Without this it tripped the low-profit alert on literally every GDS job,
-    // paging the owner for something that was never a problem (Dalton Chapa's
-    // job, Jul 2026 -- "nothing is wrong, this is a normal thing").
     if (isGds) return;
     const profit = estimateJobProfit({ price, lines, techName, scheduled_at });
     if (profit != null && profit < 20) {
@@ -161,8 +105,6 @@ export function maybeSendZeroOrLowProfitAlert({ price, lines, techName, customer
 }
 
 function escHtml(s) { return (s == null ? '' : String(s)).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
-// Tax reads as just "Tax" in owner alerts, matching every customer-facing
-// surface; the rate stays only in the stored line name.
 function tidyLineName(name) {
   const s = String(name || '');
   if (/^\s*tax\b/i.test(s)) return s.replace(/\s*\(\s*[\d.]+\s*%\s*\)/, '').trim() || 'Tax';
@@ -175,25 +117,15 @@ export async function sendOwnerBookingAlert(d = {}) {
     const cfg = emailConfig(d.slug);
     if (!cfg.apiKey) return;
 
-    // Recipients for the per-booking "someone just booked" email:
-    //   • The OWNER only when PER_BOOKING_ALERTS=1 (they otherwise get the ONE
-    //     8 PM Denver daily digest instead of 10-15 emails/day).
-    //   • The business's SECRETARY, ALWAYS — Heather runs TidyHaus, Joey runs
-    //     Doms, and they asked to be told on every booking. Emails are per-business
-    //     (Heather gets TidyHaus bookings, Joey gets Doms) and override via
-    //     HANDY_ANDY_SECRETARY_EMAIL / DOMS_SECRETARY_EMAIL.
     const recipients = new Set();
     if (process.env.PER_BOOKING_ALERTS === '1') {
       recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid');
     }
     const slug = String(d.slug || '').toLowerCase();
-    if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
-      // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
-      // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
+    if (slug === 'tidyhaus' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -245,18 +177,6 @@ export async function sendOwnerBookingAlert(d = {}) {
   }
 }
 
-// "Card didn't save" alert — fires when a public booking widget captured a
-// payment_method_id but it never actually ended up on file (wrong/unset
-// Stripe key, a Stripe error, etc.). This is the exact silent-failure class
-// that caused a real customer's card to go untracked until a charge attempt
-// failed at time of service (the "Annie" incident) — the booking itself
-// still succeeds (never blocked on this), but someone needs to know to add
-// the card manually before the appointment, not discover it days later.
-//
-// Unlike sendOwnerBookingAlert, this ALWAYS reaches the owner (not gated on
-// PER_BOOKING_ALERTS) — a routine "someone booked" email can wait for the
-// daily digest, but a card that silently failed to save needs action before
-// the job's scheduled date, and is rare enough not to be noisy.
 export async function sendCardSaveFailedAlert(d = {}) {
   try {
     if (!emailNotificationsOn()) return;
@@ -265,13 +185,10 @@ export async function sendCardSaveFailedAlert(d = {}) {
 
     const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
-    if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
-      // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
-      // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
+    if (slug === 'tidyhaus' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -301,17 +218,8 @@ export async function sendCardSaveFailedAlert(d = {}) {
   }
 }
 
-// A widget booking ended up with NO technician attached. Both public booking
-// paths now reject instead of booking techless, so this only fires when a lost
-// tech+slot race could not be auto-recovered. The office must know NOW, not
-// when someone happens to open the dashboard: the customer already holds a
-// confirmation email promising a time window that nobody is scheduled to
-// cover. (First real case: Connor Hasselman, 2026-08-12 8am Denver, found 25
-// minutes after the job's start time.)
 export async function sendUnassignedBookingAlert(d = {}) {
   try {
-    // This alert is the last line of defense for the no-techless-jobs
-    // invariant, so being gated off must at least be LOUD in the logs.
     if (!emailNotificationsOn()) {
       console.error('[owner-notify] UNASSIGNED BOOKING but email notifications are OFF; booking', d.bookingId, 'has no technician and nobody was alerted');
       return;
@@ -324,10 +232,10 @@ export async function sendUnassignedBookingAlert(d = {}) {
 
     const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
-    if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
+    if (slug === 'tidyhaus' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -352,16 +260,7 @@ export async function sendUnassignedBookingAlert(d = {}) {
   }
 }
 
-// A customer told Joey on the follow-up call that something went wrong. This is
-// the ONLY way that ever reaches the owner: the complaint is typed into the
-// review-call card and would otherwise sit in a column nobody opens until the
-// customer has already left a public one-star review. Texts immediately (these
-// are time-sensitive: the window to fix it quietly is hours, not days) and
-// emails the detail, since a complaint rarely fits in an SMS.
 export async function sendReviewCallComplaintAlert(d = {}) {
-  // The text goes out even when email is switched off or unconfigured — the two
-  // channels fail independently on purpose, so a mail problem cannot swallow the
-  // only signal the owner gets that a job went badly.
   try {
     const phone = process.env.OWNER_PHONE_NUMBER;
     if (phone) {
@@ -409,15 +308,6 @@ export async function sendReviewCallComplaintAlert(d = {}) {
   }
 }
 
-// "Unrecognized line item" alert — fires when a public booking widget submits
-// a line item that matches NEITHER a known service_options catalog price NOR
-// one of our own fee/tax/coupon names (see reconcileLinesWithCatalog in
-// api/book.js). The booking still goes through at the price submitted — a
-// false positive here (a genuine new wording the catalog matcher doesn't
-// recognize yet) must never block a real customer — but it's worth a human
-// glancing at, since it's also exactly what a tampered/forged line item would
-// look like. Always reaches the owner (not gated on PER_BOOKING_ALERTS), same
-// urgency class as sendCardSaveFailedAlert.
 export async function sendPriceMismatchAlert(d = {}) {
   try {
     if (!emailNotificationsOn()) return;
@@ -426,13 +316,10 @@ export async function sendPriceMismatchAlert(d = {}) {
 
     const recipients = new Set([process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid']);
     const slug = String(d.slug || '').toLowerCase();
-    if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
-      // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
-      // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
+    if (slug === 'tidyhaus' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -463,12 +350,6 @@ export async function sendPriceMismatchAlert(d = {}) {
   }
 }
 
-// "New estimate request" heads-up email — the ONLY per-request email Heather
-// (TidyHaus) / Joey (Doms) get for online activity now; a real booking no
-// longer emails them (see mirror.js). Same recipient rule as the booking
-// alert (secretary always, owner only when PER_BOOKING_ALERTS=1), same
-// override env vars, but its own distinct content — this is a QUOTE request,
-// not an appointment, so the email must never claim otherwise.
 export async function sendOwnerEstimateAlert(d = {}) {
   try {
     if (!emailNotificationsOn()) return;
@@ -480,13 +361,10 @@ export async function sendOwnerEstimateAlert(d = {}) {
       recipients.add(process.env.OWNER_NOTIFY_EMAIL || 'owner@example.invalid');
     }
     const slug = String(d.slug || '').toLowerCase();
-    if (slug === 'handy-andy' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
-      // Heather runs both -- same Denver market, same techs (see PARTNER_SLUG
-      // in availability.js). MILE_HIGH_SECRETARY_EMAIL overrides independently
-      // if that ever needs to change without touching TidyHaus's routing.
-      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.HANDY_ANDY_SECRETARY_EMAIL || 'owner@example.invalid');
+    if (slug === 'tidyhaus' || slug === 'mile-high' || slug === 'austin' || slug === 'precision') {
+      recipients.add(process.env.MILE_HIGH_SECRETARY_EMAIL || process.env.TIDYHAUS_SECRETARY_EMAIL || 'owner@example.invalid');
     } else if (slug === 'doms') {
-      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');   // Joey
+      recipients.add(process.env.DOMS_SECRETARY_EMAIL || 'owner@example.invalid');
     }
     recipients.delete('');
     if (!recipients.size) return;
@@ -520,14 +398,7 @@ export async function sendOwnerEstimateAlert(d = {}) {
   }
 }
 
-// ── "Lead-gen business booked" SMS ──────────────────────────────────────────
-// The dashboard's "Lead Gen" dropdown (public/admin.html OWN_CHIP_SLUGS) is
-// every business except TidyHaus and Dom's — the two real operating crews.
-// Owner wants a text the moment any of those OTHER (lead-gen-only) brands
-// books a real appointment, since he doesn't have a secretary watching their
-// inboxes the way Heather/Joey watch TidyHaus/Dom's. Mirrors OWN_CHIP_SLUGS
-// exactly (not name-based) so a renamed business can't silently drop out.
-const LEAD_GEN_OWN_CHIP_SLUGS = ['handy-andy', 'doms'];
+const LEAD_GEN_OWN_CHIP_SLUGS = ['tidyhaus', 'doms'];
 export function isLeadGenSlug(slug) {
   return !LEAD_GEN_OWN_CHIP_SLUGS.includes(String(slug || '').toLowerCase());
 }
@@ -540,15 +411,6 @@ export function maybeSendLeadGenBookingAlert({ slug, businessName, customerName,
   } catch (e) { console.warn('[lead-gen-booking] alert error:', e.message); }
 }
 
-// ── "<Tech> finished the $100 review program" SMS ───────────────────────────
-// Fires the moment a technician checks off the fifth and final Google listing
-// (see awardReviewBonusIfComplete in api/tech.js). Sent ONLY alongside the
-// award insert, which is itself insert-once on a primary key, so a tech can
-// never generate a second text by unchecking and re-checking a box.
-//
-// The owner hand-enters payroll from the dashboard, so this is the signal that
-// a $100 line is about to appear on someone's check; without it he would only
-// find out by opening the payroll screen at the end of the week.
 export async function sendReviewBonusEarnedAlert({ techName, amount }) {
   try {
     await sendOwnerAlertEmail(`${techName || 'A technician'} earned the $${Number(amount) || 100} review bonus`,
@@ -557,14 +419,6 @@ export async function sendReviewBonusEarnedAlert({ techName, amount }) {
   } catch (e) { console.warn('[review-bonus] alert error:', e.message); }
 }
 
-// ── New technician joined through an invite link (migration 0111) ───────────
-// A tech who taps Start on the join page is LIVE for jobs that instant, with no
-// second approval step, so the owner hears about every one right away. This is
-// the "not who you invited?" safety net; Deactivate on the Technicians tab is
-// the off switch. payrollNote flags a name the name-keyed payroll rules
-// (_lib/payroll.js isJuan / isRetired) would mis-pay. welcomeFailed carries the
-// reason our welcome text didn't go out, because the same failure (e.g. they
-// once replied STOP to the 888 line) will also swallow their job texts.
 export async function sendTechJoinedAlert({ techName, company, metro, slotCount, unstaffed, payrollNote, welcomeFailed }) {
   try {
     let msg = `New tech joined: ${techName}, ${company} - ${metro}. `;

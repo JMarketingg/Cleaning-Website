@@ -1,58 +1,15 @@
-// ============================================================================
-// scripts/lib/amazon-parse.mjs  —  Parse an Amazon order email into a payload
-// ============================================================================
-// Pure functions (no I/O) so they can be unit-tested against real email text.
-//
-// SAFETY: this parser must only ever match the WIRE CONCEALMENT PLATE product,
-// never the owner's other Amazon purchases. So it is deliberately STRICT — an
-// email is only treated as a plate order if BOTH:
-//   1. it has an Amazon order number, AND
-//   2. its text matches PLATE_MATCH (the product's identifying words) OR the
-//      caller passes trustSender:true (see below).
-// If the match is too strict it simply finds nothing (safe — no inventory is
-// touched). If it were too loose it could add plates for unrelated orders
-// (unsafe). When in doubt, tighten PLATE_MATCH against a real order email.
-//
-// Tune PLATE_MATCH from the FIRST real Amazon plate-order email (the exact
-// product title). Until then these are the obvious identifying words for the
-// product (https://amzn.to/4wamlNJ — recessed in-wall cable/wire concealment).
-//
-// trustSender: Amazon's "Ordered:" confirmation email doesn't always include
-// the product title — sometimes it only shows the generic category ("2
-// Electrical & Heating items"), with the real title hidden behind a "View or
-// edit order" link. PLATE_MATCH can never see that. Since houstonhandyandy@
-// gmail.com exists ONLY to buy this one product (see scripts/bracket-email-
-// sync.mjs's PLATE_DEDICATED_MAILBOX_IDX), the caller sets trustSender:true
-// when scanning that mailbox and the sender is a real Amazon order-flow
-// address — in that case we skip the product-phrase requirement and instead
-// count units from whatever generic item-count phrase is present.
-// ============================================================================
 
-// Words that identify the plate product in the email body/subject. Strict by
-// design. Override at runtime with AMAZON_PLATE_MATCH (a regex source string).
-// Default is tuned to the actual product ordered — ANONION "Single Brush Wall
-// Plate ... Cable Pass Through Insert ... Low Voltage Mounting Bracket" — using
-// distinctive phrases (not the brand) so a same-type reorder still matches while
-// a USB charger never does.
 export const PLATE_MATCH = process.env.AMAZON_PLATE_MATCH
   ? new RegExp(process.env.AMAZON_PLATE_MATCH, 'i')
   : /brush\s+wall\s+plate|cable\s+pass[\s-]*through|low\s+voltage\s+mounting\s+bracket|(?:wire|cable|cord)[\s-]*(?:concealment|conceal|hider|pass[\s-]*through)|recessed\s+(?:cable|wire|media)\s+plate|in[\s-]?wall\s+(?:cable|wire|cord)/i;
 
-// One Amazon unit yields this many plates. Stated by the owner: "each 1 purchased
-// supplies 5 behind the wall wire concealments." The sync endpoint re-derives
-// plates from units server-side, but we surface it here too.
 export const PLATES_PER_UNIT = parseInt(process.env.PLATES_PER_UNIT) || 5;
 
-// Zero-width spaces/joiners and bidi isolate/embedding marks (e.g. U+2066/
-// U+2069 around "⁦2⁩ Electrical & Heating items" in real Gmail-
-// rendered Amazon emails). Left in place, these silently break \s/\b matches
-// that assume plain-ASCII whitespace/word boundaries around numbers.
 const INVISIBLE_RE = /[​-‏‪-‮⁦-⁩﻿]/g;
 export function stripInvisible(s) {
   return (s || '').replace(INVISIBLE_RE, '');
 }
 
-// Minimal HTML → text, keeping <img alt> (some Amazon line items live there).
 export function stripHtml(html) {
   if (!html) return '';
   return html
@@ -65,8 +22,6 @@ export function stripHtml(html) {
     .replace(/[ \t]{2,}/g, ' ');
 }
 
-// Amazon order number: 3 digits - 7 digits - 7 digits (e.g. 123-1234567-1234567),
-// often labeled "Order #" or "Order number".
 export function extractOrderNum(text) {
   if (!text) return null;
   const m = text.match(/order\s*(?:number|#|id)?\s*:?\s*#?(\d{3}-\d{7}-\d{7})/i)
@@ -74,38 +29,19 @@ export function extractOrderNum(text) {
   return m ? m[1] : null;
 }
 
-// Quantity ordered. Amazon shows "Qty: N" or "Quantity: N" per line item; sum
-// the quantities of the lines that match the plate product. If a quantity can't
-// be found but the product clearly matches, assume 1.
 export function extractUnits(text) {
   if (!text) return 0;
-  // Count ONLY the plate line's quantity, not other items in the same order.
-  // An Amazon order can bundle several products ("Ordered: 2 ANONION... and 1
-  // more item"), each with its own "Quantity: N". Summing them over-counts
-  // (2 plates + 1 other = 3). Anchor to where the plate product is named, then
-  // take the FIRST "Quantity/Qty: N" that follows it (Amazon prints the qty
-  // right after each item's title: "...10 PACK 1 Gang Quantity: 2 24.99 USD").
   const pm = text.match(PLATE_MATCH);
   if (pm && pm.index != null) {
     const after = text.slice(pm.index);
     const q = after.match(/(?:qty|quantity)\s*:?\s*(\d{1,3})/i);
     if (q) return parseInt(q[1], 10) || 1;
   }
-  // Fallback: "N item(s) from Amazon" (some delivery emails have no Qty field).
-  // Only trust this for a single-item order — for multi-item orders it counts
-  // everything, so cap it at 1 when the order clearly has "more item(s)".
   const im = text.match(/\b(\d{1,3})\s+items?\s+from\s+amazon/i);
   if (im && !/more item/i.test(text)) return parseInt(im[1], 10) || 1;
   return PLATE_MATCH.test(text) ? 1 : 0;
 }
 
-// Generic item-count fallback for trustSender mode, where PLATE_MATCH never
-// matched (no product title in the email) so extractUnits() has nothing to
-// anchor on. Amazon's "Ordered:" subject/summary reads like "2 Electrical &
-// Heating items" or "1 item" — pull the leading number off that, or an
-// explicit Qty/Quantity field if present. Defaults to 1 (a real order number
-// was already confirmed by the caller, so "some quantity was ordered" is a
-// safe assumption even if we can't read exactly how many).
 export function extractGenericItemCount(text) {
   if (!text) return 1;
   const clean = stripInvisible(text);
@@ -116,27 +52,16 @@ export function extractGenericItemCount(text) {
   return 1;
 }
 
-// Order status from subject + body.
-//   in_route  — ordered / shipped / out for delivery / arriving
-//   delivered — delivered
-//   canceled  — canceled / refunded
 export function detectStatus(subject, text) {
   const subj = (subject || '').toLowerCase();
   const body = (text || '').toLowerCase();
   if (/cancel(?:l?ed|lation)?\b|\brefund(?:ed)?\b|return\s+(?:initiated|complete)/i.test(subj + ' ' + body)) return 'canceled';
-  // Subject is the clearest signal of an Amazon email's purpose. A delivery
-  // email leads with "Delivered:"; an order/ship email leads with "Ordered:"/
-  // "Shipped:"/"Arriving"/"Out for delivery".
   if (/^\s*delivered\b/.test(subj)) return 'delivered';
   if (/^\s*ordered\b|thanks for your order|order confirmation|^\s*shipped\b|out for delivery|arriving/.test(subj)) return 'in_route';
-  // Body fallback: require a STRONG delivered phrase. A bare "delivered" is not
-  // enough — it appears as a step label in Amazon's progress tracker
-  // ("Ordered  Shipped  Out for delivery  Delivered  Arriving Thursday").
   if (/\bwas delivered\b|has been delivered|delivered today|your package was delivered|package was left|delivery complete/i.test(body)) return 'delivered';
   return 'in_route';
 }
 
-// Clickable Amazon order link.
 export function extractOrderUrl(text) {
   if (!text) return null;
   const urls = [...(text.matchAll(/https?:\/\/[^\s<>"')]+/gi) || [])].map(m => m[0]);
@@ -146,7 +71,6 @@ export function extractOrderUrl(text) {
       || null;
 }
 
-// Order date → YYYY-MM-DD; today if absent.
 export function extractOrderDate(text, todayISO) {
   const today = todayISO || new Date().toISOString().slice(0, 10);
   if (!text) return today;
@@ -159,18 +83,14 @@ export function extractOrderDate(text, todayISO) {
   return today;
 }
 
-// Parse a whole email into a plate-order payload, or null if it isn't an
-// identifiable Amazon plate order. Requires an order number AND (a product-
-// name match OR trustSender — see file header) so it never fires on unrelated
-// Amazon purchases in a general-purpose mailbox.
 export function parseAmazonPlateEmail({ subject = '', text = '', html = '', todayISO, trustSender = false } = {}) {
   const bodyRaw = (text && text.trim()) ? text : stripHtml(html);
   const body = stripInvisible(bodyRaw);
   const hay = stripInvisible((subject || '') + '\n' + body);
   const productMatch = PLATE_MATCH.test(hay);
-  if (!productMatch && !trustSender) return null;      // not a plate order, and not the dedicated plate-ordering mailbox — ignore
+  if (!productMatch && !trustSender) return null;
   const orderNum = extractOrderNum(hay);
-  if (!orderNum) return null;                          // can't key it idempotently — ignore
+  if (!orderNum) return null;
 
   const units = productMatch
     ? Math.max(0, extractUnits(body) || (PLATE_MATCH.test(body) ? 1 : 0))

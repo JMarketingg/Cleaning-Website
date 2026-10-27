@@ -1,40 +1,11 @@
-// Tags "logo shots" — a finished mount photographed with the company logo up
-// on the customer's TV screen. Those are the photos worth posting, and the
-// tech app already coaches techs through producing them (#logoHelpModal in
-// public/tech.html). This is the other half: finding them afterwards without
-// scrolling the whole Photos tab.
-//
-// Runs from a cron (api/migrate.js?action=photo_logo_scan, twice a day) over
-// booking_photos rows that have never been scanned, limited to status='posted'
-// — the curated set the office actually pulls logo shots from, not the much
-// larger 'records' bucket of raw job photos nobody is going to post. Every
-// photo is looked at exactly once and the verdict is stored — logo_shot
-// true/false plus a one-line reason — so the gallery filter is a plain
-// indexed query, not a live API call.
-//
-// Deliberately Haiku with a tiny max_tokens: this is a yes/no question about a
-// very distinctive object (a bright multi-colored splash logo lighting up an
-// otherwise-dark TV panel), not an analysis task. At ~15 new photos a day the
-// running cost is negligible, and a backfill of the whole table is a few cents.
-//
-// Never throws on a single bad photo. A 404'd URL or a model hiccup leaves
-// logo_scanned_at null so the next run retries it; only a real verdict is
-// written. If ANTHROPIC_API_KEY is unset the whole thing no-ops, exactly like
-// the voice bot's Claude fallback in api/analytics.js.
 
 import { serviceClient } from './supabase.js';
 
 const MODEL = 'claude-haiku-4-5-20251001';
-const CONCURRENCY = 5;     // 5 in flight keeps a 40-photo run well inside the function timeout
+const CONCURRENCY = 5;
 const DEFAULT_LIMIT = 40;
 const MAX_LIMIT = 300;
 
-// The logo is the same artwork on both companies' assets: a paint-splash color
-// wheel with the brand name under it. The prompt names the failure modes that
-// actually occur in these photos — a TV showing ordinary content, a TV that's
-// off, or the logo appearing on a van/shirt/business card rather than the
-// screen — because those are what a naive "is the logo visible" question gets
-// wrong. Answer shape is pinned so parsing stays trivial.
 const PROMPT = [
   'You are reviewing a TV-mounting job photo.',
   '',
@@ -43,7 +14,7 @@ const PROMPT = [
   'Our logo is a single specific piece of artwork: a multi-coloured paint-splash',
   'swirl / spiral (pink, orange, yellow, green, blue) with paint droplets flying',
   'off it, and directly UNDERNEATH it the company name in bold letters --',
-  'either "HANDY ANDY TV MOUNTING" or "DOM\'S TV MOUNTING". The wordmark is part',
+  'either "tidyhaus" or "DOM\'S TV MOUNTING". The wordmark is part',
   'of the artwork. It is usually shown full-screen on an otherwise dark TV.',
   '',
   'Say YES only if you can see BOTH the paint-splash swirl AND the company',
@@ -100,7 +71,6 @@ async function askClaude(url, signal) {
   return ((data.content && data.content[0] && data.content[0].text) || '').trim();
 }
 
-// One photo → a verdict, or null meaning "couldn't tell, leave it unscanned".
 async function scanOne(db, photo) {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), 20000);
@@ -114,8 +84,6 @@ async function scanOne(db, photo) {
     clearTimeout(t);
   }
 
-  // Anything that isn't a clean YES/NO is treated as unreadable rather than as
-  // a NO — a mangled reply must not permanently mark a good photo as ordinary.
   const m = /^\s*(YES|NO)\b\s*\|?\s*(.*)$/i.exec(text);
   if (!m) {
     console.error('[photo_logo_scan] photo', photo.id, 'unparseable reply:', JSON.stringify(text).slice(0, 120));
@@ -131,13 +99,6 @@ async function scanOne(db, photo) {
   return { id: photo.id, logo_shot: hit, note };
 }
 
-// Pulls the newest unscanned photos and works through them CONCURRENCY at a
-// time. Newest-first so this week's jobs — the ones the office actually wants
-// to post — get tagged within hours instead of waiting behind a months-deep
-// historical backfill; the backfill still drains, just last. A stuck photo
-// can't starve the queue behind it (a failure leaves it unscanned, so it is
-// retried on the next run — acceptable, since the same photo failing forever
-// is a broken URL, which the office would want to know about anyway).
 export async function scanLogoPhotos({ limit, dryRun } = {}) {
   if (!process.env.ANTHROPIC_API_KEY) return { skipped: 'ANTHROPIC_API_KEY not set', scanned: 0, hits: 0 };
 

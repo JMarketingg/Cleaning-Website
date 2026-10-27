@@ -1,26 +1,8 @@
-// ============================================================================
-// Signed-authorization / chargeback-evidence helpers (TidyHaus + Dom's).
-// ----------------------------------------------------------------------------
-// Two jobs:
-//   1. saveAuthorization() — after a successful signed charge, freeze the
-//      signature + amount + tip + line items + accepted terms + signing
-//      provenance (IP / device / time) into booking_authorizations. Best-effort:
-//      it must NEVER throw back into the charge path — the money already moved.
-//   2. buildDisputeEvidence() — assemble the text evidence + a human narrative
-//      for a Stripe dispute from a stored authorization, mapped to Stripe's real
-//      dispute-evidence fields. File uploads (signature image, job photos) are
-//      attached by the caller, which has the Stripe account key.
-//
-// Pure-ish: only touches Supabase (storage + one insert) and never Stripe.
-// ============================================================================
 import { uploadImage } from './storage.js';
 import { formatAddress } from './address.js';
 
 export const TERMS_VERSION = '2026-07-01';
 
-// The authorization language the customer agrees to when they sign. The tech app
-// renders the same text (with the live amounts) so what they see IS what we
-// store. Kept here so the server can reconstruct it if the client omits it.
 export function authorizationText({ businessName, customerName, cardLast4, ticketAmount, tip, total }) {
   const card = cardLast4 ? `ending ••${cardLast4}` : 'on file';
   const fmt = (n) => `$${(Math.round((Number(n) || 0) * 100) / 100).toFixed(2)}`;
@@ -33,23 +15,15 @@ export function authorizationText({ businessName, customerName, cardLast4, ticke
   );
 }
 
-// First hop of X-Forwarded-For (the real client), falling back to the socket.
 function clientIp(req) {
   const xff = String(req.headers['x-forwarded-for'] || '').split(',')[0].trim();
   return xff || req.socket?.remoteAddress || req.connection?.remoteAddress || null;
 }
 
-// Persist a signed authorization. `ctx`:
-//   { businessId, total, ticketAmount, tip, card:{brand,last4}, pi, chargeId, body }
-// `body` is the client request (signature dataURL, customer_name, terms_text,
-// terms_version, snapshot.line_items). Returns the inserted row id, or null on
-// any failure — the caller ignores the result so the charge is never undone.
 export async function saveAuthorization(db, req, booking, ctx) {
   try {
     const { businessId, total, ticketAmount, tip, card = {}, pi, chargeId, body = {} } = ctx;
 
-    // Upload the signature image (best-effort — a missing signature must not
-    // block storing the rest of the evidence).
     let sig = { path: null, url: null };
     if (body.signature) {
       try { sig = await uploadImage(body.signature, `authorizations/${booking.id}`); }
@@ -83,15 +57,6 @@ export async function saveAuthorization(db, req, booking, ctx) {
   }
 }
 
-// Build the TEXT half of a Stripe dispute-evidence packet from a stored
-// authorization. The caller uploads the signature + photos to Stripe Files and
-// injects the resulting file ids (customer_signature, service_documentation,
-// customer_communication). Returns { evidence, narrative, in_person, docs }:
-// `evidence` is ready for POST /v1/disputes/:id { evidence[...] } and `docs`
-// holds the plain-text pages for the work-order and call-summary PDFs.
-// Everything here must be TRUE: a phone order is described as a phone order,
-// the caller is "the caller" (never assumed to be the cardholder), and the
-// staff device's IP is never passed off as the customer's (owner 2026-10-23).
 export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
   const fmt = (n) => { const v = Math.round((Number(n) || 0) * 100) / 100; return `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`; };
   const when = (t) => t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : null;
@@ -101,9 +66,6 @@ export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
     .map((li) => `${li.name || li.label}${li.quantity > 1 ? ` x${li.quantity}` : ''}: ${fmt(li.line_total)}`);
   const itemList = items.join('; ');
 
-  // Only call it an in-person signature when a signature exists AND it was
-  // captured on/after the tech started the job. A card taken by phone before the
-  // visit must never be described as signed in person.
   const signedAt = auth?.signed_at ? new Date(auth.signed_at).getTime() : null;
   const jobStart = booking?.on_the_way_at || booking?.arrived_at || booking?.scheduled_at;
   const inPerson = !!(auth?.signature_url && signedAt && jobStart && signedAt >= new Date(jobStart).getTime() - 30 * 60e3);
@@ -115,8 +77,6 @@ export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
   const checks = facts.card_checks || {};
   const checksOk = checks.cvc_check === 'pass' && checks.address_postal_code_check === 'pass';
   const custPhone = phoneFmt(customer?.phone);
-  // How the card reached us decides the story. Office-made bookings = staff typed
-  // a card read out over the phone; widget = the customer typed it on our site.
   const mode = inPerson ? 'in_person' : booking?.source === 'manual' ? 'phone' : booking?.source === 'widget' ? 'online' : 'on_file';
 
   const timeline = [
@@ -159,7 +119,6 @@ export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
     !(facts.inbound_texts || []).length ? `We received no complaint or refund request before this dispute.` : null,
   ]).filter(Boolean).concat(timeline.length ? [`Timeline: ${timeline.join(' | ')}`] : []).join(' ');
 
-  // Work order page (goes in front of the job photos in service_documentation).
   const workOrder = [
     `WORK ORDER: ${facts.brand_name || 'Service'}`,
     `Booking ${booking?.id || ''}`,
@@ -181,7 +140,6 @@ export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
     facts.photo_count ? `  Job photos taken at the address: ${facts.photo_count} (following pages)` : null,
   ].filter((x) => x !== null);
 
-  // Written account of the phone order + every message to/from the customer.
   const communication = [
     'CUSTOMER COMMUNICATION',
     '',
@@ -199,11 +157,7 @@ export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
   const evidence = {
     customer_name: auth?.customer_name || customer?.name || undefined,
     customer_email_address: customer?.email || undefined,
-    // The IP is only the customer's when they signed themselves. null = clear
-    // the value Stripe pre-fills (for a phone order that is the staff's own IP).
     customer_purchase_ip: inPerson ? (auth?.signed_ip || null) : null,
-    // billing_address stays Stripe's (the card's billing ZIP). The service
-    // address is where the work was delivered.
     shipping_address: addr || undefined,
     product_description: itemList ? `In-home service at ${addr || 'the customer address'}: ${itemList}` : 'In-home home cleaning / handyman service',
     service_date: (booking?.completed_at || booking?.scheduled_at) ? new Date(booking.completed_at || booking.scheduled_at).toISOString().slice(0, 10) : undefined,

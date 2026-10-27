@@ -1,16 +1,4 @@
 import { capName } from './name-case.js';
-// api/_lib/estimate-followup.js
-// Automatic follow-up EMAIL on a sent estimate that got no response.
-// Owner rule (2026-09-23): 3 hours after the quote goes out with no approval,
-// email the customer the same estimate again under the subject
-// "We finished your estimate. Did you see it?". Email only -- never a text.
-// One time per estimate, stamped in estimates.followup_emailed_at (migration
-// 0131), which is both the idempotency guard and what the card shows as
-// "Follow-up email automatically sent".
-//
-// Driven by the same scheduled trigger as tech-late.js / paid-not-complete.js:
-//   GET /api/migrate?action=estimate_followup_check&secret=CRON_SECRET
-// (every 10 minutes in vercel.json).
 import { serviceClient } from './supabase.js';
 import { emailConfig, sendEmail, estimateEmail, brandFor } from './email.js';
 import { emailNotificationsOn } from './notify.js';
@@ -21,15 +9,9 @@ import { inBusinessHours } from './estimate-escalation.js';
 
 const HOUR = 3600000;
 export const FOLLOWUP_EMAIL_AFTER_MS = 3 * HOUR;
-// $20 off, owner rule 2026-09-23. Baked into the signed approve token
-// (kind=estimate_approve, coupon=20) that goes out on THIS email only, so it
-// is redeemable only by clicking through from here, and it stops working the
-// moment that token's own TTL runs out -- no separate expiration to track.
 export const FOLLOWUP_COUPON_AMOUNT = 20;
-// Don't chase quotes that were already old when this shipped, or that have
-// gone stale -- a 5-day-old estimate getting a "did you see it?" reads as spam.
 const LOOKBACK_MS = 3 * 24 * HOUR;
-const STARTS_AT = Date.parse('2026-09-22T00:00:00-06:00'); // same clean-slate line as the Follow up tab
+const STARTS_AT = Date.parse('2026-09-22T00:00:00-06:00');
 
 export async function checkEstimateFollowups(opts = {}) {
   const dryRun = !!opts.dryRun;
@@ -51,8 +33,6 @@ export async function checkEstimateFollowups(opts = {}) {
 
   for (const e of (rows || [])) {
     summary.checked++;
-    // "Sent" = the latest send on any channel. 3h from THAT, so a resend
-    // pushes the follow-up out rather than firing on top of it.
     const sentAt = Math.max(ms(e.contacted_at), ms(e.texted_at), ms(e.emailed_at));
     if (!sentAt || sentAt > now - FOLLOWUP_EMAIL_AFTER_MS) { summary.skipped++; continue; }
     const slug = e.business && e.business.slug;
@@ -69,26 +49,16 @@ export async function checkEstimateFollowups(opts = {}) {
   return summary;
 }
 
-// The one coupon follow-up email, shared by the 3-hour cron above and the
-// office's "Send Quote via email (Coupon)" button (admin.js
-// estimate_coupon_send). Owner rule 2026-09-23: whichever goes first wins and
-// the other never sends -- both claim the SAME followup_emailed_at stamp
-// (only if still null), so a customer can never get two coupon emails.
-// `by` = staff name for a manual send, null for the automatic one.
-// Returns { ok } | { already: true } | { error }.
 export async function sendCouponFollowup(db, e, slug, { by = null, baseUrl } = {}) {
   baseUrl = baseUrl ?? (process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : ''));
   const stamp = new Date().toISOString();
-  // Claim FIRST (only if still unstamped) so two overlapping runs -- or the
-  // cron and a button click -- can't both email the same customer. If the
-  // send then fails, clear the stamp so it can be tried again.
   const { data: claimed, error: claimErr } = await db.from('estimates')
     .update({ followup_emailed_at: stamp, followup_sent_by: by }).eq('id', e.id).is('followup_emailed_at', null).select('id');
   if (claimErr) { console.error('[estimate_followup] claim failed', e.id, claimErr.message); return { error: claimErr.message }; }
   if (!claimed || !claimed.length) return { already: true };
   try {
     const firstName = capName((e.customer_name || '').trim().split(/\s+/)[0]);
-    const approveToken = signToken({ kind: 'estimate_approve', estimate_id: e.id, coupon: FOLLOWUP_COUPON_AMOUNT }, 7776000); // 90 days, same as the original
+    const approveToken = signToken({ kind: 'estimate_approve', estimate_id: e.id, coupon: FOLLOWUP_COUPON_AMOUNT }, 7776000);
     const approveUrl = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(approveToken)}&via=email` : '';
     const upsells = (Array.isArray(e.upsells) ? e.upsells : []).map(u => ({
       id: u.id, description: u.description, qty: u.qty, unit_price: u.unit_price,
@@ -108,18 +78,9 @@ export async function sendCouponFollowup(db, e, slug, { by = null, baseUrl } = {
   }
 }
 
-// ── Text follow-ups (owner 2026-10-22) ─────────────────────────────────────
-// A sent, unapproved estimate gets a text at 3 h and again at 24 h after the
-// latest send, with the approve link carrying the same $20 coupon the email
-// follow-up offers, plus "Reply STOP to opt out". Once each, stamped in
-// estimates.followup_text1_at / followup_text2_at (migration 0233), claimed
-// before sending so overlapping runs can't double-text. Same gates as the
-// automatic quote text: sms_consent on the row (a phone number = opt-in,
-// owner rule 2026-09-19), no STOP on file, not a blocked number. Customer
-// texts only go out 8 AM-8 PM in the business's time zone.
 export const FOLLOWUP_TEXT1_AFTER_MS = 3 * HOUR;
 export const FOLLOWUP_TEXT2_AFTER_MS = 24 * HOUR;
-const TEXT_STARTS_AT = Date.parse('2026-10-22T06:00:00Z'); // never chase quotes sent before this shipped
+const TEXT_STARTS_AT = Date.parse('2026-10-22T06:00:00Z');
 const TEXT_CLOSED = ['lost', 'expired', 'out_of_area', 'approved', 'booked'];
 
 export async function checkEstimateTextFollowups(opts = {}) {
@@ -155,7 +116,6 @@ export async function checkEstimateTextFollowups(opts = {}) {
 
     const firstName = capName((e.customer_name || '').trim().split(/\s+/)[0]);
     const named = firstName && !/\d/.test(firstName) ? firstName : '';
-    // Long link on purpose: the short /r/ code drops the coupon claim.
     const token = signToken({ kind: 'estimate_approve', estimate_id: e.id, coupon: FOLLOWUP_COUPON_AMOUNT }, 7776000);
     const link = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(token)}&via=sms` : '';
     if (!link) { summary.skipped++; continue; }

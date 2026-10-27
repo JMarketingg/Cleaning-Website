@@ -1,10 +1,5 @@
-// api/_lib/gbp-posts.js
-// Latest Google Business Profile posts per listing (owner 2026-10-18).
-// Read-only: no GBP API OAuth exists, so this reads the public Maps place
-// payload (same data the listing's "Updates" tab shows). Never edits a listing.
 import { GMB_LOCATIONS } from '../../scripts/lib/gmb-locations.mjs';
 
-// Every registry listing (owner 2026-10-20: all listings, not a subset).
 export const GBP_POST_KEYS = GMB_LOCATIONS.filter((l) => l.placeId).map((l) => l.key);
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0 Safari/537.36';
@@ -12,7 +7,6 @@ const H = { 'User-Agent': UA, 'Accept-Language': 'en-US,en;q=0.9', Cookie: 'CONS
 const get = async (u) => { const r = await fetch(u, { headers: H, signal: AbortSignal.timeout(12000) }); if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); };
 const DATE = /^[A-Z][a-z]{2} \d{1,2}, \d{4}$/;
 
-// A post node: [null, [[[text,..]]], [createdSec, ..], null, cta, [[img,..]], postId, locId, [..], postUrl, ved, null, "Jun 5, 2026", ..]
 function collect(n, out) {
   if (!Array.isArray(n)) return;
   if (typeof n[6] === 'string' && /^\d{8,}$/.test(n[6]) && typeof n[12] === 'string' && DATE.test(n[12])) {
@@ -32,7 +26,6 @@ function collect(n, out) {
   for (const c of n) collect(c, out);
 }
 
-// Public Maps place payload (same JSON the listing page loads).
 export async function fetchPlacePayload(placeId) {
   const html = await get('https://www.google.com/maps/place/?q=place_id:' + encodeURIComponent(placeId) + '&hl=en&gl=us');
   const m = html.replace(/&amp;/g, '&').match(/\/maps\/preview\/place\?[^"'\s<>]+/);
@@ -42,11 +35,9 @@ export async function fetchPlacePayload(placeId) {
   return JSON.parse(t);
 }
 
-// Review count + rating from the payload; null unless it is the same place.
 export function placeStats(j, placeId) {
   const p = Array.isArray(j) ? j[6] : null;
   if (!Array.isArray(p) || p[78] !== placeId) return null;
-  // No rating block at all = a listing with zero reviews (Fort Worth 10/20).
   const count = p[4] == null ? 0 : p[4][8], rating = p[4]?.[7];
   if (typeof count !== 'number') return null;
   return { count, rating: typeof rating === 'number' ? rating : null, name: p[11] || null };
@@ -67,7 +58,6 @@ export async function runGbpPosts(db) {
     try {
       const posts = await fetchGbpPosts(l.placeId);
       const now = new Date().toISOString();
-      // Replace: a post deleted on Google drops off here too.
       const { error: de } = await db.from('gbp_posts').delete().eq('location_key', key);
       if (de) throw de;
       if (posts.length) {

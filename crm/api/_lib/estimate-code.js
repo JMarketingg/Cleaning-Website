@@ -1,11 +1,3 @@
-// Short-link code for an estimate-approval token — same envelope as
-// review-code.js (16-byte UUID + 4-byte expiry + 12-byte MAC = 43 URL-safe
-// chars) but domain-separated with its own HMAC salt, so a review code and an
-// estimate code can never be confused for one another even though they're
-// the same byte shape. This lets /r/<code> redirects (already live on every
-// brand's own domain, built for review links) carry estimate-approval links
-// too, with zero changes needed in any of the 15 site repos: the shared
-// redirect endpoint in book.js just tries review first, then estimate.
 import crypto from 'node:crypto';
 import { signToken, verifyToken } from './auth.js';
 import { REVIEW_LINK_PREFIX } from './review-token.js';
@@ -28,7 +20,7 @@ export function compactEstimateToken(token) {
 
 export function expandEstimateCode(code) {
   if (typeof code !== 'string') return null;
-  if (code.includes('.')) return null; // a real JWT, not a compact code — not ours to expand
+  if (code.includes('.')) return null;
   if (!/^[A-Za-z0-9_-]{43}$/.test(code)) return null;
   const bytes = Buffer.from(code, 'base64url');
   if (bytes.toString('base64url') !== code || bytes.length !== 32) return null;
@@ -41,10 +33,6 @@ export function expandEstimateCode(code) {
   return signToken({ kind: 'estimate_approve', estimate_id }, ttl);
 }
 
-// Short link for a texted estimate-approval — same brand-domain map as review
-// links (the /r/<code> redirect on each domain is generic, see book.js
-// serveReviewClick). Falls back to the long token URL for a brand with no
-// short-link domain wired yet, so nothing ever goes out broken.
 export function estimateApproveLink({ slug, token, fallbackUrl }) {
   const prefix = REVIEW_LINK_PREFIX[slug];
   const code = token ? compactEstimateToken(token) : null;

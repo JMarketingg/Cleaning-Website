@@ -1,7 +1,3 @@
-// api/_lib/gbp-count-watch.js
-// Daily review-count snapshot per Google listing (owner 2026-10-17). Read-only
-// Places API calls; never edits a listing. Count drop => app.gbp_count_drops
-// row, open until the owner taps Seen in Google Listings.
 import { GMB_LOCATIONS } from '../../scripts/lib/gmb-locations.mjs';
 import { runGbpPosts, fetchPlacePayload, placeStats } from './gbp-posts.js';
 
@@ -45,24 +41,18 @@ export async function runGbpCountWatch(db) {
   const key = process.env.GOOGLE_MAPS_API_KEY;
   if (!key) throw new Error('GOOGLE_MAPS_API_KEY not set');
   const out = [];
-  // Parallel: 15 listings x (Places + Maps fallback) must fit the 60s function.
   await Promise.all(GMB_LOCATIONS.map(async (l) => {
     try {
       const { data: prev } = await db.from('gbp_count_snapshots').select('place_id, review_count, recent')
         .eq('location_key', l.key).order('taken_at', { ascending: false }).limit(1).maybeSingle();
-      // Registry place id wins: a cached lookup once matched the wrong listing.
       const pid = l.placeId || prev?.place_id || await findPlaceId(l, key);
       if (!pid) { out.push({ key: l.key, skip: 'no place id' }); return; }
-      // Places API returned nothing for 7 listings since 10/18 (Houston, Denver,
-      // Dom's x3, Fort Worth, Millertime). Fall back to the public Maps payload,
-      // accepted only when it echoes the same place id.
       let d = null, src = 'places';
       try { d = await details(pid, key); } catch (_) {}
       if (!d) { try { const s = placeStats(await fetchPlacePayload(pid), pid); if (s) { d = { count: s.count, rating: s.rating, recent: prev?.recent || [] }; src = 'maps'; } } catch (_) {} }
       if (!d) { out.push({ key: l.key, skip: 'no count' }); return; }
       await db.from('gbp_count_snapshots').insert({ location_key: l.key, place_id: pid, review_count: d.count, rating: d.rating, recent: d.recent });
       if (prev && prev.place_id === pid && d.count < prev.review_count) {
-        // Which one: in the last newest-5 but gone now, and not just aged out.
         const now = new Set(d.recent.map(r => r.name + '|' + r.time));
         const floor = d.recent.length ? Math.min(...d.recent.map(r => r.time)) : 0;
         let removed = (prev.recent || []).filter(r => !now.has(r.name + '|' + r.time) && (d.recent.length < 5 || r.time >= floor))

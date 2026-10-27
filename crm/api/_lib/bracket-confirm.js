@@ -1,15 +1,3 @@
-// Bracket confirm at completion (owner 2026-10-13).
-//
-// Stock used to move only when a bracket LINE was on the ticket at completion,
-// so a tech who used van stock on a "customer has own bracket" / Frame /
-// office-built ticket (or deleted the bracket line first) drifted the CRM
-// above the real truck. Now the completer answers once per TV which bracket
-// went on (Flat / Tilt / Full motion / Own) and the ledger follows THAT.
-// The answer is prefilled from the ticket, so the common case is one tap.
-//
-// Pure helpers + one ledger writer. Detection of company brackets stays in
-// tech.js / admin.js (detectBracketQtys) and is passed in, so nothing here can
-// drift from what the old completion path deducts.
 
 import { countTvUnits } from './line-items.js';
 import { debitForJob, adjust as ledgerAdjust } from './bracket-moves.js';
@@ -17,8 +5,6 @@ import { debitForJob, adjust as ledgerAdjust } from './bracket-moves.js';
 export const BRACKET_KEYS = ['flat', 'tilting', 'full_motion', 'own'];
 const COMPANY = ['flat', 'tilting', 'full_motion'];
 
-// Lines that say the customer's own / in-box bracket goes on the TV.
-// Soundbar / Apple TV / OneConnect lines mention brackets but aren't TV mounts.
 export function detectOwnBracketQty(lineItems) {
   let n = 0;
   for (const li of lineItems || []) {
@@ -31,13 +17,6 @@ export function detectOwnBracketQty(lineItems) {
   return n;
 }
 
-// How many TVs the completer must answer for, and the prefilled answer per TV
-// ('flat' | 'tilting' | 'full_motion' | 'own' | null = tech must pick).
-// TV count = the ticket's TV size lines (countTvUnits, same as the clamp);
-// a bracket line beyond that means an unrecognized TV line, so it wins. With
-// no size line at all, bracket + own lines stand in for TVs. 0 = no question.
-// `prior` = metadata.brackets_used: on a reopened job the answer already
-// confirmed wins over the ticket, so a one-tap re-complete keeps it.
 export function bracketPrefill(lineItems, detected, prior) {
   const company = { flat: detected?.flat || 0, tilting: detected?.tilting || 0, full_motion: detected?.full_motion || 0 };
   const companyTotal = company.flat + company.tilting + company.full_motion;
@@ -55,9 +34,6 @@ export function bracketPrefill(lineItems, detected, prior) {
   return { tv_count: tvCount, picks };
 }
 
-// Parse the client's { flat, tilting, full_motion, own } answer. Returns
-// { value } or { error }. Never trusts the client's sum: caller checks it
-// against the server-side TV count with checkBracketsUsed.
 export function parseBracketsUsed(raw) {
   if (raw == null) return { value: null };
   if (typeof raw !== 'object') return { error: 'Bad bracket answer.' };
@@ -80,18 +56,11 @@ export function bracketsText(q) {
   const parts = BRACKET_KEYS.filter(k => q[k]).map(k => `${q[k]} ${LABEL[k]}`);
   return parts.length ? parts.join(', ') : 'none';
 }
-// Note text when the confirmed company brackets differ from the ticket's
-// bracket lines, else null.
 export function bracketMismatchNote(used, detected) {
   if (COMPANY.every(k => (used[k] || 0) === (detected?.[k] || 0))) return null;
   return `Brackets used: ${bracketsText(used)}. Ticket: ${bracketsText({ ...detected, own: 0 })}.`;
 }
 
-// What the ledger has already charged this booking, per tech. `actual` is what
-// really left the counter; `claimed` adds debits that hit zero (clamped). We
-// charge up to `claimed` (a recount may already have absorbed a clamped unit,
-// so charging it again would double-deduct) but only ever give back `actual`
-// (giving back a clamped unit would invent stock that was never there).
 export function chargedFromMoves(rows) {
   const by = new Map();
   for (const r of rows || []) {
@@ -106,8 +75,6 @@ export function chargedFromMoves(rows) {
   return by;
 }
 
-// Moves needed so the ledger ends at: supplier charged `qtys`, every other tech
-// on this booking charged 0. delta = stock change (positive gives stock back).
 export function planBracketMoves(chargedByTech, supplier, qtys) {
   const techs = new Set(chargedByTech.keys());
   if (supplier) techs.add(supplier);
@@ -127,11 +94,6 @@ export function planBracketMoves(chargedByTech, supplier, qtys) {
   return plan;
 }
 
-// Bookings deducted before the ledger (Jul to 9/2: metadata stamp + a direct
-// counter write that the 0088 opening balance absorbed) have no job_use move.
-// Their charge is a baseline: built from brackets_used / the ticket, and kept
-// in brackets_used.legacy by every path that posts a move for them, so later
-// moves add on top of it instead of charging the job again.
 export function legacyBaseline(meta, rows, { supplier, ticketQtys } = {}) {
   const bu = meta?.brackets_used;
   if (bu?.legacy) return bu.legacy;
@@ -142,7 +104,6 @@ export function legacyBaseline(meta, rows, { supplier, ticketQtys } = {}) {
   return { tech, flat: src.flat || 0, tilting: src.tilting || 0, full_motion: src.full_motion || 0 };
 }
 
-// Ledger rows for the booking + legacy baseline = what each tech is charged.
 export async function chargedSoFar(db, bookingId, meta, fallback) {
   const { data: rows, error } = await db.from('bracket_moves')
     .select('kind, technician_id, flat_delta, tilting_delta, full_motion_delta, clamped_flat, clamped_tilting, clamped_full_motion')
@@ -158,9 +119,6 @@ export async function chargedSoFar(db, bookingId, meta, fallback) {
   return { by, n: (rows || []).length, legacy };
 }
 
-// Move this booking's charge so `supplier` carries exactly `qtys` and every
-// other tech 0. Keyed on rows-on-file + before>after, so a double-submit lands
-// once but a later identical change (Tilt>Own>Tilt>Own) still posts.
 export async function moveBookingCharge(db, { businessId, bookingId, supplier, qtys, actor, meta, ticketQtys, fallbackSupplier, reason, keyTag }) {
   const { by, n, legacy } = await chargedSoFar(db, bookingId, meta, { supplier: fallbackSupplier || supplier, ticketQtys });
   for (const m of planBracketMoves(by, supplier, qtys)) {
@@ -172,11 +130,6 @@ export async function moveBookingCharge(db, { businessId, bookingId, supplier, q
   return { legacy, n };
 }
 
-// Make the ledger match the confirmed answer. First completion with nothing
-// charged keeps the job:<booking_id> key (shared with every older path, so a
-// retry or the other app completing is still a no-op). A re-completion, or a
-// pre-ledger job, posts only the difference vs what is already charged.
-// Returns { legacy } for the caller to keep in brackets_used.
 export async function applyConfirmedBrackets(db, { businessId, bookingId, supplier, qtys, actor, meta, ticketQtys, fallbackSupplier }) {
   const { by, n, legacy } = await chargedSoFar(db, bookingId, meta, { supplier: fallbackSupplier || supplier, ticketQtys });
   if (!n && !legacy) {
@@ -193,8 +146,6 @@ export async function applyConfirmedBrackets(db, { businessId, bookingId, suppli
   return { legacy };
 }
 
-// Latest tech self-count for one or more techs: { at, gap: {flat,tilting,full_motion,wire_plate} }.
-// Bracket gap = the recount move's deltas; plate gap parsed from its reason.
 export async function lastSelfCounts(db, techIds) {
   const out = new Map();
   if (!techIds.length) return out;
@@ -213,8 +164,6 @@ export async function lastSelfCounts(db, techIds) {
   return out;
 }
 
-// "Bracket removed: Tilting x1 (Customer's own)" lines for the job notes, from
-// the editor's [{ name, qty, reason }] list. Only the two known reasons pass.
 const REMOVE_REASONS = { own: "Customer's own", not_installed: 'Not installed' };
 export function removedBracketNotes(list) {
   if (!Array.isArray(list)) return null;

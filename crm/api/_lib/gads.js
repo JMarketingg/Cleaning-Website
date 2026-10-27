@@ -1,14 +1,5 @@
-// Google Ads API connection (owner 2026-10-15). Each Google login (the
-// manager bostoninstallpros@, or an ad account's own Gmail such as
-// denverinstallpros@ / domstvmounting@) connects once by OAuth; its refresh
-// token lives server-side in app.integration_tokens as provider
-// 'google_ads:<email>' (legacy 'google_ads' = the first manager login).
-// Reads go through the REST API with GAQL.
-// Env: GOOGLE_ADS_CLIENT_ID / GOOGLE_ADS_CLIENT_SECRET (OAuth client),
-// optional GOOGLE_ADS_DEVELOPER_TOKEN, GOOGLE_ADS_API_VERSION.
 import crypto from 'crypto';
 
-// datamanager: Google's required path for uploading booked jobs as conversions (2026-10).
 const SCOPE = 'https://www.googleapis.com/auth/adwords https://www.googleapis.com/auth/datamanager openid email';
 export const GADS_REDIRECT = 'https://tidyhaus-crm.vercel.app/api/admin?action=gads_oauth_callback';
 const ver = () => process.env.GOOGLE_ADS_API_VERSION || 'v26';
@@ -36,7 +27,6 @@ export async function gadsHandleCallback(db, code, state) {
   const { error: se } = await db.from('integration_tokens').upsert({ provider: 'google_ads:' + email, value: j.refresh_token, updated_at: new Date().toISOString() }, { onConflict: 'provider' });
   if (se) throw new Error('Could not save Google Ads login: ' + se.message);
   await db.from('integration_tokens').delete().eq('provider', 'google_ads_state');
-  // Keep the account map on reconnect (login emails don't change; a wipe + quota-out = uploads stall).
   return email;
 }
 
@@ -71,20 +61,13 @@ async function search(tok, cid, query, loginCid) {
   return (Array.isArray(j) ? j : [j]).flatMap(b => b.results || []);
 }
 
-// Every ad account reachable through any connected login, with which login reaches it.
-// Which login reaches which ad account. listAccessibleCustomers costs API quota
-// (2,880 ops/day on Explorer access) and was being called for every login on every
-// query, which burned the whole day's quota on 2026-10-15. The map is kept 6h in
-// integration_tokens 'google_ads_reach' and 30 min in memory; tokens stay fresh.
 let reachMemo = null;
 async function reachable(db, fresh) {
   if (!fresh && reachMemo && Date.now() - reachMemo.at < 30 * 60e3) return withTokens(db, reachMemo.map);
   const { data: saved } = await db.from('integration_tokens').select('value, updated_at').eq('provider', 'google_ads_reach').maybeSingle();
   if (!fresh && saved && Date.now() - new Date(saved.updated_at).getTime() < 6 * 3600e3) { reachMemo = { at: Date.now(), map: JSON.parse(saved.value) }; return withTokens(db, reachMemo.map); }
   const live = await reachableLive(db);
-  // Quota out / Google down: fall back to the last known map, however old.
   if (!live.list.length && saved) return withTokens(db, JSON.parse(saved.value));
-  // Merge: a partial live answer (quota / one login failing) must not drop known accounts.
   const old = saved ? JSON.parse(saved.value) : [];
   const map = [...live.list.map(a => ({ id: a.id, via: a.via })), ...old.filter(o => !live.list.some(a => a.id === o.id))];
   if (old.some(o => !live.list.some(a => a.id === o.id))) { reachMemo = { at: Date.now(), map }; await db.from('integration_tokens').upsert({ provider: 'google_ads_reach', value: JSON.stringify(map), updated_at: new Date().toISOString() }, { onConflict: 'provider' }); return withTokens(db, map); }
@@ -128,15 +111,12 @@ export async function gadsStatus(db) {
   return out;
 }
 
-// Spend / conversions / cost per conversion by campaign, 7 and 30 days, for every
-// reachable, active, non-manager account. Money is in the account's own currency.
 export async function gadsReport(db) {
   const rows = [];
   const { list, errors } = await reachable(db);
   for (const a of list) {
     let info; try { info = (await search(a.tok, a.id, 'SELECT customer.descriptive_name, customer.manager, customer.currency_code, customer.status, customer.time_zone FROM customer LIMIT 1', a.id))[0]?.customer || {}; } catch (e) { errors.push(a.id + ': ' + e.message); continue; }
     if (info.manager || info.status === 'CANCELED' || info.status === 'CLOSED') continue;
-    // p7/p30 = the 7/30 days before those windows, for the up/down arrows (owner 2026-10-16).
     const day = n => new Date(Date.now() - n * 864e5).toISOString().slice(0, 10);
     for (const [span, during] of [['d3', `BETWEEN '${day(2)}' AND '${day(0)}'`], ['p3', `BETWEEN '${day(5)}' AND '${day(3)}'`], ['d7', 'DURING LAST_7_DAYS'], ['d30', 'DURING LAST_30_DAYS'], ['p7', `BETWEEN '${day(14)}' AND '${day(8)}'`], ['p30', `BETWEEN '${day(60)}' AND '${day(31)}'`]]) {
       let rs; try { rs = await search(a.tok, a.id, `SELECT campaign.id, campaign.name, campaign.status, metrics.cost_micros, metrics.conversions, metrics.clicks, metrics.impressions, metrics.phone_calls FROM campaign WHERE segments.date ${during} AND campaign.status != 'REMOVED'`, a.id); }
@@ -148,8 +128,6 @@ export async function gadsReport(db) {
         row[span] = { cost: Math.round(Number(r.metrics.costMicros || 0) / 1e4) / 100, conv: Math.round(Number(r.metrics.conversions || 0) * 10) / 10, clicks: Number(r.metrics.clicks || 0), impr: Number(r.metrics.impressions || 0), calls: Number(r.metrics.phoneCalls || 0) };
       }
     }
-    // d1/p1 (owner 2026-10-17): last 24 hours / the 24 before, by the hour in the
-    // account's own time zone (segments.date + segments.hour, current hour included).
     try {
       const tz = info.timeZone || 'Asia/Manila';
       const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', hourCycle: 'h23' }).formatToParts(new Date()).map((x) => [x.type, x.value]));
@@ -176,8 +154,6 @@ export async function gadsReport(db) {
   return out;
 }
 
-// Audit (owner 2026-10-15): bidding, start date, negative keywords (own +
-// shared lists) per running campaign, and which conversion actions count.
 export async function gadsAudit(db) {
   const out = { accounts: [], at: new Date().toISOString() };
   const { list } = await reachable(db);
@@ -211,7 +187,6 @@ export async function gadsAudit(db) {
   return out;
 }
 
-// Owner read-only GAQL runner for audits (search only, never mutates).
 export async function gadsQuery(db, cid, query) {
   const { list } = await reachable(db);
   const a = list.find(x => x.id === clean(cid));
@@ -222,8 +197,6 @@ export async function gadsQuery(db, cid, query) {
   return { rows: (Array.isArray(j) ? j : [j]).flatMap(b => b.results || []) };
 }
 
-// Owner write path (approved by owner 2026-10-15): one mutate call, e.g. resource
-// 'campaignCriteria' with operations [{create:{...}}].
 export async function gadsMutate(db, cid, resource, operations, validateOnly, opts = {}) {
   if (!/^[a-zA-Z]+$/.test(resource || '')) throw new Error('Bad resource');
   const { list } = await reachable(db);
@@ -235,10 +208,6 @@ export async function gadsMutate(db, cid, resource, operations, validateOnly, op
   return j;
 }
 
-// Booked jobs -> Google Ads (owner 2026-10-15). Bookings that carry a Google click
-// id (metadata.ad_click, saved by the sites + widgets) are uploaded once to each
-// account's "CRM booking" UPLOAD_CLICKS action. Actions live in integration_tokens
-// 'google_ads_upload_actions' as { "<business slug>": { customer, action } }.
 const GADS_ACCOUNT_CURRENCY = { '0000000000': 'USD', '0000000000': 'PHP', '0000000000': 'THB' };
 export async function gadsUploadBookings(db) {
   const { data: cfgRow } = await db.from('integration_tokens').select('value').eq('provider', 'google_ads_upload_actions').maybeSingle();
@@ -257,13 +226,11 @@ export async function gadsUploadBookings(db) {
     if (!c || !id) { (out.skipped = out.skipped || []).push(b.id + ': ' + (!c ? 'no action for ' + b.business?.slug : 'no click id')); continue; }
     const a = list.find(x => x.id === clean(c.customer));
     if (!a) { (out.skipped = out.skipped || []).push(b.id + ': account not reachable'); continue; }
-    // Google Data Manager API (UploadClickConversions is closed to new integrations).
     const ev = { adIdentifiers: id, eventTimestamp: new Date(b.created_at).toISOString(), transactionId: String(b.id), eventSource: 'WEB' };
     if (Number(b.price) > 0 && GADS_ACCOUNT_CURRENCY[a.id] === 'USD') { ev.conversionValue = Number(b.price); ev.currency = 'USD'; }
     const dest = { operatingAccount: { accountType: 'GOOGLE_ADS', accountId: a.id }, productDestinationId: String(c.action).split('/').pop() };
     const r = await fetch('https://datamanager.googleapis.com/v1/events:ingest', { method: 'POST', headers: { Authorization: 'Bearer ' + a.tok, 'Content-Type': 'application/json' }, body: JSON.stringify({ destinations: [dest], events: [ev] }) });
     const j = await r.json().catch(() => ({}));
-    // Auth/scope/API-not-enabled problems: leave the booking unmarked so it retries once fixed.
     if (r.status === 401 || r.status === 403) { out.blocked = (j.error && j.error.message || String(r.status)).slice(0, 300); break; }
     const err = !r.ok ? (j.error?.message || String(r.status)) : null;
     const mark = { at: new Date().toISOString(), ok: !err, ...(j.requestId ? { request: j.requestId } : {}), ...(err ? { error: String(err).slice(0, 300) } : {}) };
@@ -273,8 +240,6 @@ export async function gadsUploadBookings(db) {
   return out;
 }
 
-// Owner read-only bulk pull for deep audits: runs named GAQL queries and saves the
-// raw rows to integration_tokens 'gads_dump:<name>' (read later offline).
 export async function gadsDump(db, name, queries) {
   const out = { at: new Date().toISOString(), results: {} };
   await Promise.all(Object.entries(queries || {}).map(async ([k, q]) => {

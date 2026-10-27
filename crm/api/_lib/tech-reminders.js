@@ -1,16 +1,3 @@
-// Tech reminder texts (owner 2026-10-20). Runs on the 10-min tech_late_check
-// cron. Every time is the JOB's own local time (service area tz):
-//   1. 'jobday'    7:00 AM local: today's jobs (time, first name, address, link)
-//   2. Leave-now: owner moved it to 30 min before, which is tech-late.js
-//                  stage 1 ("Leave now for {time} - {address}"), so not here.
-//   3. 'tomorrow'  7:00 PM local: "You have N jobs tomorrow" (moved from the
-//                  old 8:30 PM Denver cron).
-//   4. 'late_alert' the late text (tech-late.js stage 3, kind 'late') asks
-//                  "Reply YES with your ETA". No YES in 15 min -> the covering
-//                  secretaries get one text per job per tech.
-// Idempotent: tech_sms_log unique index (kind, booking_id, technician_id,
-// to_phone) for jobday/leave_now/late/late_alert — a row is claimed BEFORE the
-// send, so overlapping cron triggers can never double-text.
 import { sendSMSResult, toE164 } from './sms.js';
 import { signToken } from './auth.js';
 import { leadAlertRecipients } from './lead-alert-recipients.js';
@@ -48,7 +35,6 @@ export const clock = (iso, tz) => new Date(iso).toLocaleTimeString('en-US', { ti
 const first = (n) => String(n || '').trim().split(/\s+/)[0] || 'Customer';
 const addr = (j) => [j.address_line1, j.city].filter(Boolean).join(', ') || 'address in the app';
 
-// YES / Y / OK / thumbs-up, optionally followed by an ETA ("yes 15 min").
 const THUMBS = String.fromCodePoint(0x1F44D);
 export function isYes(body) {
   const s = String(body || '').trim().toLowerCase();
@@ -57,7 +43,6 @@ export function isYes(body) {
   return /^(yes|yeah|yep|y|ok|okay|k)\b/.test(s);
 }
 
-// Claim the log row first; a unique violation means another run already has it.
 async function claim(db, row) {
   const { data, error } = await db.from('tech_sms_log').insert({ status: 'pending', ...row }).select('id').maybeSingle();
   if (error) { if (/duplicate|unique/i.test(error.message || '')) return null; throw error; }
@@ -95,7 +80,6 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
   const pairs = [];
   for (const j of jobs) for (const id of [j.technician_id, j.secondary_technician_id].filter(Boolean)) pairs.push({ j, t: techs.get(id), techId: id });
 
-  // Already-logged keys, so dry runs report truthfully and live runs skip fast.
   const ids = jobs.map(j => j.id);
   const done = new Set();
   if (ids.length) {
@@ -106,25 +90,23 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
   const link = `${baseUrl()}/tech.html`;
   const active = (j) => !j.on_the_way_at && !['on_the_way', 'in_progress', 'completed'].includes(j.status);
 
-  // ── 1+2. 7 AM job-day text, with any leave-now due right now merged in ─────
   const dayGroups = new Map();
   for (const p of pairs) {
     const { j } = p;
     if (localDay(j.at, j.tz) !== localDay(now, j.tz)) continue;
     const m = localMin(now, j.tz);
-    if (m < 420 || m >= 480 || j.at <= now) continue;   // 7:00-7:59 local, jobs still ahead
+    if (m < 420 || m >= 480 || j.at <= now) continue;
     if (isDone('jobday', j, p.techId)) continue;
     const key = `${p.techId}|${j.tz}`;
     if (!dayGroups.has(key)) dayGroups.set(key, []);
     dayGroups.get(key).push(p);
   }
-  const leaveDue = () => false;   // leave-now lives in tech-late.js stage 1 now
+  const leaveDue = () => false;
   const merged = new Set();
   for (const [, list] of dayGroups) {
     const t = list[0].t;
     if (!ok(t)) { out.skipped.push({ techId: list[0].techId, why: 'no phone / inactive' }); continue; }
     const tz = list[0].j.tz;
-    // Owner 2026-10-21: just a numbered list of cities.
     const lines = list.slice().sort((a, b) => new Date(a.j.scheduled_at) - new Date(b.j.scheduled_at)).map((p, i) => `${i + 1}. ${p.j.city || 'See app'}`);
     const lead = list.find(leaveDue);
     const msg = (lead ? `Leave now for ${clock(lead.j.scheduled_at, tz)} - ${addr(lead.j)}\n\n` : '')
@@ -140,7 +122,6 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
     out.jobday.push({ tech: t.name, jobs: list.length, merged_leave_now: !!lead, ...(r.ok ? {} : { why: r.skipped || r.error }) });
   }
 
-  // ── 2. 1 hour before each job ─────────────────────────────────────────────
   for (const p of pairs) {
     if (merged.has(p) || !leaveDue(p)) continue;
     if (!ok(p.t)) { out.skipped.push({ techId: p.techId, why: 'no phone / inactive' }); continue; }
@@ -153,12 +134,11 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
     out.leave_now.push({ tech: p.t.name, ...(r.ok ? {} : { why: r.skipped || r.error }) });
   }
 
-  // ── 3. 7 PM local "tomorrow" digest (owner's 2026-09-29 wording) ──────────
   const tmr = new Map();
   for (const p of pairs) {
     const { j } = p;
     const m = localMin(now, j.tz);
-    if (m < 1140 || m >= 1200) continue;   // 7:00-7:59 PM local
+    if (m < 1140 || m >= 1200) continue;
     if (localDay(j.at, j.tz) !== localDay(now + 86400000, j.tz)) continue;
     if (!tmr.has(p.techId)) tmr.set(p.techId, []);
     tmr.get(p.techId).push(p);
@@ -177,11 +157,10 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
     out.tomorrow.push({ tech: t.name, jobs: list.length, ...(r.ok ? {} : { why: r.skipped || r.error }) });
   }
 
-  // ── 4. Late text with no YES within 10 min -> covering secretaries ────────
   const { data: lates, error: lErr } = await db.from('tech_sms_log')
     .select('id, booking_id, technician_id, created_at, confirmed_at, status')
     .eq('kind', 'late').is('confirmed_at', null).not('status', 'in', '(skipped,failed)')
-    .lte('created_at', new Date(now - 10 * MIN).toISOString())   // owner 2026-10-21: 10 min.gte('created_at', new Date(now - 3 * 3600000).toISOString());
+    .lte('created_at', new Date(now - 10 * MIN).toISOString())
   if (lErr) throw lErr;
   for (const l of lates || []) {
     const { data: b } = await db.from('bookings').select(JOB_COLS).eq('id', l.booking_id).maybeSingle();
@@ -204,8 +183,6 @@ export async function runTechReminders(db, { dryRun = false, now = Date.now(), s
   return out;
 }
 
-// Inbound text from a tech's phone: a YES marks their open late text(s)
-// confirmed. Returns the number of rows confirmed (0 = not a tech / not YES).
 export async function confirmTechReply(db, fromPhone, body) {
   if (!isYes(body)) return 0;
   const e164 = toE164(fromPhone || '');

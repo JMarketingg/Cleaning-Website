@@ -47,16 +47,13 @@
       '</div>';
     document.body.appendChild(ov);
     var reduce=false; try{ reduce=matchMedia('(prefers-reduced-motion: reduce)').matches; }catch(e){}
-    // balloons
     if(!reduce){ var cols=['#ff4d8d','#ffb703','#8ecae6','#b388ff','#06d6a0','#ff7aa2'];
       for(var i=0;i<10;i++){ var b=document.createElement('div'); b.className='ow-ball';
         b.style.left=(5+i*9.5)+'%'; b.style.background=cols[i%cols.length];
         b.style.animationDuration=(9+Math.random()*6)+'s'; b.style.animationDelay=(-Math.random()*10)+'s'; ov.appendChild(b); } }
-    // plane along path (rAF), loops
     var p=ov.querySelector('#owPath'), pl=ov.querySelector('#owPlane'), L=p.getTotalLength(), raf=0, t0=0;
     function place(f){ var a=p.getPointAtLength(L*f), b2=p.getPointAtLength(Math.min(L,L*f+1)), ang=Math.atan2(b2.y-a.y,b2.x-a.x)*180/Math.PI;
       pl.setAttribute('transform','translate('+a.x+','+a.y+') rotate('+(ang+45)+')'); }
-    // confetti
     var cv=ov.querySelector('canvas'), cx=cv.getContext('2d'), parts=[], W=0, H=0, dpr=Math.min(2,window.devicePixelRatio||1);
     function size(){ W=ov.clientWidth; H=ov.clientHeight; cv.width=W*dpr; cv.height=H*dpr; cx.setTransform(dpr,0,0,dpr,0,0); }
     size(); window.addEventListener('resize',size);
@@ -86,7 +83,6 @@
 
   window.HAOnWay={
     preview:function(){ build(null); },
-    // Retired 2026-10-12 (owner): never show to anyone again.
     maybeShow:function(o){ return;
       try{
         if(Date.now()>=END || lsGet() || document.getElementById('owOv')) return;

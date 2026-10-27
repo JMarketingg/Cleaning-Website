@@ -1,26 +1,10 @@
-// Phone desk scoreboard: how phone-booked jobs (source 'manual', keyed by the
-// office) compare with booking-form jobs (source 'widget'), week by week, for
-// TidyHaus and Dom's. Behind Analytics > Phone Desk (owner only, read-only).
-//
-// Why it exists: the owner's first "fix first" item is the phone desk. Phone
-// sales, average phone ticket and add-on rate are the three numbers that show
-// whether a change at the desk is working, and the open-estimate pile shows
-// how much money is waiting on a follow-up.
-//
-// Definitions (same as the analytics audit):
-//   sales   = price + tip of a non-cancelled job scheduled in the week
-//   week    = Sunday-first, in Asia/Manila
-//   TV job  = a job with a TV-size line item
-//   add-on  = a line with money on it: bracket (tilt/full motion/fixed/flat)
-//             or in-wall wire hiding. Soundbars are deliberately NOT tracked:
-//             the customer either has one or does not, it is not an upsell.
 import { localDateStr, dayOfWeekFor, todayStr } from './availability.js';
 import { addDaysStr } from './time.js';
 
 const TZ = 'Asia/Manila';
-const BRANDS = [{ slug: 'handy-andy', name: 'TidyHaus' }, { slug: 'doms', name: "Dom's" }];
+const BRANDS = [{ slug: 'tidyhaus', name: 'TidyHaus' }, { slug: 'doms', name: "Dom's" }];
 const WEEKS = 12;
-const BASE_FROM = '2026-06-29', BASE_TO = '2026-08-02';   // owner's "summer baseline"
+const BASE_FROM = '2026-06-29', BASE_TO = '2026-08-02';
 
 const RE_SIZE = /\d{2}\s*["“”″–-]|\binch\b/i;
 const RE_BRACKET = /tilt|full.?motion|fixed|flat/i;
@@ -45,7 +29,6 @@ function add(a, j) {
 }
 function merge(list) { const a = blank(); for (const x of list) { a.jobs += x.jobs; a.sales += x.sales; a.tv_jobs += x.tv_jobs; a.bracket += x.bracket; a.inwall += x.inwall; } return a; }
 
-// Money on the estimate = sum of qty * unit_price across its line items.
 function quoteOf(est) {
   const li = Array.isArray(est.line_items) ? est.line_items : [];
   return li.reduce((s, x) => s + (Number(x.qty) || 1) * (Number(x.unit_price) || 0), 0);
@@ -71,7 +54,6 @@ export async function phoneDesk(db) {
     .order('scheduled_at', { ascending: true }).limit(5000);
   if (error) throw error;
 
-  // Line items, in chunks so the URL stays short.
   const flags = new Map();
   const ids = (bks || []).map(b => b.id);
   for (let i = 0; i < ids.length; i += 150) {
@@ -88,7 +70,6 @@ export async function phoneDesk(db) {
     }
   }
 
-  // Bucket: brand -> channel -> weekStart -> accumulator; plus period accumulators.
   const acc = new Map();
   const get = (slug, ch) => { const k = slug + ':' + ch; if (!acc.has(k)) acc.set(k, { weeks: new Map(), base: blank(), all: blank() }); return acc.get(k); };
   for (const b of (bks || [])) {
@@ -104,7 +85,6 @@ export async function phoneDesk(db) {
     if (date >= BASE_FROM && date <= BASE_TO) add(bucket.base, j);
   }
 
-  // Open estimates, last 90 days.
   const { data: ests } = await db.from('estimates')
     .select('business_id, status, source, created_at, customer_email, customer_phone, line_items, approved_at, contacted_at')
     .in('business_id', bizIds).gte('created_at', new Date(Date.now() - 90 * 86400000).toISOString()).limit(2000);
@@ -127,15 +107,12 @@ export async function phoneDesk(db) {
       return { weeks, baseline: fin(a.base), last4: { ...fin(l4), jobs_per_week: +(l4.jobs / 4).toFixed(1), sales_per_week: Math.round(l4.sales / 4) }, last8: fin(merge(eight)), _n: done.length };
     };
     const phone = mk('phone'), form = mk('form');
-    const baseWeeks = 5;   // Jun 29 - Aug 2 is five Sunday-first weeks
+    const baseWeeks = 5;
     phone.baseline.jobs_per_week = +(phone.baseline.jobs / baseWeeks).toFixed(1);
     phone.baseline.sales_per_week = Math.round(phone.baseline.sales / baseWeeks);
     form.baseline.jobs_per_week = +(form.baseline.jobs / baseWeeks).toFixed(1);
     form.baseline.sales_per_week = Math.round(form.baseline.sales / baseWeeks);
 
-    // Estimates, kept apart by where they came from: 'manual' = the office wrote
-    // it for someone who phoned; 'widget' / 'website_form' = the customer asked
-    // on the website. They have different owners and different fixes.
     const allMine = (ests || []).filter(e => slugById.get(e.business_id) === b.slug);
     const estimateStats = (mine) => {
       const open = mine.filter(e => e.status === 'sent' || e.status === 'unsent');
@@ -166,7 +143,7 @@ export async function phoneDesk(db) {
   return {
     generated_at: new Date().toISOString(),
     baseline: { from: BASE_FROM, to: BASE_TO },
-    note: 'Phone = jobs entered by the office (Heather, Joey, Admin). Form = jobs booked on the website. Weeks are Sunday to Saturday, Denver time, counted by the day the work is scheduled. Add-on rates are the share of TV jobs with a paid bracket or in-wall wire hiding line.',
+    note: 'Phone = jobs entered by the office (Heather, Joey, Admin). Form = jobs booked on the website. Weeks are Sunday to Saturday, Manila time, counted by the day the work is scheduled. Add-on rates are the share of TV jobs with a paid bracket or in-wall wire hiding line.',
     brands,
   };
 }

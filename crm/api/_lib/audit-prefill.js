@@ -1,19 +1,7 @@
-// Audit pre-fill (owner, 2026-09-25): Opus 5.5 reads a call's transcript and
-// suggests the auditor's answers; she checks and saves. Saved on the call
-// (calls.audit_prefill) so reopening the same call never pays twice.
-//
-// v2 (Jiyah's QA framework, 2026-10-13): also suggests the call outcome and,
-// per question, Yes/No/Partial/N/A with the transcript timestamp and a short
-// quote as evidence. Quotes and timestamps are checked against the real
-// transcript here and dropped if they are not in it, so nothing invented
-// ever reaches her screen. "unknown" = not established -> she decides.
-// Keys match public/audit.html QA_ITEMS; old keys keep their meaning.
 import Anthropic from '@anthropic-ai/sdk';
 
-// No union types: the API refuses a schema with more than 16 (2026-10-13 fix);
-// "" and 0 mean "none" and are turned back into null below.
-export const PREFILL_VERSION = 4;   // v4: Jiyah's refined wording + meaning-over-exact-wording rule (2026-10-13)
-export const PREFILL_VERSION_OLD = 3;   // v3: + q_accurate_info, q_professional (broad checklist, 2026-10-13)
+export const PREFILL_VERSION = 4;
+export const PREFILL_VERSION_OLD = 3;
 const QUESTIONS = [
   ['q_business_name', 'Did the secretary greet or introduce themselves using the correct business name?'],
   ['q_scoping', 'home cleaning only: did they ask the zip code, TV size, bracket, fireplace, wall type and wire concealment? Partial if only some.'],
@@ -68,7 +56,6 @@ The transcript is machine-made: names may be misheard ("Indy Andy" = "TidyHaus")
 
 const norm = s => String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
 
-// Keep only evidence that is really in the transcript.
 export function checkEvidence(transcript, items) {
   const stamps = new Map();
   for (const l of String(transcript || '').split(/\r?\n/)) {
@@ -81,7 +68,6 @@ export function checkEvidence(transcript, items) {
     if (it.quote) {
       const q = norm(it.quote);
       if (!q || !(it.at && (stamps.get(it.at) || '').includes(q))) {
-        // A real quote with a missing or wrong timestamp: find its real line.
         const hit = q ? [...stamps.entries()].find(([, t]) => t.includes(q)) : null;
         if (hit) it.at = hit[0]; else { it.quote = null; it.at = null; }
       }
@@ -102,9 +88,6 @@ export async function auditPrefill(db, callId) {
   _client ||= new Anthropic();
   const msg = await _client.messages.create({
     model: 'claude-opus-5-5', max_tokens: 4000,
-    // No structured-output schema: 13 questions x 4 fields compiled to a grammar
-    // the API refuses ("compiled grammar is too large", 2026-10-13). Plain JSON
-    // in the reply, shape given in the prompt, parsed leniently below.
     output_config: { effort: 'low' },
     system: `${SYSTEM}\nReply with ONLY one JSON object, no other text, in this shape:\n${JSON.stringify(SHAPE)}`,
     messages: [{ role: 'user', content: `QUESTIONS:\n${QUESTIONS.map(q => `${q[0]}: ${q[1]}`).join('\n')}\n\nTRANSCRIPT:\n${String(c.transcript).slice(0, 60000)}` }],
@@ -119,7 +102,6 @@ export async function auditPrefill(db, callId) {
   out.v = PREFILL_VERSION;
   for (const it of Object.values(out.items || {})) { if (it) { if (!it.at) it.at = null; if (!it.quote) it.quote = null; } }
   checkEvidence(c.transcript, out.items);
-  // Flat answers too (yes/no/partial/na, null = needs her), same shape as v1.
   out.answers = {};
   for (const [k, it] of Object.entries(out.items || {})) out.answers[k] = it && it.answer !== 'unknown' ? it.answer : null;
   if (out.service === 'unknown') out.service = null;

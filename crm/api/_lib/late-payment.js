@@ -1,20 +1,8 @@
-// Daily "Payment Late!" invoice email (owner 2026-10-13).
-//
-// A booking opts in with metadata.late_reminder = { on: true }. Once a day
-// (cron: /api/migrate?action=late_payment_reminders) every opted-in booking
-// that still owes money gets the invoice email with a fresh Stripe pay link,
-// subject "Payment Late!". Each send is logged in the customer's message
-// thread (customer communication) and as a booking note. Stops by itself the
-// moment the job is paid (or the flag is turned off).
 import { stripe, stripeConfigured } from './stripe.js';
 import { sendEmail, receiptEmail, brandFor, emailConfig } from './email.js';
 
-const DAY_MS = 20 * 60 * 60 * 1000; // at most one per ~day even if the cron double-fires
+const DAY_MS = 20 * 60 * 60 * 1000;
 
-// Same engine also runs the gentler "Daily pay reminder" (owner 2026-10-23):
-// metadata.pay_reminder = { on, started_at, last_sent_at, count }. Sent once a
-// day at ~10 AM business time from the 10-min tech_late_check cron, any job
-// status except canceled, stops itself once paid.
 export async function sendLateReminder(db, bookingId, { force = false, key = 'late_reminder' } = {}) {
   const isPay = key === 'pay_reminder';
   const { data: b, error } = await db.from('bookings')
@@ -40,7 +28,7 @@ export async function sendLateReminder(db, bookingId, { force = false, key = 'la
   if (!force && lr.last_sent_at && Date.now() - Date.parse(lr.last_sent_at) < DAY_MS) return { skipped: 'already_today' };
   if (!b.customer?.email) return { skipped: 'no_email' };
 
-  const slug = b.business?.slug || 'handy-andy';
+  const slug = b.business?.slug || 'tidyhaus';
   const brand = brandFor(slug);
   const acct = { account: b.stripe_account || null, slug };
   const baseUrl = process.env.PUBLIC_URL || 'https://tidyhaus-crm.vercel.app';
@@ -64,7 +52,7 @@ export async function sendLateReminder(db, bookingId, { force = false, key = 'la
     });
     payUrl = session.url;
   }
-  if (!payUrl) return { skipped: 'no_pay_link' }; // never send a late notice he can't pay from
+  if (!payUrl) return { skipped: 'no_pay_link' };
 
   const isTax = (li) => /^tax\b/i.test(String(li.name || ''));
   const all = b.line_items || [];
@@ -93,7 +81,6 @@ export async function sendLateReminder(db, bookingId, { force = false, key = 'la
   const logBody = isPay ? `[Email] Daily pay reminder: invoice ${money} due, pay link sent to ${b.customer.email}`
     : `[Email] Payment Late! Invoice ${money} due, pay link sent to ${b.customer.email}`;
 
-  // Customer communication thread + job note.
   const phone = String(b.customer.phone || '').replace(/\D/g, '').slice(-10);
   if (phone) {
     await db.from('messages').insert({
@@ -126,10 +113,6 @@ export async function runLateReminders(db) {
   return out;
 }
 
-// Daily pay reminder runner (10-min cron). Sends only 10 AM to noon in the
-// JOB's metro time (audit 2026-10-25: reminders went out at 9-10 PM, minutes
-// after the invoice), never within 12h of the last send or of turning it on,
-// and never for a job that is paid, refunded, cancelled or a no-show.
 export async function runPayReminders(db, { dryRun = false } = {}) {
   const { data, error } = await db.from('bookings').select('id, status, payment_status, metadata, business:businesses ( timezone ), service_area:service_areas ( timezone )').eq('metadata->pay_reminder->>on', 'true');
   if (error) throw error;

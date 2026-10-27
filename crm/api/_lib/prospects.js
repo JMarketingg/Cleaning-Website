@@ -1,24 +1,10 @@
-// ============================================================================
-// Prospects (owner 2026-10-07): secretaries cold-call businesses to win new
-// clients. One action ('prospects'): GET op=list|detail|search|earnings, POST
-// op=save|call|push|win|unwin|delete|idea|idea_delete. Tables: migration 0182.
-//
-// Commission: when a prospect is Won and linked to a customer, every PAID
-// booking for that customer (by paid_at, at/after won_at) pays the winner 10% of
-// the ticket excluding tax and tip. Computed on read (like tech pay), never
-// stored -- see prospectCommissionRows(), added into weekly payroll.
-// ============================================================================
 
 export const PROSPECT_RATE = 0.10;
-// Who may use Prospects besides the owner -- only once the owner flips the
-// switch (prospect_settings.access.enabled; OFF as of 2026-10-08).
-export const PROSPECT_USERS = []; // Joey + Heather added by owner 2026-10-23
+export const PROSPECT_USERS = [];
 const STATUSES = ['new', 'calling', 'callback', 'interested', 'quote', 'booked', 'won', 'not_interested', 'dnc'];
 export const OUTCOMES = ['no_answer', 'voicemail', 'gatekeeper', 'call_back', 'interested', 'quote', 'booked', 'not_interested', 'dnc', 'note'];
 const DEAD = ['no_answer', 'voicemail', 'gatekeeper'];
-// Outcomes that mean the caller actually talked with them.
 const TALKED = ['call_back', 'interested', 'quote', 'booked'];
-// Repeat customers: bonus only on jobs booked within this many days of the call.
 const PUSH_WIN_DAYS = 7;
 const OUTCOME_STATUS = { no_answer: 'calling', voicemail: 'calling', gatekeeper: 'calling', call_back: 'callback', interested: 'interested', quote: 'quote', booked: 'booked', not_interested: 'not_interested', dnc: 'dnc' };
 export const BUSINESS_TYPES = ['Senior living', 'Restaurant', 'Bar', 'Gym', 'Office', 'Hotel', 'Apartments', 'School', 'Church', 'Car dealer', 'Clinic', 'Other'];
@@ -27,8 +13,6 @@ const LOCK_DAYS = 30, SNOOZE_DAYS = 90, PARK_AFTER = 5;
 export const QUOTE_OK_OVER = 2000;
 const DAY = 864e5;
 
-// ── Where a prospect is: ZIP first, then state, then city name. ──
-// Metro -> which TidyHaus line dials out + its zone.
 const METROS = [
   { key: 'houston', zips: [[770, 775]], re: /houston|katy|sugar ?land|pearland|bellaire|west university|cypress|spring\b|humble|kingwood|the woodlands|missouri city|friendswood|league city|pasadena,? tx|baytown|tomball|richmond|stafford|conroe/ },
   { key: 'austin', zips: [[733, 733], [786, 787]], re: /austin|round rock|cedar park|pflugerville|georgetown|leander|kyle|buda|lakeway|bee cave/ },
@@ -48,23 +32,21 @@ const STATE_TZ = {
   'Asia/Manila': 'FL GA SC NC VA WV MD DE PA NJ NY CT RI MA VT NH ME OH MI IN KY DC',
 };
 const STATE_NAMES = { texas: 'TX', oklahoma: 'OK', colorado: 'CO', arizona: 'AZ', california: 'CA', 'new mexico': 'NM', utah: 'UT', nevada: 'NV', florida: 'FL' };
-// ZIP3 -> zone (overrides state: El Paso is Mountain, etc.).
 function tzForZip(z) {
   const n = parseInt(String(z || '').slice(0, 3), 10);
   if (!(n >= 1)) return null;
-  if ((n >= 798 && n <= 799) || n === 885) return 'Asia/Manila'; // El Paso
-  if (n >= 750 && n <= 797) return 'Asia/Manila'; // TX
-  if (n >= 730 && n <= 749) return 'Asia/Manila'; // OK
-  if (n >= 800 && n <= 816) return 'Asia/Manila'; // CO
-  if (n >= 850 && n <= 865) return 'Asia/Manila'; // AZ (no DST)
-  if (n >= 870 && n <= 884) return 'Asia/Manila'; // NM
-  if (n >= 840 && n <= 847) return 'Asia/Manila'; // UT
-  if (n >= 889 && n <= 898) return 'Asia/Manila'; // NV
-  if (n >= 900 && n <= 961) return 'Asia/Manila'; // CA
-  if (n >= 970 && n <= 994) return 'Asia/Manila'; // OR/WA
+  if ((n >= 798 && n <= 799) || n === 885) return 'Asia/Manila';
+  if (n >= 750 && n <= 797) return 'Asia/Manila';
+  if (n >= 730 && n <= 749) return 'Asia/Manila';
+  if (n >= 800 && n <= 816) return 'Asia/Manila';
+  if (n >= 850 && n <= 865) return 'Asia/Manila';
+  if (n >= 870 && n <= 884) return 'Asia/Manila';
+  if (n >= 840 && n <= 847) return 'Asia/Manila';
+  if (n >= 889 && n <= 898) return 'Asia/Manila';
+  if (n >= 900 && n <= 961) return 'Asia/Manila';
+  if (n >= 970 && n <= 994) return 'Asia/Manila';
   return null;
 }
-// Pull ZIP + state out of free text ("..., Houston, TX 77005").
 export function parseZipState(...texts) {
   const s = texts.filter(Boolean).join(', ');
   const zs = s.match(/\b\d{5}(?:-\d{4})?\b/g);
@@ -86,7 +68,6 @@ export function metroFor(p) {
   return m ? m.key : null;
 }
 const METRO_TZ = { houston: 'Asia/Manila', austin: 'Asia/Manila', 'san antonio': 'Asia/Manila', dallas: 'Asia/Manila', okc: 'Asia/Manila', tulsa: 'Asia/Manila', denver: 'Asia/Manila', phoenix: 'Asia/Manila', 'los angeles': 'Asia/Manila' };
-// Prospect -> IANA zone: ZIP, then state, then known metro by city name.
 export function tzForProspect(p) {
   const { zip, state } = placeOf(p);
   const z = tzForZip(zip);
@@ -99,13 +80,11 @@ export function tzForCity(city) { return tzForProspect({ city }); }
 export function localTime(tz, at = new Date()) {
   return new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', minute: '2-digit', weekday: 'short' }).format(at);
 }
-// Kind groups so "Nursing home" / "Assisted living" all mean Senior living.
 export function kindGroup(k) {
   const s = String(k || '').toLowerCase();
   if (/senior|nursing|assisted|memory care|retirement|elder|care home/.test(s)) return 'senior living';
   return s.trim();
 }
-// Best reference line for a prospect: same kind group, same metro first.
 export function refFor(refs, p) {
   const g = kindGroup(p.kind);
   if (!g) return null;
@@ -114,7 +93,6 @@ export function refFor(refs, p) {
   const pm = metroFor(p);
   return same.find(r => pm && metroFor({ city: r.city }) === pm) || same[0];
 }
-// Is this prospect one of our reference clients (name match)?
 export function isRefClient(refs, p) {
   const n = normName(p.business_name);
   if (!n) return false;
@@ -125,17 +103,14 @@ async function loadRefs(db) {
   if (error) throw error;
   return data || [];
 }
-// Which TidyHaus line dials a prospect: the line for its metro, or none.
 export function lineForMetro(lines, metro) {
   if (!metro) return null;
-  // Owner picks (2026-10-08): Houston calls from the main HA Houston line.
   const want = { houston: '0000000000' }[metro];
   const pref = want && (lines || []).find(l => l.forward_to && phoneDigits(l.phone) === want);
   if (pref) return pref;
   const words = metro === 'denver' ? ['denver'] : metro === 'houston' ? ['houston'] : metro === 'dallas' ? ['dallas', 'dfw', 'fort worth'] : [metro];
   return (lines || []).find(l => l.forward_to && words.some(w => String(l.label || '').toLowerCase().includes(w))) || null;
 }
-// Mon-Fri 9am-5pm in that zone.
 export function inCallHours(tz, at = new Date()) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', { timeZone: tz || 'Asia/Manila', weekday: 'short', hour: 'numeric', hourCycle: 'h23' })
     .formatToParts(at).map(p => [p.type, p.value]));
@@ -152,14 +127,11 @@ export function normAddr(s) {
     .replace(/[^a-z0-9]+/g, ' ').trim();
   return a || null;
 }
-// Lock is live while the holder has touched it within LOCK_DAYS.
 export function lockActive(p, now = Date.now()) {
   return !!(p && p.locked_by && p.last_activity_at && now - new Date(p.last_activity_at).getTime() < LOCK_DAYS * DAY);
 }
-// Why this login can't dial / log it right now ('' = OK).
 export function callBlock(p, me, isOwner, now = new Date()) {
   if (!p) return 'Not found';
-  // Pushed customers are called ON PURPOSE (repeat-work calls), so being a customer never blocks them.
   if (p.is_customer && p.push_kind !== 'customer') return 'Already a customer';
   if (p.is_ref) return 'Our client';
   if (p.status === 'dnc') return 'Do not call';
@@ -190,7 +162,6 @@ async function putSetting(db, key, value) {
   const { error } = await db.from('prospect_settings').upsert({ key, value, updated_at: new Date().toISOString() });
   if (error) throw error;
 }
-// Owner always; Joe/Alex only once the owner switch is on.
 export async function prospectAccess(db, auth) {
   if (auth.role === 'owner') return true;
   if (!PROSPECT_USERS.includes(String(auth.name || ''))) return false;
@@ -207,10 +178,6 @@ async function claim(db, p, me) {
   if (error) throw error;
 }
 
-// Bridge-call target for call_start source 'prospect'. Claims the lock, then
-// picks a TidyHaus line in the prospect's city (else Denver). These calls
-// are NOT recorded (the bridge TwiML has no Record), so nothing is ever
-// transcribed or summarized.
 export async function prospectCallTarget(db, auth, prospectId) {
   if (!(await prospectAccess(db, auth))) throw pErr(403, 'Not allowed');
   const isOwner = auth.role === 'owner';
@@ -227,19 +194,15 @@ export async function prospectCallTarget(db, auth, prospectId) {
   if (!inCallHours(tz)) throw pErr(409, `Outside their hours (${localTime(tz)} there)`);
   const metro = metroFor(p);
   const [{ data: lines }, { data: biz }] = await Promise.all([
-    db.from('tracking_numbers').select('phone, label, active, forward_to, created_at').eq('business_slug', 'handy-andy').eq('active', true).order('created_at'),
-    db.from('businesses').select('id').eq('slug', 'handy-andy').maybeSingle(),
+    db.from('tracking_numbers').select('phone, label, active, forward_to, created_at').eq('business_slug', 'tidyhaus').eq('active', true).order('created_at'),
+    db.from('businesses').select('id').eq('slug', 'tidyhaus').maybeSingle(),
   ]);
-  // Never fall back to another city's line (owner 2026-10-08).
   const pick = lineForMetro(lines, metro);
   if (!pick) throw pErr(409, `No TidyHaus line for ${p.city || 'this city'}`);
-  // Repeat customers become a caller's only once they actually talk (owner 2026-10-23).
   if (p.push_kind !== 'customer') await claim(db, p, me);
   return { phone: p.phone_digits, line: phoneDigits(pick.phone), businessId: biz ? biz.id : null, prospectId: p.id };
 }
 
-// Quote hook (estimate_create with prospect_id). Over $2,000 from anyone but
-// the owner: saved, NOT sent, "Needs Owner's OK".
 export async function prospectQuoteLink(db, auth, prospectId, estimateId, total) {
   const held = total > QUOTE_OK_OVER && auth.role !== 'owner';
   const now = new Date().toISOString();
@@ -248,7 +211,6 @@ export async function prospectQuoteLink(db, auth, prospectId, estimateId, total)
   await db.from('prospect_calls').insert({ prospect_id: prospectId, caller: auth.name || 'Owner', outcome: 'note', note: `Quote $${Math.round(total)}${held ? " · needs Owner's OK" : ''}` });
   return held;
 }
-// Send gate for estimate_send_sms / estimate_send_email.
 export async function prospectQuoteHeld(db, auth, estimateId) {
   if (auth.role === 'owner') return false;
   const { data } = await db.from('prospects').select('id').eq('quote_estimate_id', String(estimateId)).eq('quote_status', 'needs_ok').limit(1);
@@ -263,8 +225,6 @@ const clip = (v, n = 2000) => (v == null ? null : String(v).trim().slice(0, n) |
 const isoOrNull = (v) => { if (!v) return null; const t = new Date(v); return isNaN(t) ? null : t.toISOString(); };
 const money = (n) => Math.round((Number(n) || 0) * 100) / 100;
 
-// Ticket total excluding tax and tip: sum of line items minus tax/tip lines;
-// falls back to subtotal - discount when the job has no line items.
 export function ticketExTax(b) {
   const lis = b.line_items || [];
   if (lis.length) {
@@ -274,10 +234,6 @@ export function ticketExTax(b) {
   return money((Number(b.subtotal) || 0) - (Number(b.discount) || 0));
 }
 
-// Auto-Won (owner 2026-10-08): a prospect becomes Won by itself when its quote
-// gets booked (bookings.metadata.source_estimate_id) or a booking is made for
-// its phone after it was added. Winner = lock holder, else the last person who
-// logged a real call. Owner can still unwin (sets auto_link_off) or relink.
 export async function prospectAutoLink(db) {
   const { data: open, error } = await db.from('prospects')
     .select('id, phone_digits, quote_estimate_id, created_at, locked_by, assigned_to, last_activity_at, won_at, push_kind, source_customer_id')
@@ -285,9 +241,7 @@ export async function prospectAutoLink(db) {
     .not('status', 'in', '(won,dnc,regular)').limit(5000);
   if (error) throw error;
   if (!open || !open.length) return 0;
-  const hits = new Map(); // prospect id -> { customer_id, at, who? }
-  // Repeat customers (owner 2026-10-23): won by whoever had a real conversation with
-  // them, only if they book within PUSH_WIN_DAYS of that call. won_at = the call.
+  const hits = new Map();
   const push = open.filter(p => p.push_kind === 'customer' && p.source_customer_id);
   for (let i = 0; i < push.length; i += 150) {
     const chunk = push.slice(i, i + 150);
@@ -323,7 +277,7 @@ export async function prospectAutoLink(db) {
     const { data: bks } = await db.from('bookings').select('customer_id, created_at').in('customer_id', cs.map(c => c.id)).neq('status', 'cancelled').order('created_at');
     for (const c of cs) {
       const p = byPhone.get(phoneDigits(c.phone));
-      if (!p || hits.has(p.id) || c.created_at < p.created_at) continue; // existing customers never count
+      if (!p || hits.has(p.id) || c.created_at < p.created_at) continue;
       const b = (bks || []).find(b => b.customer_id === c.id && b.created_at >= p.created_at);
       if (b) hits.set(p.id, { customer_id: c.id, at: b.created_at });
     }
@@ -346,7 +300,6 @@ export async function prospectAutoLink(db) {
   return n;
 }
 
-// Commission jobs for [fromDate, toDate] (YYYY-MM-DD, UTC like payroll).
 export async function prospectCommissionJobs(db, fromDate, toDate, onlyName) {
   try { await prospectAutoLink(db); } catch (e) { console.error('[prospects] auto-link', e.message); }
   let q = db.from('prospects').select('id, business_name, customer_id, won_by, won_at, push_kind')
@@ -369,7 +322,6 @@ export async function prospectCommissionJobs(db, fromDate, toDate, onlyName) {
   for (const b of jobs || []) {
     const w = byCust.get(b.customer_id);
     if (!w || (w.won_at && b.paid_at < w.won_at)) continue;
-    // Repeat customers: only jobs BOOKED within PUSH_WIN_DAYS of the winning call count.
     if (w.push_kind === 'customer' && (!w.won_at || b.created_at < w.won_at || new Date(b.created_at).getTime() > new Date(w.won_at).getTime() + PUSH_WIN_DAYS * DAY)) continue;
     const ticket = ticketExTax(b);
     out.push({ who: w.won_by, prospect: w.business_name, booking_id: b.id, date: b.paid_at, customer: b.customers?.name || '', brand: b.businesses?.name || '', ticket, pay: money(ticket * PROSPECT_RATE) });
@@ -377,7 +329,6 @@ export async function prospectCommissionJobs(db, fromDate, toDate, onlyName) {
   return out;
 }
 
-// One USD payroll row per secretary with commission this week.
 export async function prospectCommissionRows(db, weekStart, weekEnd, names) {
   const jobs = await prospectCommissionJobs(db, weekStart, weekEnd);
   const by = new Map();
@@ -414,7 +365,6 @@ async function customerSummary(db, customerId) {
   };
 }
 
-// Duplicate check: same phone, or same name + address. Returns the row or null.
 async function findDuplicate(db, f, exceptId) {
   const qs = [];
   if (f.phone_digits && f.phone_digits.length >= 7) qs.push(db.from('prospects').select('id, business_name, locked_by, created_by').eq('phone_digits', f.phone_digits).is('deleted_at', null).limit(2));
@@ -443,9 +393,7 @@ function fieldsFrom(body) {
 export async function prospectsAction(req, res, db, auth, body, ctx) {
   const isOwner = auth.role === 'owner';
   const me = auth.name || (isOwner ? 'Owner' : 'Office');
-  // Access probe for the nav button (never 403s).
   if (req.method === 'GET' && String(req.query.op || '') === 'access') return res.status(200).json({ ok: await prospectAccess(db, auth) });
-  // Owner only until the owner switch lets Joe/Alex in (owner 2026-10-08).
   if (!(await prospectAccess(db, auth))) return res.status(403).json({ error: 'Not allowed' });
   const names = isOwner ? [...new Set([...(ctx.secretaryNames || []), ...PROSPECT_USERS])] : [me];
   const nowD = new Date(), now = nowD.toISOString();
@@ -460,15 +408,11 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
       if (error) throw error;
       let list = rows || [];
       const refs = await loadRefs(db);
-      // "Customer" flag, refreshed on read (cheap: phones only).
       const flaggable = list.filter(r => !r.is_customer && r.push_kind !== 'customer');
       const custs = await customerPhoneSet(db, flaggable.map(r => r.phone_digits));
       const newly = flaggable.filter(r => custs.has(r.phone_digits)).map(r => r.id);
       if (newly.length) { await db.from('prospects').update({ is_customer: true }).in('id', newly); for (const r of list) if (newly.includes(r.id)) r.is_customer = true; }
-      // Do not call: hidden from everyone but the owner.
       if (!isOwner) list = list.filter(r => r.status !== 'dnc');
-      // Repeat customers with a job in the last 30 days (or one booked ahead) are too soon
-      // to call (owner 2026-10-23). Uses their live bookings, not the push snapshot.
       const liveLast = new Map();
       const srcIds = [...new Set(list.filter(r => r.push_kind === 'customer' && r.source_customer_id).map(r => r.source_customer_id))];
       for (let i = 0; i < srcIds.length; i += 150) {
@@ -490,7 +434,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
       const out = list.map(r => {
         const tz = tzForProspect(r); r.is_ref = isRefClient(refs, r);
         const ref = refFor(refs, r);
-        // Times a pushed customer has hired us (distinct job days); the summary itself stays detail-only.
         const { push_summary: ps, ...row } = r;
         const hired = ps && Array.isArray(ps.jobs) ? new Set(ps.jobs.map(j => String(j.date || '').slice(0, 10))).size : 0;
         const spent = ps ? money(ps.total_spent) : 0;
@@ -501,7 +444,7 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
       const access = isOwner ? await getSetting(db, 'access', { enabled: false }) : null;
       const { data: tips } = await db.from('prospect_tips').select('id, title, body, sort').is('deleted_at', null).order('sort').order('title');
       let iq = db.from('prospect_ideas').select('id, author, body, created_at, pulled_at').is('deleted_at', null);
-      if (!isOwner) iq = iq.eq('author', me);   // secretaries see only their own ideas (owner 2026-10-09)
+      if (!isOwner) iq = iq.eq('author', me);
       const { data: ideas } = await iq.order('created_at', { ascending: false }).limit(100);
       return res.status(200).json({
         me, owner: isOwner, secretaries: names, prospect_users: PROSPECT_USERS, types: BUSINESS_TYPES, cities: CITIES, refs: isOwner ? refs : [],
@@ -514,13 +457,11 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
       if (error) throw error;
       if (!p || (p.status === 'dnc' && !isOwner)) return res.status(404).json({ error: 'Not found' });
       const { data: calls } = await db.from('prospect_calls').select('id, caller, outcome, note, follow_up_at, attempt_id, created_at').eq('prospect_id', id).order('created_at', { ascending: false });
-      // Bridge-call durations (customer leg).
       const { data: atts } = await db.from('call_attempts').select('id, staff_name, started_at, duration_sec, dial_status, staff_status').eq('prospect_id', id).order('started_at', { ascending: false }).limit(100);
       let linked = null;
       if (p.customer_id) { const { data: c } = await db.from('customers').select('id, name, phone, businesses(name)').eq('id', p.customer_id).maybeSingle(); linked = c ? { id: c.id, name: c.name, phone: c.phone, brand: c.businesses?.name || '' } : null; }
       const refs = await loadRefs(db); const tz = tzForProspect(p); p.is_ref = isRefClient(refs, p);
       const ref = refFor(refs, p);
-      // Repeat customers: their real completed jobs (ids + company slug) so each one opens the actual job.
       let jobs = null;
       if (p.push_kind === 'customer' && p.source_customer_id) {
         let cq = db.from('customers').select('id');
@@ -630,7 +571,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
   }
 
   if (op === 'bulk') {
-    // Paste rows: name, phone, address, city, type (tab or comma separated).
     const lines = String(body.text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean).slice(0, 1000);
     const added = [], skipped = [];
     const seen = new Set();
@@ -671,7 +611,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
     if (!OUTCOMES.includes(outcome)) return res.status(400).json({ error: 'Pick an outcome' });
     const p = await loadP(body.id);
     if (!p) return res.status(404).json({ error: 'Not found' });
-    // A note never needs the lock rules except the lock itself.
     const block = outcome === 'note'
       ? (!isOwner && lockActive(p) && p.locked_by !== me ? `Locked to ${p.locked_by}` : '')
       : callBlock({ ...p, parked_at: isOwner ? null : p.parked_at }, me, isOwner, nowD);
@@ -681,7 +620,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
     const { error } = await db.from('prospect_calls').insert({ prospect_id: p.id, caller: me, outcome, note: clip(body.note, 2000), follow_up_at: fu, attempt_id: attemptId });
     if (error) throw error;
     const upd = { updated_at: now, last_activity_at: now };
-    // Repeat customers lock to a caller only on a real conversation, not a no-answer or voicemail.
     const talked = TALKED.includes(outcome);
     if (p.push_kind === 'customer' && !talked) upd.last_activity_at = p.last_activity_at || null;
     else if (!lockActive(p) || p.locked_by !== me) { if (!isOwner || !lockActive(p)) { upd.locked_by = me; upd.locked_at = now; } }
@@ -732,7 +670,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
   }
 
   if (op === 'assign') {
-    // Owner reassigns the lock (or frees it).
     if (!isOwner) return res.status(403).json({ error: 'Owner only' });
     const to = body.assigned_to ? String(body.assigned_to) : null;
     if (to && !names.includes(to)) return res.status(400).json({ error: 'Pick a secretary' });
@@ -766,8 +703,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
   }
 
   if (op === 'quote_ok') {
-    // Owner approves a held quote; the client then sends it with the normal
-    // estimate send actions.
     if (!isOwner) return res.status(403).json({ error: 'Owner only' });
     const { error } = await db.from('prospects').update({ quote_status: 'approved', updated_at: now }).eq('id', body.id).eq('quote_status', 'needs_ok');
     if (error) throw error;
@@ -786,7 +721,6 @@ export async function prospectsAction(req, res, db, auth, body, ctx) {
     return res.status(200).json({ ok: true });
   }
 
-  // ── Owner settings: access switch, focus cities, quick-help tips ──
   if (op === 'access') {
     if (!isOwner) return res.status(403).json({ error: 'Owner only' });
     await putSetting(db, 'access', { enabled: body.enabled === true });

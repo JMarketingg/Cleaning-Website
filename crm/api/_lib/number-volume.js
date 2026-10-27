@@ -1,7 +1,6 @@
 const DAY = 86400000;
 const phoneKey = value => String(value || '').replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '');
 
-// Complete UTC days keep averages comparable across lines and avoid a partial day.
 export async function numberVolumes(db, numbers, now = new Date()) {
   const until = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
   const since = new Date(until.getTime() - 90 * DAY);
@@ -9,7 +8,6 @@ export async function numberVolumes(db, numbers, now = new Date()) {
     total: 0, answered: 0, missed: 0, unknown: 0, latest: null,
     daily: Array.from({length:90}, (_, i) => ({date:new Date(+since+i*DAY).toISOString().slice(0,10), calls:0})),
   }]));
-  // Paginate: PostgREST's default row cap must never silently undercount volume.
   for (let offset = 0; ; offset += 1000) {
     const {data, error} = await db.from('calls')
       .select('id, grasshopper_number, occurred_at, answered')

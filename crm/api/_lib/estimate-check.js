@@ -1,18 +1,3 @@
-// Estimate check: every real customer who calls gets an estimate (or a booking).
-//
-// Two sources of calls, because neither sees everything:
-//   1. Call-wizard sessions (app.calls kind='live'): the secretary opened the
-//      script. Outcome is calls.resolution: booked / estimate_sent are fine.
-//      Anything else (other, refused, never finished) is a MISS unless the
-//      secretary excused it with a reason.
-//   2. Calls the outside auditor logged (app.call_audits, direction 'incoming',
-//      handled by a named secretary). The wizard was never opened for these
-//      (or was not linked), so they are matched by phone number to an estimate
-//      or a booking created for that number in the next few days. No match =
-//      MISS unless excused. Audited rows already linked to a wizard session
-//      (call_id) are skipped so one call is never counted twice.
-//
-// Read model + one write (excuse). A secretary only ever sees her own rows.
 import { digitsOf, prettyPhone } from './grasshopper.js';
 import { localDayStartUTC, localDateStartUTC } from './time.js';
 
@@ -24,16 +9,12 @@ export const EXCUSE_REASONS = {
   other: 'Other (write why)',
 };
 
-// Clean slate (owner, 2026-09-21): the secretaries were told that day to send an
-// estimate to every caller, so nothing before this date is counted or shown.
 export const TRACKING_STARTS = '2026-09-21';
-const SPAN_DAYS = 7;            // the widest window shown is the last 7 days
-const MATCH_DAYS = 3;           // an estimate/booking up to 3 days after an audited call counts
+const SPAN_DAYS = 7;
+const MATCH_DAYS = 3;
 
 const rate = (ok, n) => (n > 0 ? Math.round((ok / n) * 100) : null);
 
-// One person's numbers. `name` is the secretary's display name (calls.handled_by
-// and call_audits.handled_by hold that name).
 export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }) {
   const startOf = (off) => localDayStartUTC(tz, off, now);
   const trackFrom = localDateStartUTC(tz, TRACKING_STARTS).getTime();
@@ -57,17 +38,13 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
   if (cErr) throw cErr;
   if (aErr) throw aErr;
 
-  // Phones that received an estimate or a booking, with when.
   const lo = new Date(since.getTime() - 86400000).toISOString();
   const hi = new Date(until.getTime() + MATCH_DAYS * 86400000).toISOString();
   const [{ data: ests }, { data: bks }] = await Promise.all([
-    // Only estimates the office wrote FOR a caller (source 'manual'). Website
-    // estimate requests and contact-form messages are a different thing: the
-    // customer started those, not a phone call the secretary handled.
     db.from('estimates').select('customer_phone, created_at').eq('business_id', bizId).eq('source', 'manual').gte('created_at', lo).lt('created_at', hi).limit(5000),
     db.from('bookings').select('created_at, customer:customers ( phone )').eq('business_id', bizId).gte('created_at', lo).lt('created_at', hi).limit(5000),
   ]);
-  const sentTo = new Map();          // digits -> [ms]
+  const sentTo = new Map();
   const note = (phone, iso) => {
     const d = digitsOf(phone); if (d.length !== 10) return;
     if (!sentTo.has(d)) sentTo.set(d, []);
@@ -77,7 +54,6 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
   for (const b of (bks || [])) note(b.customer?.phone, b.created_at);
 
   const items = [];
-  // 1) wizard sessions that worked the script (same gate as My Call Performance)
   for (const r of (calls || [])) {
     if (!(r.booking_id || r.resolution || (r.reached_step && r.reached_step !== 'greet'))) continue;
     const booked = !!r.booking_id || r.resolution === 'booked';
@@ -90,12 +66,6 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
       resolution: r.resolution || null,
     });
   }
-  // 2) audited calls with no wizard session. The auditor logs EVERY call, so a
-  //    call the secretary did work on the script shows up here too: skip an
-  //    audited call when a wizard session by the same person sits within 30
-  //    minutes of it (or is linked by call_id). Audits with no recorded time
-  //    cannot be lined up with anything, so they are left out rather than
-  //    risk a false accusation.
   const wizardTimes = items.filter(i => i.kind === 'wizard').map(i => Date.parse(i.at));
   let unchecked = 0;
   for (const a of (audits || [])) {
@@ -104,7 +74,7 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
     const at = Date.parse(a.occurred_at);
     if (wizardTimes.some(t => Math.abs(t - at) <= 30 * 60000)) continue;
     const digits = digitsOf(a.caller_phone);
-    const dayStart = Date.parse(a.audit_date + 'T00:00:00Z') - 86400000;   // audit_date is a plain date; pad a day for time zones
+    const dayStart = Date.parse(a.audit_date + 'T00:00:00Z') - 86400000;
     const dayEnd = dayStart + (MATCH_DAYS + 2) * 86400000;
     const hit = digits.length === 10 && (sentTo.get(digits) || []).some(t => t >= dayStart && t <= dayEnd);
     items.push({
@@ -116,8 +86,6 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
     });
   }
 
-  // Three windows: today, yesterday, the last 7 days. Numbers only, no list of
-  // individual calls. Nothing before TRACKING_STARTS is counted.
   const WIN = [['Today', 0, 0], ['Yesterday', -1, -1], ['Last 7 days', -(SPAN_DAYS - 1), 0]];
   const windows = WIN.map(([label, a, b]) => {
     const from = Math.max(startOf(a).getTime(), trackFrom), to = startOf(b + 1).getTime();
@@ -129,8 +97,6 @@ export async function estimateCheckFor(db, { bizId, tz, name, now = new Date() }
   return { name, windows, started_on: TRACKING_STARTS, unchecked_audits: unchecked };
 }
 
-// Excuse (or un-excuse) one call. `who` is the caller's own display name for a
-// secretary (rows must be hers) or null for the owner (any row in the business).
 export async function setExcuse(db, { kind, id, reason, note, bizId, who }) {
   const table = kind === 'audit' ? 'call_audits' : kind === 'wizard' ? 'calls' : null;
   if (!table) { const e = new Error('kind must be wizard or audit'); e.status = 400; throw e; }

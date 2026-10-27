@@ -1,17 +1,8 @@
-// Scammer flag (owner 2026-10-23). A customer whose customers.tags holds
-// 'scammer' can never be booked again, on any business, by phone or email.
-// This is NOT the call block list (blocked_numbers): the owner wants the number
-// to keep ringing through, only booking is taken away and every screen shows a
-// red SCAMMER warning.
-//
-// Fails OPEN like isBlockedPhone: a lookup error must never turn a real
-// customer away.
 import { serviceClient } from './supabase.js';
 
 const SCAM_TAG = 'scammer';
 const digits10 = (raw) => { const d = String(raw || '').replace(/\D/g, '').slice(-10); return d.length === 10 ? d : ''; };
 
-// Every flagged customer's phone (10 digits) and email (lowercase).
 export async function scammerList(db = null) {
   try {
     const { data } = await (db || serviceClient()).from('customers').select('phone, email').contains('tags', [SCAM_TAG]).limit(500);
