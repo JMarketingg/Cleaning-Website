@@ -77,9 +77,9 @@
         <div class="area-check-row">
           <select id="area-select" name="area">
             <option value="">Pick your area</option>
-            <option value="makati" data-message="Yes, we clean in Makati.">Makati</option>
-            <option value="bgc" data-url="/bgc">BGC (Taguig)</option>
-            <option value="other" data-message="We'll check for you. Message us on Facebook and tell us where you are.">Somewhere else</option>
+            <option value="makati">Makati</option>
+            <option value="bgc">BGC (Taguig)</option>
+            <option value="other">Somewhere else</option>
           </select>
           <button type="submit" class="btn btn-primary">Go</button>
         </div>
@@ -487,15 +487,17 @@
     var form = document.getElementById('area-check');
     var select = document.getElementById('area-select');
     var result = document.getElementById('area-result');
-    form.addEventListener('submit', function (e) {
-      e.preventDefault();
-      var option = select.options[select.selectedIndex];
-      if (option.dataset.url) {
-        window.location.href = option.dataset.url;
+    function goToBooking() {
+      if (!select.value) {
+        result.textContent = 'Pick your area first.';
         return;
       }
-      result.textContent = option.dataset.message || 'Pick your area first.';
-      result.classList.toggle('is-yes', option.dataset.message !== undefined && option.value !== 'other');
+      window.location.href = '/book?area=' + encodeURIComponent(select.value);
+    }
+    select.addEventListener('change', goToBooking);
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      goToBooking();
     });
 
     var tabs = Array.prototype.slice.call(document.querySelectorAll('.tab'));

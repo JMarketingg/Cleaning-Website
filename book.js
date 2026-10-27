@@ -180,5 +180,7 @@
     if (input) input.checked = true;
   });
 
-  show(0);
+  // Coming from "Find your area" with a known city skips the area question.
+  var startArea = params.get('area');
+  show(startArea === 'makati' || startArea === 'bgc' ? 1 : 0);
 })();
