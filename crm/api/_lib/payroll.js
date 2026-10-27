@@ -447,7 +447,7 @@ function computeJobPayInner(job, techName) {
       if (amt) breakdown.push({ label: `Handyman ${hours}h @ $65`, amount: amt });
       pay += amt;
       if (lt > 0 && Math.abs(hours * 85 - lt) > 0.5) {
-        flags.push(`Handyman line "${name}" — qty ${hours} implies $${hours * 85} but charged $${round0(lt)}; verify hours`);
+        flags.push(`Handyman line "${name}" — qty ${hours} implies ₱${hours * 85} but charged ₱${round0(lt)}; verify hours`);
       }
       continue;
     }
@@ -495,7 +495,7 @@ function computeJobPayInner(job, techName) {
 
     if (/\b(samsung|lg|sony|tcl|hisense|vizio|roku|insignia|toshiba|philips|panasonic)\b.*\btv\b|\bsmart\s*tv\b|\b(4k|8k|oled|qled|uhd)\b.*\btv\b/i.test(name)
         && !/mount|install|stand|set\s*up|setup|hang|assembl|remov|recycl|haul/i.test(name)) {
-      if (lt > 0) flags.push(`TV sold to the customer "${name}" ($${round0(lt)}) — product, $0 tech pay`);
+      if (lt > 0) flags.push(`TV sold to the customer "${name}" (₱${round0(lt)}) — product, $0 tech pay`);
       continue;
     }
 
@@ -506,10 +506,10 @@ function computeJobPayInner(job, techName) {
       breakdown.push({ label: `Custom job ${hours}h @ $65`, amount: amt });
       pay += amt;
       if (Math.abs(rawHours - hours) > 0.1) {
-        flags.push(`Custom job "${name}" ($${round0(lt)}) — paid ${hours}h @ $65; verify the hours`);
+        flags.push(`Custom job "${name}" (₱${round0(lt)}) — paid ${hours}h @ $65; verify the hours`);
       }
     } else if (lt > 0) {
-      flags.push(`Unmatched line item "${name}" ($${round0(lt)}) — owner review (too small for a custom hour)`);
+      flags.push(`Unmatched line item "${name}" (₱${round0(lt)}) — owner review (too small for a custom hour)`);
     }
   }
 
@@ -526,13 +526,13 @@ function computeJobPayInner(job, techName) {
     const share = round2(pool / 2);
     const tipShare = round2(tip / 2);
     const travelHalf = travelPayout ? round2(travelPayout / 2) : 0;
-    const newBreakdown = [{ label: `½ of job tech pay ($${round2(pool)} ÷ 2)`, amount: share }];
+    const newBreakdown = [{ label: `½ of job tech pay (₱${round2(pool)} ÷ 2)`, amount: share }];
     if (afterHoursBonus) newBreakdown.push({ label: 'After-Hours bonus (8 PM)', amount: afterHoursBonus });
     if (travelHalf) newBreakdown.push({ label: 'Travel payout (½ of trip)', amount: travelHalf });
     const finalPay = share + afterHoursBonus + travelHalf;
     return { pay: round2(finalPay), tip: tipShare, breakdown: newBreakdown, flags, state: state === 'partial' ? 'partial' : 'paid' };
   } else {
-    if (feeBonus) breakdown.push({ label: `Second Cleaner bonus ($${feeBonus})`, amount: feeBonus });
+    if (feeBonus) breakdown.push({ label: `Second Cleaner bonus (₱${feeBonus})`, amount: feeBonus });
     if (afterHoursBonus) breakdown.push({ label: 'After-Hours bonus (8 PM)', amount: afterHoursBonus });
     if (travelPayout) breakdown.push({ label: 'Travel payout', amount: travelPayout });
     pay += feeBonus + afterHoursBonus + travelPayout;

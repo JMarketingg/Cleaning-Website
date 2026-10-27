@@ -172,6 +172,8 @@ async function bookingStats(req, res) {
     }
   }
   const kept = made - cancelled;
+  const { data: qrs } = await db.from('quote_requests').select('status').gte('created_at', since);
+  const quotes = (qrs || []).length, quotesBooked = (qrs || []).filter((q) => q.status === 'booked').length;
   return res.status(200).json({
     days,
     totals: {
@@ -179,6 +181,7 @@ async function bookingStats(req, res) {
       completed, revenue, upcoming, upcoming_value: upcomingValue,
       cancel_pct: made ? Math.round((cancelled / made) * 100) : 0,
       repeat_pct: kept ? Math.round((repeat / kept) * 100) : 0,
+      quote_requests: quotes, quotes_booked: quotesBooked, quote_to_booking_pct: quotes ? Math.round((quotesBooked / quotes) * 100) : 0,
     },
     daily: Object.values(daily).sort((a, b) => a.day.localeCompare(b.day)),
     services: top(services).map((s) => ({ ...s, value: servicesValue[s.key] || 0 })),

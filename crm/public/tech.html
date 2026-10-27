@@ -38,6 +38,14 @@
   .tabs button { flex:1; font:inherit; font-size:14px; padding:8px; border-radius:10px; border:1px solid var(--line); background:var(--panel); color:inherit; }
   .tabs button.on { background:var(--brand); color:#fff; border-color:var(--brand); }
   [hidden] { display:none !important; }
+  label.chk { display:flex; gap:10px; align-items:center; padding:8px 0; border-top:1px solid var(--line); color:var(--ink); font-size:15px; margin:0; }
+  label.chk input { width:22px; height:22px; flex:none; }
+  .qrs { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; margin:8px 0; }
+  .qrb { background:#fff; border:1px solid var(--line); border-radius:12px; padding:8px; font:inherit; color:#18201e; }
+  .qrb img { width:100%; aspect-ratio:1; object-fit:contain; } .qrb span { display:block; font-weight:700; font-size:14px; margin-top:4px; }
+  .paybtns { display:grid; grid-template-columns:1fr 1fr; gap:6px; } .paybtns .btn { margin-top:0; font-size:14px; padding:12px 8px; }
+  .qrfull { position:fixed; inset:0; background:#fff; z-index:50; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; }
+  .qrfull img { width:min(90vw,90vh); height:auto; } .qrfull p { color:#555; }
 </style>
 </head>
 <body>
@@ -54,7 +62,7 @@
     </form>
   </section>
   <section id="list" hidden>
-    <div class="tabs"><button data-r="today" class="on">Today</button><button data-r="week">Next 7 days</button></div>
+    <div class="tabs"><button data-r="today" class="on">Today</button><button data-r="week">Next 7 days</button><button data-r="pay">My pay</button></div>
     <div id="jobs"></div>
   </section>
   <section id="detail" hidden></section>
@@ -93,6 +101,11 @@
 
   function loadList(){
     show('list'); var box=document.getElementById('jobs'); box.innerHTML='<p class="mute">Loading…</p>';
+    if(range==='pay'){ api('my_pay').then(function(d){
+      function wk(w,title){ return '<div class="card"><h2>'+title+' · '+peso(w.total)+'</h2><div class="mute">'+w.jobs.length+' cleaning'+(w.jobs.length===1?'':'s')+' · pay '+peso(w.pay)+' · tips '+peso(w.tips)+(w.paid?' · <b style="color:var(--ok);">paid</b>':'')+'</div>'+
+        '<div class="lines" style="margin-top:8px;">'+w.jobs.map(function(j){ return '<div><span>'+esc(new Date(j.when).toLocaleDateString('en-PH',{timeZone:'Asia/Manila',weekday:'short',day:'numeric',month:'short'}))+' · '+esc(j.customer)+'</span><span>'+peso(j.pay+j.tip)+'</span></div>'; }).join('')+'</div></div>'; }
+      box.innerHTML=wk(d.this_week,'This week')+wk(d.last_week,'Last week')+'<p class="mute">Pay counts cleanings you finished in the app. Weeks run Monday to Sunday.</p>';
+    }).catch(function(x){ box.innerHTML='<p class="err">'+esc(x.message)+'</p>'; }); return; }
     api('jobs',{params:{from:today(0), to:range==='today'?today(0):today(6)}}).then(function(d){
       var jobs=d.jobs||[];
       if(!jobs.length){ box.innerHTML='<div class="card"><h2>No cleanings '+(range==='today'?'today':'this week')+'</h2><p class="mute">New jobs from the office show up here.</p></div>'; return; }
@@ -121,8 +134,15 @@
 
   function openJob(id){
     show('detail'); var box=document.getElementById('detail'); box.innerHTML='<p class="mute">Loading…</p>';
-    Promise.all([api('job',{params:{id:id}}), api('job_photos',{params:{id:id}}).catch(function(){ return {photos:[]}; })]).then(function(r){
-      var j=r[0].job, photos=r[1].photos||[], done=j.status==='completed';
+    Promise.all([api('job',{params:{id:id}}), api('job_photos',{params:{id:id}}).catch(function(){ return {photos:[]}; }), api('pay_info',{params:{id:id}}).catch(function(){ return null; }), api('job_checklist',{params:{id:id}}).catch(function(){ return null; })]).then(function(r){
+      var cl=r[3];
+      var j=r[0].job, photos=r[1].photos||[], pay=r[2], done=j.status==='completed';
+      var paid=pay&&pay.booking&&pay.booking.payment_status==='paid';
+      var payHtml=!pay?'':'<div class="card"><h2>Get paid · '+peso(pay.booking&&pay.booking.price)+'</h2>'+(paid?'<p style="margin:0;color:var(--ok);font-weight:700;">✓ Paid by '+esc(pay.methods[pay.booking.payment_method]||pay.booking.payment_method)+'</p>':
+        '<p class="mute">Show the customer a QR code to scan, then tap how they paid.</p>'+
+        (pay.qr.length?'<div class="qrs">'+pay.qr.map(function(q){ return '<button type="button" class="qrb" data-qr="'+esc(q.url)+'"><img src="'+esc(q.url)+'" alt="'+esc(q.label)+' QR"><span>'+esc(q.label)+'</span></button>'; }).join('')+'</div>':'<p class="mute">No QR codes yet. Ask the office to add them.</p>')+
+        '<div class="paybtns">'+['gcash','maya','qrph','cash','bank'].map(function(k){ return '<button type="button" class="btn ghost" data-paid="'+k+'">Paid by '+esc(pay.methods[k])+'</button>'; }).join('')+'</div>'+
+        (pay.paymongo_on?'<button type="button" class="btn ghost" id="plink">Text the customer a payment link</button>':''))+'</div>';
       var lines=(j.line_items||[]).map(function(l){ return '<div><span>'+esc(l.name)+(Number(l.quantity)>1?' × '+esc(l.quantity):'')+'</span><span>'+(l.line_total!=null?peso(l.line_total):'')+'</span></div>'; }).join('');
       box.innerHTML='<button class="btn ghost" id="back">← My jobs</button>'+
         '<div class="card"><h2>'+esc(j.customer_name)+'</h2><div class="mute">'+esc(j.service||'Cleaning')+'</div>'+
@@ -131,6 +151,8 @@
         (j.customer_phone?'<a class="btn ghost" href="tel:'+esc(j.customer_phone)+'">Call '+esc(j.customer_phone)+'</a>':'')+'</div>'+
         ((j.notes||j.customer_notes)?'<div class="card"><h2>Notes</h2><p style="white-space:pre-wrap;margin:0;">'+esc([j.customer_notes,j.notes].filter(Boolean).join('\n'))+'</p></div>':'')+
         (lines?'<div class="card"><h2>What to clean</h2><div class="lines">'+lines+'</div>'+(j.price!=null?'<div class="lines" style="font-weight:800;border-top:1px solid var(--line);margin-top:6px;padding-top:6px;"><div><span>Total</span><span>'+peso(j.price)+'</span></div></div>':'')+'</div>':'')+
+        (cl?'<div class="card"><h2>Cleaning checklist <span class="mute" id="clCount"></span></h2>'+cl.rooms.map(function(rm){ return '<div class="day" style="margin:12px 0 4px;">'+esc(rm.room)+'</div>'+rm.items.map(function(it){ return '<label class="chk"><input type="checkbox" data-cl="'+esc(it.key)+'"'+(cl.done.indexOf(it.key)>=0?' checked':'')+(done?' disabled':'')+'> <span>'+esc(it.text)+'</span></label>'; }).join(''); }).join('')+'</div>':'')+
+        payHtml+
         '<div class="card"><h2>Photos</h2><p class="mute">Take a before and an after photo. You need at least 2 to finish.</p>'+
         '<div class="photos">'+photos.map(function(p){ return '<img src="'+esc(p.url)+'" alt="Job photo">'; }).join('')+'</div>'+
         (done?'':'<label class="btn ghost" style="margin-top:10px;">Add photo<input type="file" accept="image/*" capture="environment" id="ph" hidden></label>')+'</div>'+
@@ -144,9 +166,17 @@
         shrink(f).then(function(img){ return api('job_photo_add',{method:'POST',body:{id:id,image:img}}); })
           .then(function(){ openJob(id); }).catch(function(x){ err.textContent=x.message; }); };
       function setStatus(s,btn){ btn.disabled=true; err.textContent='';
-        api('status',{method:'POST',body:{id:id,status:s}}).then(function(){ openJob(id); }).catch(function(x){ btn.disabled=false; err.textContent=x.message; }); }
+        api('status',{method:'POST',body:{id:id,status:s}}).then(function(){ if(s==='on_the_way') api('job_otw_text',{method:'POST',body:{id:id}}).catch(function(){}); openJob(id); }).catch(function(x){ btn.disabled=false; err.textContent=x.message; }); }
+      box.querySelectorAll('[data-qr]').forEach(function(b){ b.onclick=function(){ var o=document.createElement('div'); o.className='qrfull'; o.innerHTML='<img src="'+esc(b.dataset.qr)+'" alt="QR code"><p>Tap anywhere to close</p>'; o.onclick=function(){ o.remove(); }; document.body.appendChild(o); }; });
+      box.querySelectorAll('[data-paid]').forEach(function(b){ b.onclick=function(){ if(!confirm('Did the customer pay '+peso(pay.booking.price)+' by '+pay.methods[b.dataset.paid]+'?')) return; b.disabled=true;
+        api('job_mark_paid',{method:'POST',body:{id:id,method:b.dataset.paid}}).then(function(){ openJob(id); }).catch(function(x){ b.disabled=false; err.textContent=x.message; }); }; });
+      var pl=document.getElementById('plink'); if(pl) pl.onclick=function(){ pl.disabled=true; api('job_pay_link',{method:'POST',body:{id:id}}).then(function(r){ err.textContent=r.texted?'Payment link texted to the customer.':'Could not text it. Link: '+r.url; }).catch(function(x){ pl.disabled=false; err.textContent=x.message; }); };
+      var clBoxes=box.querySelectorAll('[data-cl]'), clTimer=null;
+      function clState(){ var d=[].filter.call(clBoxes,function(c){ return c.checked; }).map(function(c){ return c.dataset.cl; }); var cnt=document.getElementById('clCount'); if(cnt) cnt.textContent=d.length+' of '+clBoxes.length; return d; }
+      clState();
+      clBoxes.forEach(function(c){ c.onchange=function(){ var d=clState(); clearTimeout(clTimer); clTimer=setTimeout(function(){ api('job_checklist_set',{method:'POST',body:{id:id,done:d}}).catch(function(x){ err.textContent=x.message; }); },400); }; });
       var otw=document.getElementById('otw'); if(otw) otw.onclick=function(){ setStatus('on_the_way',otw); };
-      var fin=document.getElementById('fin'); if(fin) fin.onclick=function(){ setStatus('completed',fin); };
+      var fin=document.getElementById('fin'); if(fin) fin.onclick=function(){ var left=clBoxes.length-clState().length; if(left>0 && !confirm(left+' checklist item'+(left===1?' is':'s are')+' not ticked. Finish anyway?')) return; setStatus('completed',fin); };
     }).catch(function(x){ box.innerHTML='<button class="btn ghost" onclick="location.reload()">← Back</button><p class="err">'+esc(x.message)+'</p>'; });
   }
 

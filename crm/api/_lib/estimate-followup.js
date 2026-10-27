@@ -120,8 +120,8 @@ export async function checkEstimateTextFollowups(opts = {}) {
     const link = baseUrl ? `${baseUrl}/estimate-approve.html?token=${encodeURIComponent(token)}&via=sms` : '';
     if (!link) { summary.skipped++; continue; }
     const msg = step === 1
-      ? `${named ? `Hi ${named}, did` : 'Did'} you see your estimate? Book from this link for $${FOLLOWUP_COUPON_AMOUNT} off:\n${link}\nReply STOP to opt out`
-      : `${named ? `Hi ${named}, your` : 'Your'} estimate is still open. $${FOLLOWUP_COUPON_AMOUNT} off when you book here:\n${link}\nReply STOP to opt out`;
+      ? `${named ? `Hi ${named}, did` : 'Did'} you see your estimate? Book from this link for ₱${FOLLOWUP_COUPON_AMOUNT} off:\n${link}\nReply STOP to opt out`
+      : `${named ? `Hi ${named}, your` : 'Your'} estimate is still open. ₱${FOLLOWUP_COUPON_AMOUNT} off when you book here:\n${link}\nReply STOP to opt out`;
     if (dryRun) { summary.details.push({ id: e.id, step, phone: p, msg }); continue; }
 
     const col = step === 1 ? 'followup_text1_at' : 'followup_text2_at';

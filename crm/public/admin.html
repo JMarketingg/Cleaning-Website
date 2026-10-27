@@ -2461,7 +2461,7 @@
 <div id="login" class="login-wrap">
   <form class="login" id="loginForm">
     <h1>TidyHaus <span class="hl">CRM</span></h1>
-    <div class="sub">No password yet. Just tap Sign in.</div>
+    <div class="sub">Enter your password to continue</div>
     <div class="pw-wrap">
       <input type="password" id="pw" placeholder="Password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus>
       <button type="button" id="pwToggle" class="pw-eye" aria-label="Show password" aria-pressed="false">
@@ -4856,6 +4856,8 @@ function openBooking(b){
       <div class="bk-dv"><span class="lead">${esc(b.technician?.name||'Unassigned')}</span>
         ${b.secondary_technician?`<br><span class="dim">2nd cleaner: ${esc(b.secondary_technician.name)}${b.secondary_technician.cross_company?' ('+esc(b.secondary_technician.company||'partner')+')':''}</span>`:''}
         <br><span class="dim">Booked by ${esc(bookedBy)}</span>
+        ${b.checklist?`<br><span class="dim">✅ Checklist ${Number((b.checklist.done||[]).length)} of ${Number(b.checklist.total||0)} done</span>`:''}
+        <div id="thPayBox" data-bid="${esc(b.id)}" data-paid="${b.payment_status==='paid'?'1':''}" data-method="${esc(b.payment_method||'')}" style="margin-top:8px;"></div>
         ${b.series_id?`<br><span class="dim">🔁 Repeats ${esc({weekly:'every week',biweekly:'every 2 weeks',monthly:'every month'}[b.series_every]||'')} · visit ${Number(b.series_index||0)+1}</span><br><button type="button" class="btn ghost sm" style="width:auto;margin-top:6px;" onclick="stopRepeat('${esc(b.id)}')">Stop repeating after this visit</button>`:''}
         ${b.metadata?.landing_page?`<br><span class="dim">From ${esc(b.metadata.landing_page)}${b.metadata.traffic_source?' · '+esc(b.metadata.traffic_source):''}</span>`:''}</div>
       ${b.cross_company?`<div class="bk-xco" style="margin:9px 0 0;">⚠ Cross-company job — ${esc(b.technician?.name||'this tech')} is from ${esc(b.partner_company||'the partner company')}.</div>`:''}
@@ -13263,6 +13265,9 @@ async function renderOther(){
     coupons:{t:'🎟️ Coupons',go:()=>renderCoupons()},
     travel:{t:'🚗 Travel Fees',go:()=>renderTravelFees()},
     widget:{t:'💲 Cleaning Prices',go:()=>renderWidgetPricing()},
+    payments:{t:'💳 Payments & QR codes',go:()=>window.thRenderPayments()},
+    cleanerpay:{t:'💰 Cleaner Pay',go:()=>window.thRenderCleanerPay()},
+    texts:{t:'💬 Text Messages',go:()=>window.thRenderTexts()},
     siteanalytics:{t:'📈 Website Analytics',go:()=>{ location.href='/site-analytics.html'; }},
     pipeline:{t:'📈 Pipeline',go:()=>navTo('pipeline')},
     launch:{t:'🚀 Launch',go:()=>navTo('launch'),own:1},
@@ -13278,7 +13283,8 @@ async function renderOther(){
     <div style="max-width:620px;">
       <input id="otSearch" type="search" placeholder="Search" autocomplete="off" style="width:100%;box-sizing:border-box;">
       ${otGroup('👥 PEOPLE',['technicians','secretaries','customers'])}
-      ${otGroup('💲 MONEY & PRICING',['payroll','widget','coupons','travel','disputes'])}
+      ${otGroup('💲 MONEY & PRICING',['payments','cleanerpay','widget','coupons'])}
+      ${otGroup('💬 CUSTOMERS',['texts'])}
       ${otGroup('📣 MARKETING',['siteanalytics','launch','gadsnav'])}
       ${otGroup('📋 SALES & WORK',['pipeline','prospects','tasks'])}
       ${otGroup('🧰 TOOLS',['callhub','messages','notes'])}
@@ -13315,7 +13321,7 @@ async function renderOther(){
   if(badge){ const total=dispN+secN; if(total){ badge.textContent=total; badge.style.display=''; } else badge.style.display='none'; }
 }
 
-const WP_SECTION_LABELS={ service:'Service base price', bedrooms:'Bedrooms (added to base)', bathrooms:'Bathrooms (added to base)', office_size:'Office size (added to base)', addons:'Add-ons', frequency:'Repeat discount', rules:'Rules' };
+const WP_SECTION_LABELS={ service:'Service base price', bedrooms:'Bedrooms (added to base)', bathrooms:'Bathrooms (added to base)', office_size:'Office size (added to base)', addons:'Add-ons', frequency:'Repeat discount', rules:'Rules', pay:'Cleaner pay' };
 const WP_COLS=[
   { key:'tidyhaus:makati', slug:'tidyhaus', city:'makati', label:'Makati', group:'TidyHaus' },
   { key:'tidyhaus:bgc',    slug:'tidyhaus', city:'bgc',    label:'BGC',    group:'TidyHaus' },
@@ -24694,7 +24700,8 @@ function embedAuditorBoot(q){
   else tryAutoLogin(); }
 </script>
 <script src="/onway.js?v=1"></script>
-<script src="/clean-booking.js?v=2"></script>
+<script src="/clean-booking.js?v=5"></script>
+<script src="/th-extras.js?v=3"></script>
 <script>
 (function(){ function t(){ try{ var el=document.getElementById('ctClock'); if(!el) return; var r=(typeof role!=='undefined')?role:''; el.style.display='none';
   document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }

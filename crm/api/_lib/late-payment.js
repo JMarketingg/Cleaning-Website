@@ -67,7 +67,7 @@ export async function sendLateReminder(db, bookingId, { force = false, key = 'la
     lines, tax, adjustment: 0, tip, total, netPaid, amountDue, amountRefunded: Number(b.amount_refunded) || 0, payUrl,
   }, brand);
   const banner = `<div style="background:#b91c1c;color:#fff;font:700 20px Arial,sans-serif;text-align:center;padding:14px;">Payment Late!</div>`;
-  const money = `$${amountDue.toFixed(2)}`;
+  const money = `₱${amountDue.toFixed(2)}`;
   const escH = (x) => String(x == null ? '' : x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const payTop = `<div style="font-family:Arial,sans-serif;text-align:center;padding:22px 16px 6px;">
 <div style="font-size:16px;color:#111;margin-bottom:16px;">Invoice for your ${escH(brand.name)} job on ${escH(serviceDate)}: <b>${money}</b> due.</div>

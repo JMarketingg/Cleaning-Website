@@ -5,7 +5,7 @@ export const TERMS_VERSION = '2026-07-01';
 
 export function authorizationText({ businessName, customerName, cardLast4, ticketAmount, tip, total }) {
   const card = cardLast4 ? `ending ••${cardLast4}` : 'on file';
-  const fmt = (n) => `$${(Math.round((Number(n) || 0) * 100) / 100).toFixed(2)}`;
+  const fmt = (n) => `₱${(Math.round((Number(n) || 0) * 100) / 100).toFixed(2)}`;
   return (
     `I, ${customerName || 'the customer'}, authorize ${businessName || 'the company'} to charge my card ${card} ` +
     `${fmt(total)} for the services listed above (${fmt(ticketAmount)} service` +
@@ -58,7 +58,7 @@ export async function saveAuthorization(db, req, booking, ctx) {
 }
 
 export function buildDisputeEvidence({ booking, auth, customer, facts = {} }) {
-  const fmt = (n) => { const v = Math.round((Number(n) || 0) * 100) / 100; return `${v < 0 ? '-' : ''}$${Math.abs(v).toFixed(2)}`; };
+  const fmt = (n) => { const v = Math.round((Number(n) || 0) * 100) / 100; return `${v < 0 ? '-' : ''}₱${Math.abs(v).toFixed(2)}`; };
   const when = (t) => t ? new Date(t).toISOString().replace('T', ' ').slice(0, 16) + ' UTC' : null;
   const day = (t) => t ? new Date(t).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }) : '';
   const lines = Array.isArray(auth?.line_items) ? auth.line_items : (booking?.line_items || []);

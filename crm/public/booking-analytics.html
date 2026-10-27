@@ -78,7 +78,7 @@
       .then(function(d){
         var t=d.totals;
         out.innerHTML='<div class="tiles">'+
-          [['Bookings made',n(t.kept)],['Booked value',peso(t.value)],['Average booking',peso(t.avg_value)],['Cleanings done',n(t.completed)],['Revenue from done cleanings',peso(t.revenue)],['Upcoming cleanings',n(t.upcoming)+' · '+peso(t.upcoming_value)],['Cancelled',n(t.cancelled)+' ('+t.cancel_pct+'%)'],['Repeat customers',t.repeat_pct+'%']]
+          [['Quote requests from website',n(t.quote_requests)],['Quote requests booked',n(t.quotes_booked)+' ('+t.quote_to_booking_pct+'%)'],['Bookings made',n(t.kept)],['Booked value',peso(t.value)],['Average booking',peso(t.avg_value)],['Cleanings done',n(t.completed)],['Revenue from done cleanings',peso(t.revenue)],['Upcoming cleanings',n(t.upcoming)+' · '+peso(t.upcoming_value)],['Cancelled',n(t.cancelled)+' ('+t.cancel_pct+'%)'],['Repeat customers',t.repeat_pct+'%']]
           .map(function(x){ return '<div class="tile"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>'; }).join('')+'</div>'+
           chart(d.daily)+
           '<div class="grid">'+

@@ -208,7 +208,7 @@ export async function prospectQuoteLink(db, auth, prospectId, estimateId, total)
   const now = new Date().toISOString();
   const { error } = await db.from('prospects').update({ quote_estimate_id: estimateId, quote_total: total, quote_status: held ? 'needs_ok' : 'sent', status: 'quote', last_activity_at: now, updated_at: now }).eq('id', prospectId).is('deleted_at', null);
   if (error) throw error;
-  await db.from('prospect_calls').insert({ prospect_id: prospectId, caller: auth.name || 'Owner', outcome: 'note', note: `Quote $${Math.round(total)}${held ? " · needs Owner's OK" : ''}` });
+  await db.from('prospect_calls').insert({ prospect_id: prospectId, caller: auth.name || 'Owner', outcome: 'note', note: `Quote ₱${Math.round(total)}${held ? " · needs Owner's OK" : ''}` });
   return held;
 }
 export async function prospectQuoteHeld(db, auth, estimateId) {

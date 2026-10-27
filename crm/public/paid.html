@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TidyHaus Payment</title>
+<style>
+  :root { --bg:#f6f7f5; --panel:#fff; --ink:#1c2422; --mute:#66706d; --line:#e2e6e3; --brand:#1f3a3d; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121615; --panel:#1b2120; --ink:#e7ece9; --mute:#9aa5a1; --line:#2b3331; --brand:#9fd3cf; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif; display:flex; min-height:100vh; align-items:center; justify-content:center; padding:16px; box-sizing:border-box; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:28px 22px; max-width:420px; text-align:center; }
+  h1 { font-size:22px; margin:8px 0; } p { color:var(--mute); margin:0; } a { color:var(--brand); }
+</style>
+</head>
+<body>
+<div class="card" id="c"><div style="font-size:42px;">✅</div><h1>Thank you!</h1><p>Your payment to TidyHaus went through. You can close this page.</p></div>
+<script>
+  if (/cancelled=1/.test(location.search)) document.getElementById('c').innerHTML = '<div style="font-size:42px;">↩️</div><h1>Payment not finished</h1><p>No money was taken. Use the same link again whenever you are ready, or message us at <a href="tel:+639923095621">0992 309 5621</a>.</p>';
+</script>
+</body>
+</html>

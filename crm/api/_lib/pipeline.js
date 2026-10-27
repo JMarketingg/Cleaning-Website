@@ -85,7 +85,7 @@ function fmtAgo(ms) {
   const h = Math.round(ms / HOUR);
   return h < 48 ? `${h}h` : `${Math.round(ms / DAY)}d`;
 }
-const dollars = (n) => '$' + Math.round(Number(n) || 0).toLocaleString('en-US');
+const dollars = (n) => '₱' +  Math.round(Number(n) || 0).toLocaleString('en-US');
 function realName(s) {
   const t = clean(s, 80);
   return t && !/^[\d\s()+.\-]+$/.test(t) ? capName(t) : null;

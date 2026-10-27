@@ -27,7 +27,7 @@ export function makePartsPlan(preview, input, author) {
     return { id:t.id, name:t.name, business_id:t.business_id, paid_week_total:partsMoney(paid), original_job_pay:t.job_pay, corrected_job_pay:each, deduction, adjustment_id:partsRecordId(preview.id,t.id,'deduction'), settled_at:null };
   });
   const date = preview.job_date;
-  const message = `Parts reimbursement correction — ${preview.customer_name}, ${date}. Your previous payroll included $${techs[0].deduction.toFixed(2)} for parts that Owner purchased and paid for. That amount is being deducted once from the payroll week beginning ${targetWeek} to correct the reimbursement. This is not a deduction from your labor pay or a penalty.`;
+  const message = `Parts reimbursement correction — ${preview.customer_name}, ${date}. Your previous payroll included ₱${techs[0].deduction.toFixed(2)} for parts that Owner purchased and paid for. That amount is being deducted once from the payroll week beginning ${targetWeek} to correct the reimbursement. This is not a deduction from your labor pay or a penalty.`;
   if (techs[0].deduction !== techs[1].deduction) fail('The two technicians have different original pay. Review this job before splitting the correction.');
   return { version:1, status:'preparing', source_week:preview.source_week, target_week:targetWeek, corrected_total:partsMoney(input.corrected_total), customer_name:preview.customer_name, job_date:date, techs, message, created_by:author, created_at:new Date().toISOString() };
 }
@@ -80,11 +80,11 @@ export async function savePartsCorrection(db, booking, plan) {
     const stored=await checked(db.from('tech_bonuses').select('amount,technician_id,awarded_on').eq('id',row.id).single());
     if (Number(stored.amount)!==row.amount || stored.technician_id!==row.technician_id || stored.awarded_on!==row.awarded_on) throw new Error('Payroll correction record does not match.');
   }
-  await checked(db.from('booking_notes').upsert({id:partsRecordId(booking.id,'owner','note'),business_id:booking.business_id,booking_id:booking.id,author_kind:'owner',author_id:null,author_name:plan.created_by,body:`${plan.message}\nCorrected job pay: $${plan.corrected_total.toFixed(2)} total, $${plan.techs[0].corrected_job_pay.toFixed(2)} each. Previously paid for the week: ${plan.techs.map(t=>`${t.name} $${t.paid_week_total.toFixed(2)}`).join('; ')}.`},{onConflict:'id',ignoreDuplicates:true}));
+  await checked(db.from('booking_notes').upsert({id:partsRecordId(booking.id,'owner','note'),business_id:booking.business_id,booking_id:booking.id,author_kind:'owner',author_id:null,author_name:plan.created_by,body:`${plan.message}\nCorrected job pay: ₱${plan.corrected_total.toFixed(2)} total, ₱${plan.techs[0].corrected_job_pay.toFixed(2)} each. Previously paid for the week: ${plan.techs.map(t=>`${t.name} ₱${t.paid_week_total.toFixed(2)}`).join('; ')}.`},{onConflict:'id',ignoreDuplicates:true}));
   const notes = String(booking.notes||'').replace(/(?:^|\n)[^\n]*payroll\s*override[^\n]*/gi,'').trim();
   const complete={...plan,status:'complete'};
   const meta={...booking.metadata,payroll_parts:complete};
-  const updated=await checked(unchangedBooking(db.from('bookings').update({notes:[notes,`Payroll override: $${plan.techs[0].corrected_job_pay.toFixed(2)}`,plan.message].filter(Boolean).join('\n'),metadata:meta}).eq('id',booking.id),booking).select('id').maybeSingle());
+  const updated=await checked(unchangedBooking(db.from('bookings').update({notes:[notes,`Payroll override: ₱${plan.techs[0].corrected_job_pay.toFixed(2)}`,plan.message].filter(Boolean).join('\n'),metadata:meta}).eq('id',booking.id),booking).select('id').maybeSingle());
   if (!updated) throw Object.assign(new Error('The job changed before the correction finished. Retry to finish safely.'),{status:409});
   return complete;
 }

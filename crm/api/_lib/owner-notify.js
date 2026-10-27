@@ -52,7 +52,7 @@ export async function maybeSendFirstMultiTvDiscountAlert(db, { discountAmt, cust
     const first = await claimOnce(db, 'multi_tv_discount_first_used');
     if (!first) return;
     sendOwnerAlertEmail('Multi-TV discount used for the first time',
-      `The multi-TV discount was just used for the first time — ${customerName || 'a customer'}'s job (scheduled ${whenStr || 'soon'}) saved $${discountAmt.toFixed(2)}.`);
+      `The multi-TV discount was just used for the first time — ${customerName || 'a customer'}'s job (scheduled ${whenStr || 'soon'}) saved ₱${discountAmt.toFixed(2)}.`);
   } catch (e) { console.warn('[multi-tv-discount] alert error:', e.message); }
 }
 
@@ -99,7 +99,7 @@ export function maybeSendZeroOrLowProfitAlert({ price, lines, techName, customer
     const profit = estimateJobProfit({ price, lines, techName, scheduled_at });
     if (profit != null && profit < 20) {
       sendOwnerAlertEmail('Low-profit job booked',
-        `${customerName || 'A customer'}'s job (${whenStr || 'scheduled'}) has an estimated profit of $${profit.toFixed(2)} — under $20.`);
+        `${customerName || 'A customer'}'s job (${whenStr || 'scheduled'}) has an estimated profit of ₱${profit.toFixed(2)} — under $20.`);
     }
   } catch (e) { console.warn('[zero/low-profit] alert error:', e.message); }
 }
@@ -131,7 +131,7 @@ export async function sendOwnerBookingAlert(d = {}) {
     if (!recipients.size) return;
 
     const tz = d.timezone || 'Asia/Manila';
-    const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+    const money = (n) => '₱' +  (Number(n) || 0).toFixed(2);
 
     let when = '';
     if (d.scheduledAt) {
@@ -325,7 +325,7 @@ export async function sendPriceMismatchAlert(d = {}) {
     if (!recipients.size) return;
 
     const c = d.customer || {};
-    const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+    const money = (n) => '₱' +  (Number(n) || 0).toFixed(2);
     const rows = [
       ['Company', d.businessName],
       ['Customer', c.name],
@@ -413,9 +413,9 @@ export function maybeSendLeadGenBookingAlert({ slug, businessName, customerName,
 
 export async function sendReviewBonusEarnedAlert({ techName, amount }) {
   try {
-    await sendOwnerAlertEmail(`${techName || 'A cleaner'} earned the $${Number(amount) || 100} review bonus`,
+    await sendOwnerAlertEmail(`${techName || 'A cleaner'} earned the ₱${Number(amount) || 100} review bonus`,
       `${techName || 'A cleaner'} just finished all 5 Google reviews. `
-      + `A $${Number(amount) || 100} bonus has been added to their payroll for this week.`);
+      + `A ₱${Number(amount) || 100} bonus has been added to their payroll for this week.`);
   } catch (e) { console.warn('[review-bonus] alert error:', e.message); }
 }
 

@@ -236,7 +236,7 @@ const GDS_UPSELL_PRICE = 35;
 
 function money(n) {
   const v = Number(n) || 0;
-  return (v < 0 ? '-$' : '$') + Math.abs(v).toFixed(2);
+  return (v < 0 ? '-₱' : '₱') + Math.abs(v).toLocaleString('en-PH', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
 }
 function esc(s) {
   return String(s == null ? '' : s).replace(/[&<>"]/g, c =>
@@ -780,7 +780,7 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
     .filter(it => (it.qty || 1) * it.unit_price !== 0 && !isDefaultTypeLabel(it.description));
   const hasLineItems = lineItems.length > 0;
   if (couponAmount > 0 && hasLineItems) {
-    lineItems.push({ description: `$${couponAmount} off — thanks for getting back to us`, qty: 1, unit_price: -couponAmount });
+    lineItems.push({ description: `₱${couponAmount} off — thanks for getting back to us`, qty: 1, unit_price: -couponAmount });
   }
   const subtotal = Math.round(lineItems.reduce((t, it) => t + it.qty * it.unit_price, 0) * 100) / 100;
   const taxRate = Number(details.taxRate) > 0 ? Number(details.taxRate) : 0;
@@ -799,7 +799,7 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
 
   const followUp = !!details.followUp;
   const subject = couponAmount > 0
-    ? `$${couponAmount} off your estimate — did you see it?`
+    ? `₱${couponAmount} off your estimate — did you see it?`
     : (followUp ? 'We finished your estimate. Did you see it?' : `Your ${b.name} Estimate`);
 
   const serviceRow = serviceLabel
@@ -843,7 +843,7 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light only"></head>
 <body style="margin:0;padding:0;background:#eef1f5;-webkit-text-size-adjust:100%;">
-  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${couponAmount > 0 ? `$${couponAmount} off your estimate from ${esc(b.name)} — already applied below.` : (followUp ? `Your estimate from ${esc(b.name)} is ready and waiting.` : `Your estimate from ${esc(b.name)}.`)}</div>
+  <div style="display:none;max-height:0;overflow:hidden;opacity:0;">${couponAmount > 0 ? `₱${couponAmount} off your estimate from ${esc(b.name)} — already applied below.` : (followUp ? `Your estimate from ${esc(b.name)} is ready and waiting.` : `Your estimate from ${esc(b.name)}.`)}</div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#eef1f5;padding:28px 12px;">
     <tr><td align="center">
       <table role="presentation" width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:18px;overflow:hidden;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;box-shadow:0 6px 24px rgba(16,24,40,.10);">
@@ -860,7 +860,7 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
         <tr><td style="background:${tintBg};padding:30px 28px 26px;">
           <div style="font-size:22px;font-weight:800;color:#11181c;margin:0 0 10px;">${followUp ? 'Did you see your estimate?' : "Here's your estimate"}</div>
           <div style="font-size:15px;color:#5b6470;line-height:1.6;">${followUp
-            ? `Hi ${esc(firstName || 'there')}, we finished your estimate a few hours ago and wanted to make sure it reached you. Here it is again${couponAmount > 0 ? `, with $${couponAmount} off for getting back to us` : ''}:`
+            ? `Hi ${esc(firstName || 'there')}, we finished your estimate a few hours ago and wanted to make sure it reached you. Here it is again${couponAmount > 0 ? `, with ₱${couponAmount} off for getting back to us` : ''}:`
             : `Hi ${esc(firstName || 'there')}, thanks for reaching out. Here are the details of the estimate you requested:`}</div>
         </td></tr>
 
@@ -868,7 +868,7 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
         <!-- Coupon banner -->
         <tr><td style="padding:0 28px 4px;">
           <div style="background:#166534;border-radius:12px;padding:16px 18px;text-align:center;">
-            <div style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:.2px;">🎉 $${couponAmount} OFF your estimate</div>
+            <div style="font-size:20px;font-weight:800;color:#ffffff;letter-spacing:.2px;">🎉 ₱${couponAmount} OFF your estimate</div>
             <div style="font-size:12.5px;color:#d1fae5;margin-top:4px;">Already applied to your total below — just approve to lock it in.</div>
           </div>
         </td></tr>` : ''}
@@ -915,8 +915,8 @@ export function estimateEmail(details = {}, brand = EMAIL_BRANDS['tidyhaus']) {
         <!-- Approve CTA -->
         <tr><td style="padding:0 28px 30px;">
           <div style="text-align:center;">
-            <a href="${esc(approveUrl)}" style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;padding:15px 42px;border-radius:10px;letter-spacing:.3px;">${couponAmount > 0 ? `Approve &amp; save $${couponAmount} &rarr;` : (hasUpsells ? 'Review &amp; choose your estimate &rarr;' : 'Check availability')}</a>
-            <div style="font-size:12px;color:#9ca3af;line-height:1.6;margin-top:11px;">${couponAmount > 0 ? `This link is the only way to redeem the $${couponAmount} discount.` : (hasUpsells ? 'Pick any upgrades you want and schedule — takes about a minute.' : 'Click above to see open times and book your appointment.')}</div>
+            <a href="${esc(approveUrl)}" style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;font-size:16px;font-weight:800;padding:15px 42px;border-radius:10px;letter-spacing:.3px;">${couponAmount > 0 ? `Approve &amp; save ₱${couponAmount} &rarr;` : (hasUpsells ? 'Review &amp; choose your estimate &rarr;' : 'Check availability')}</a>
+            <div style="font-size:12px;color:#9ca3af;line-height:1.6;margin-top:11px;">${couponAmount > 0 ? `This link is the only way to redeem the ₱${couponAmount} discount.` : (hasUpsells ? 'Pick any upgrades you want and schedule — takes about a minute.' : 'Click above to see open times and book your appointment.')}</div>
           </div>
         </td></tr>` : ''}
 

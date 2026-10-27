@@ -27,6 +27,11 @@ function jobStripePk(slug) {
   return STRIPE_PK_GLOBAL;
 }
 import { uploadImage, deleteImage, readPrivateImage, notePhotoContentType, signVideoUpload, videoPublicUrl, deleteVideo } from './_lib/storage.js';
+import { PAY_METHODS, paymongoOn, businessPaySettings, markPaid, createPaymongoLink } from './_lib/ph-payments.js';
+import { sendText, alreadySent } from './_lib/semaphore.js';
+import { textSettings, otwMessage } from './_lib/th-daily.js';
+import { checklistFor } from './_lib/th-checklist.js';
+import { weekPay, weekStartOf } from './_lib/th-pay.js';
 import { denverToday, noteIsLive, isPrivateNotePhoto } from './_lib/notes.js';
 import { computeJobPay, PAY_DATE_OFFSET_DAYS, isJuan, isRetired } from './_lib/payroll.js';
 import { partsMoney, partsCorrectionsFor, partsPaymentSnapshot, partsAdjustmentDetail } from './_lib/payroll-parts.js';
@@ -123,6 +128,13 @@ export default async function handler(req, res) {
       case 'calendar_link':    return res.status(200).json(calLinks(auth.tech_id));
       case 'vip_phones': { const { data } = await db.from('vip_phones').select('phone, paid_jobs'); const scam = await scammerList(db); return res.status(200).json({ counts: Object.fromEntries((data || []).map((r) => [r.phone, r.paid_jobs])), scam: [...scam.phones] }); }
       case 'job':              return await job(req, res, db, auth);
+      case 'pay_info':         return await payInfo(req, res, db, auth);
+      case 'job_mark_paid':    return await jobMarkPaid(req, res, db, auth, body);
+      case 'job_pay_link':     return await jobPayLink(req, res, db, auth, body);
+      case 'job_otw_text':     return await jobOtwText(req, res, db, auth, body);
+      case 'job_checklist':    return await jobChecklist(req, res, db, auth);
+      case 'my_pay':           return await myPay(req, res, db, auth);
+      case 'job_checklist_set': return await jobChecklistSet(req, res, db, auth, body);
       case 'status':           return await status(req, res, db, auth, body);
       case 'job_line_items_save': return await jobLineItemsSave(req, res, db, auth, body);
       case 'job_payment':      return await jobPayment(req, res, db, auth, body);
@@ -1252,7 +1264,7 @@ async function jobPayment(req, res, db, auth, body) {
           .eq('id', id).eq('payment_status', b.payment_status).select('id').maybeSingle();
         if (!rec) return res.status(409).json({ error: 'The payment state just changed — refresh and check before marking it.' });
         return res.status(200).json({ ok: true, payment_status: 'paid', recovered: true,
-          warning: `This job's card charge actually WENT THROUGH ($${landed.amount.toFixed(2)}) on an earlier attempt that looked like it failed. It's been recorded as a CARD payment — do NOT take cash from the customer.` });
+          warning: `This job's card charge actually WENT THROUGH (₱${landed.amount.toFixed(2)}) on an earlier attempt that looked like it failed. It's been recorded as a CARD payment — do NOT take cash from the customer.` });
       }
     }
     if (act === 'mark_paid' && body.cash && !body.signature && (Number(b.price) || 0) > 0) {
@@ -1371,7 +1383,7 @@ async function jobPayment(req, res, db, auth, body) {
         if (recErr) ({ error: recErr } = await db.from('bookings').update(patch).eq('id', id));
         if (recErr) { await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id); console.error('[tech charge] CRITICAL: landed-charge adopt write failed', { booking: id, pi: landed.id, err: recErr.message }); }
         return res.status(200).json({ ok: true, payment_status: 'paid', amount: landed.amount, tip: landed.tip, payment_intent_id: landed.id, recovered: true,
-          warning: `This job was ALREADY charged $${landed.amount.toFixed(2)} on an earlier attempt that looked like it failed. No new charge was made.` });
+          warning: `This job was ALREADY charged ₱${landed.amount.toFixed(2)} on an earlier attempt that looked like it failed. No new charge was made.` });
       };
       if (!b.stripe_payment_intent_id) {
         const landed = await findLandedCharge(id, acct);
@@ -1381,7 +1393,7 @@ async function jobPayment(req, res, db, auth, body) {
       const ticketAmount = Number(b.price) || 0;
       if (ticketAmount <= 0) { const e = new Error('Cannot charge for a job with no price.'); e.status = 400; throw e; }
       const tip = Math.max(0, Math.round((Number(body.tip) || 0) * 100) / 100);
-      if (tip > ticketAmount) { const e = new Error(`Tip ($${tip.toFixed(2)}) can't be more than the job total ($${ticketAmount.toFixed(2)}).`); e.status = 400; throw e; }
+      if (tip > ticketAmount) { const e = new Error(`Tip (₱${tip.toFixed(2)}) can't be more than the job total (₱${ticketAmount.toFixed(2)}).`); e.status = 400; throw e; }
       const total = Math.round((ticketAmount + tip) * 100) / 100;
 
       let custId = b.stripe_customer_id || (b.customer && b.customer.stripe_customer_id) || null;
@@ -1441,7 +1453,7 @@ async function jobPayment(req, res, db, auth, body) {
         const { error: fbErr } = await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id);
         console.error('[tech charge] CRITICAL: Stripe charge succeeded but booking update failed', { booking: id, pi: pi.id, err: payErr.message, minimal_write_ok: !fbErr });
         return res.status(200).json({ ok: true, payment_status: 'paid', amount: total, tip, payment_intent_id: pi.id,
-          warning: `The charge WENT THROUGH on Stripe ($${total.toFixed(2)}), but saving it to the job failed: ${payErr.message}. Do NOT charge again — tell the office to reconcile this job.` });
+          warning: `The charge WENT THROUGH on Stripe (₱${total.toFixed(2)}), but saving it to the job failed: ${payErr.message}. Do NOT charge again — tell the office to reconcile this job.` });
       }
 
       await saveAuthorization(db, req, b, { businessId: b.business_id, total, ticketAmount, tip, card, pi, chargeId, body });
@@ -1454,6 +1466,77 @@ async function jobPayment(req, res, db, auth, body) {
   }
 
   return res.status(400).json({ error: `Unknown payment action "${act}"` });
+}
+
+async function jobOtwText(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { await assertOwnedJob(db, auth, body.id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const { texts } = await textSettings(db);
+  if (!texts.otw) return res.status(200).json({ sent: false });
+  const { data: b } = await db.from('bookings').select('id, customer:customers ( name, phone )').eq('id', body.id).maybeSingle();
+  if (!b || !b.customer?.phone || await alreadySent(db, b.id, 'otw')) return res.status(200).json({ sent: false });
+  const { data: me } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
+  const r = await sendText(b.customer.phone, otwMessage(b, me && me.name), { kind: 'otw', bookingId: b.id, db });
+  return res.status(200).json({ sent: !!r.ok });
+}
+
+async function loadChecklist(db, id) {
+  const { data: b } = await db.from('bookings').select('id, metadata, service:services ( name ), line_items:booking_line_items ( name )').eq('id', id).maybeSingle();
+  if (!b) return null;
+  const rooms = checklistFor(b.service?.name, b.line_items);
+  return { b, rooms, keys: rooms.flatMap((r) => r.items.map((i) => i.key)), done: (b.metadata?.checklist?.done) || [] };
+}
+async function jobChecklist(req, res, db, auth) {
+  const id = String(req.query.id || '');
+  try { await assertOwnedJob(db, auth, id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const c = await loadChecklist(db, id);
+  if (!c) return res.status(404).json({ error: 'Job not found' });
+  return res.status(200).json({ rooms: c.rooms, done: c.done.filter((k) => c.keys.includes(k)) });
+}
+async function jobChecklistSet(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { await assertOwnedJob(db, auth, body.id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const c = await loadChecklist(db, body.id);
+  if (!c) return res.status(404).json({ error: 'Job not found' });
+  const done = (Array.isArray(body.done) ? body.done : []).map(String).filter((k) => c.keys.includes(k));
+  const { error } = await db.from('bookings').update({ metadata: { ...(c.b.metadata || {}), checklist: { done, total: c.keys.length, updated_at: new Date().toISOString() } } }).eq('id', body.id);
+  if (error) throw error;
+  return res.status(200).json({ ok: true, done: done.length, total: c.keys.length });
+}
+
+async function myPay(req, res, db, auth) {
+  const thisWeek = weekStartOf('');
+  const lastWeek = new Date(new Date(thisWeek + 'T12:00:00+08:00').getTime() - 7 * 86400000).toLocaleDateString('en-CA', { timeZone: 'Asia/Manila' });
+  const [a, b] = await Promise.all([weekPay(db, thisWeek, auth.tech_id), weekPay(db, lastWeek, auth.tech_id)]);
+  const pick = (w) => ({ week_start: w.week_start, week_end: w.week_end, ...(w.cleaners[0] || { jobs: [], pay: 0, tips: 0, total: 0, paid: null }) });
+  return res.status(200).json({ this_week: pick(a), last_week: pick(b) });
+}
+
+async function payInfo(req, res, db, auth) {
+  const id = String(req.query.id || '');
+  try { await assertOwnedJob(db, auth, id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const { data: b } = await db.from('bookings').select('price, payment_status, payment_method, amount_paid').eq('id', id).maybeSingle();
+  const { qr } = await businessPaySettings(db);
+  return res.status(200).json({ qr: qr.map(({ label, url }) => ({ label, url })), methods: PAY_METHODS, paymongo_on: paymongoOn(), booking: b });
+}
+async function jobMarkPaid(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { await assertOwnedJob(db, auth, body.id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  if (!['cash', 'gcash', 'maya', 'qrph', 'bank'].includes(String(body.method))) return res.status(400).json({ error: 'Pick how the customer paid.' });
+  const { data: me } = await db.from('technicians').select('name').eq('id', auth.tech_id).maybeSingle();
+  try { return res.status(200).json(await markPaid(db, body.id, body.method, { by: (me && me.name) || 'Cleaner' })); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+}
+async function jobPayLink(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { await assertOwnedJob(db, auth, body.id); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  let link; try { link = await createPaymongoLink(db, body.id); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  let texted = false;
+  if (link.customer && link.customer.phone) {
+    const r = await sendText(link.customer.phone, `Hi ${String(link.customer.name || '').split(' ')[0] || 'there'}! Here's your TidyHaus payment link for ₱${link.amount.toLocaleString('en-PH')}. Pay by QR Ph, GCash, Maya or card: ${link.url}`, { kind: 'pay_link', bookingId: body.id, db });
+    texted = !!r.ok;
+  }
+  return res.status(200).json({ url: link.url, texted });
 }
 
 async function assertOwnedJob(db, auth, id) {

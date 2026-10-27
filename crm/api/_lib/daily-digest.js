@@ -107,7 +107,7 @@ export async function sendDailyBookingDigest({ force = false, dryRun = false, of
     }
     const rowTz = (b) => tzByArea[b.service_area_id] || b.business?.timezone || DIGEST_TZ;
 
-    const money = (n) => '$' + (Number(n) || 0).toFixed(2);
+    const money = (n) => '₱' +  (Number(n) || 0).toFixed(2);
     const total = bookings.reduce((s, b) => s + (Number(b.price) || 0), 0);
     const dateLabel = new Intl.DateTimeFormat('en-US', { timeZone: DIGEST_TZ, weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' }).format(start);
 

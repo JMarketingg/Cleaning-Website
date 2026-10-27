@@ -176,7 +176,7 @@ async function payStatusPublic(req, res) {
     if (rec) {
       try {
         await db.from('booking_notes').insert({ booking_id: bookingId, business_id: b.business_id,
-          body: `Balance paid online — $${amt.toFixed(2)} via card`, author_kind: 'owner', author_id: null, author_name: 'Online payment' });
+          body: `Balance paid online — ₱${amt.toFixed(2)} via card`, author_kind: 'owner', author_id: null, author_name: 'Online payment' });
       } catch (e) { /* best-effort */ }
     }
     return res.status(200).json({ ok: true, paid: true, amount: amt });
@@ -193,7 +193,7 @@ async function payStatusPublic(req, res) {
   try {
     await db.from('booking_notes').insert({
       booking_id: bookingId, business_id: b.business_id,
-      body: `Invoice paid online — $${amount.toFixed(2)} via card`,
+      body: `Invoice paid online — ₱${amount.toFixed(2)} via card`,
       author_kind: 'owner', author_id: null, author_name: 'Online payment',
     });
   } catch (e) { /* best-effort */ }
@@ -457,7 +457,7 @@ function applyMultiTvDiscounts(lines, surcharge, cfg) {
     if (!lines.some(l => /multi-tv discount/i.test(l.name))) {
       if (surcharge <= 0) {
         const perTvAmt = c.zero_fee_per_tv * tvCount;
-        lines.push({ kind: 'coupon', name: `Multi-TV discount (-$${c.zero_fee_per_tv} × ${tvCount} TVs)`, quantity: 1, unit_price: -perTvAmt, line_total: -perTvAmt });
+        lines.push({ kind: 'coupon', name: `Multi-TV discount (-₱${c.zero_fee_per_tv} × ${tvCount} TVs)`, quantity: 1, unit_price: -perTvAmt, line_total: -perTvAmt });
         multiTvDiscountAmt = perTvAmt;
       } else {
         const partialFees = (c.partial_cut_fees || []).map(Number);
@@ -627,7 +627,7 @@ async function bookDoms(req, res) {
       '- charging the server total; widget total is stale or the client-side preview did not match.');
   }
   if (price < MIN_TICKET_PRICE) {
-    return res.status(400).json({ error: `Jobs must total at least $${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
+    return res.status(400).json({ error: `Jobs must total at least ₱${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
   }
 
   let technician_id = null, pickBroken = false;
@@ -943,7 +943,7 @@ async function bookNative(req, res, slug) {
   const widgetTotal = sum.total != null ? Number(sum.total) : subtotal;
   const price = Math.max(subtotal, widgetTotal) || subtotal;
   if (price < MIN_TICKET_PRICE) {
-    return res.status(400).json({ error: `Jobs must total at least $${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
+    return res.status(400).json({ error: `Jobs must total at least ₱${MIN_TICKET_PRICE}. Please add another service or add-on.`, below_minimum: true });
   }
 
   let technician_id = null, pickBroken = false;

@@ -562,6 +562,18 @@ export default async function handler(req, res) {
   const action = (req.query.action || '').toString();
 
 
+  if (action === 'th_daily') {
+    const secret = process.env.CRON_SECRET;
+    const provided = (req.query.secret || '').toString() || (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    if (!secret || provided !== secret) return res.status(401).json({ error: 'Unauthorized' });
+    const { sendTomorrowReminders, extendSeries } = await import('./_lib/th-daily.js');
+    const db = serviceClient();
+    const out = {};
+    try { Object.assign(out, await extendSeries(db)); } catch (e) { out.series_error = e.message; }
+    try { Object.assign(out, await sendTomorrowReminders(db)); } catch (e) { out.reminder_error = e.message; }
+    return res.status(200).json({ ok: true, ...out });
+  }
+
   if (action === 'send_reminders') {
     const secret = process.env.CRON_SECRET;
     if (!secret) return res.status(400).json({ error: 'CRON_SECRET env var not set. Add it in Vercel first.' });

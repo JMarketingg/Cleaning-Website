@@ -139,7 +139,7 @@ function estimateAlertText(id, items, taxRate) {
   const url = dashboardEstimateUrl(id);
   return [
     'New Estimate Request',
-    `Value: $${value}`,
+    `Value: ₱${value}`,
     service ? `Service: ${service}` : null,
     url || null,
   ].filter(Boolean).join('\n');

@@ -87,6 +87,10 @@ function bookingStripePk(slug) {
   return STRIPE_PK_GLOBAL;
 }
 import { uploadImage, deleteImage, uploadPrivateImage, readPrivateImage, notePhotoContentType } from './_lib/storage.js';
+import { PAY_METHODS, paymongoOn, businessPaySettings, markPaid, createPaymongoLink } from './_lib/ph-payments.js';
+import { sendText, textsOn, alreadySent } from './_lib/semaphore.js';
+import { textSettings, confirmMessage } from './_lib/th-daily.js';
+import { weekPay, weekStartOf } from './_lib/th-pay.js';
 import { denverToday, noteIsLive, noteIsScheduled, resolveSendAt, cleanNotePhotos, isPrivateNotePhoto, NOTE_PHOTO_PREFIX } from './_lib/notes.js';
 import { computeJobPay, paymentState, PAY_DATE_OFFSET_DAYS, isJuan, JUAN_BRACKET_ZERO_FROM } from './_lib/payroll.js';
 import { partsMoney, payrollSunday, makePartsPlan, savePartsCorrection, settlePartsAdjustment, partsCorrectionsFor, partsPaymentSnapshot, partsAdjustmentDetail } from './_lib/payroll-parts.js';
@@ -343,6 +347,17 @@ export default async function handler(req, res) {
       case 'booking_create':    return await bookingCreate(req, res, db, auth, body);
       case 'booking_repeat':    return await bookingRepeat(req, res, db, auth, body);
       case 'booking_series_stop': return await bookingSeriesStop(req, res, db, auth, body);
+      case 'quote_requests':    return await quoteRequestsList(req, res, db);
+      case 'payment_settings':  return await paymentSettings(req, res, db);
+      case 'payment_qr_add':    return await paymentQrAdd(req, res, db, auth, body);
+      case 'payment_qr_delete': return await paymentQrDelete(req, res, db, auth, body);
+      case 'booking_mark_paid': return await bookingMarkPaid(req, res, db, auth, body);
+      case 'booking_pay_link':  return await bookingPayLink(req, res, db, auth, body);
+      case 'text_settings':     return await textSettingsAction(req, res, db, auth, body);
+      case 'cleaner_pay':       return await cleanerPay(req, res, db, auth);
+      case 'cleaner_pay_mark':  return await cleanerPayMark(req, res, db, auth, body);
+      case 'booking_confirm_text': return await bookingConfirmText(req, res, db, body);
+      case 'quote_request_set': return await quoteRequestSet(req, res, db, body);
       case 'booking_update':    return await bookingUpdate(req, res, db, auth, body);
       case 'booking_address_update': return await bookingAddressUpdate(req, res, db, auth, body);
       case 'booking_authorization': return await bookingAuthorization(req, res, db, auth);
@@ -1792,7 +1807,7 @@ async function widgetPricesSave(req, res, db, auth, body) {
   return res.status(200).json({ ok: true, updated: updates.length });
 }
 
-const TRAVEL_FEE_CEILING = 500;
+const TRAVEL_FEE_CEILING = 5000;
 async function travelFeesList(req, res, db, auth) {
   if (req.query.business === 'all' && auth.role === 'owner') {
     const { data: bizs, error: bErr } = await db.from('businesses').select('id, slug, name');
@@ -1836,12 +1851,12 @@ async function travelFeesSave(req, res, db, auth, body) {
   if (!Number.isFinite(surcharge)) return res.status(400).json({ error: 'Customer fee must be a number' });
   if (!Number.isFinite(payout)) return res.status(400).json({ error: 'Cleaner payout must be a number' });
   if (Math.abs(surcharge) > TRAVEL_FEE_CEILING || Math.abs(payout) > TRAVEL_FEE_CEILING) {
-    return res.status(400).json({ error: `$${Math.max(Math.abs(surcharge), Math.abs(payout))} is above the $${TRAVEL_FEE_CEILING} sanity ceiling for a travel fee — double-check this isn't a typo.` });
+    return res.status(400).json({ error: `₱${Math.max(Math.abs(surcharge), Math.abs(payout))} is above the ₱${TRAVEL_FEE_CEILING} sanity ceiling for a travel fee — double-check this isn't a typo.` });
   }
   if (payout > surcharge && body.confirm_negative !== true) {
     return res.status(409).json({
       code: 'travel_fee_negative',
-      error: `That leaves the business $${(payout - surcharge).toFixed(2)} short on every job in this tier (customer ${surcharge<0?'-':''}$${Math.abs(surcharge)}, tech ${payout<0?'-':''}$${Math.abs(payout)}). Save it anyway?`,
+      error: `That leaves the business ₱${(payout - surcharge).toFixed(2)} short on every job in this tier (customer ${surcharge<0?'-':''}₱${Math.abs(surcharge)}, tech ${payout<0?'-':''}₱${Math.abs(payout)}). Save it anyway?`,
     });
   }
   const { data, error } = await db.from('service_area_zips')
@@ -1926,7 +1941,7 @@ async function multiTvDiscountSave(req, res, db, auth, body) {
     ['5th-TV+ price credit', tier5plus, MULTI_TV_PRICE_TIER_CEILING],
   ]) {
     if (!Number.isFinite(val) || val < 0) return res.status(400).json({ error: `${label} must be a number of $0 or more` });
-    if (val > ceiling) return res.status(400).json({ error: `$${val} is above the $${ceiling} sanity ceiling for ${label.toLowerCase()}, double-check this isn't a typo.` });
+    if (val > ceiling) return res.status(400).json({ error: `₱${val} is above the ₱${ceiling} sanity ceiling for ${label.toLowerCase()}, double-check this isn't a typo.` });
   }
   if (!Number.isFinite(partialCutPct) || partialCutPct < 0 || partialCutPct > 1) {
     return res.status(400).json({ error: 'Partial-cut percent must be between 0 and 1 (e.g. 0.60 for 60%)' });
@@ -2613,7 +2628,7 @@ async function couponsSave(req, res, db, auth, body) {
   }
   const amount = Number(body.amount);
   if (!Number.isFinite(amount) || amount < 0) return res.status(400).json({ error: 'Amount must be $0 or more' });
-  if (amount > COUPON_MAX) return res.status(400).json({ error: `$${amount} is above the $${COUPON_MAX} sanity ceiling for a coupon — double-check this isn't a typo.` });
+  if (amount > COUPON_MAX) return res.status(400).json({ error: `₱${amount} is above the ₱${COUPON_MAX} sanity ceiling for a coupon — double-check this isn't a typo.` });
 
   const patch = {
     business_id: biz.id, code, amount,
@@ -2894,7 +2909,7 @@ async function photoBonus(req, res, db, auth, body) {
   const money = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
   const { data: row, error: e2 } = await db.from('tech_bonuses').insert({
     business_id: t?.business_id || ph.business_id, technician_id: techId, amount,
-    reason: 'Photo bonus', message: `You were paid $${money} for this picture!`,
+    reason: 'Photo bonus', message: `You were paid ₱${money} for this picture!`,
     awarded_on: localDateStr(tz, new Date().toISOString()), photo_url: ph.url, photo_id: ph.id,
   }).select('id').single();
   if (e2) throw e2;
@@ -3369,8 +3384,8 @@ async function saveCardOnFile(pmId, cust, slug = null) {
   return { customerId, pmId, brand: pm?.card?.brand || null, last4: pm?.card?.last4 || null };
 }
 
-const PRICE_SANITY_LINE_CEILING = 2000;
-const PRICE_SANITY_TOTAL_CEILING = 5000;
+const PRICE_SANITY_LINE_CEILING = 50000;
+const PRICE_SANITY_TOTAL_CEILING = 200000;
 
 const MIN_TICKET_PRICE = 0;
 const DISMOUNT_ONLY_PRICE = 109;
@@ -3395,15 +3410,123 @@ function priceSanityIssue({ lines, total } = {}) {
       const amt = Math.abs(Number(l.unit_price ?? l.price) || 0);
       if (amt > PRICE_SANITY_LINE_CEILING) {
         const label = (l.name || l.label || l.description || 'A line item').toString().slice(0, 60);
-        return `"${label}" is $${amt.toFixed(2)} — that's far outside any real charge for this business. Double-check the amount before continuing.`;
+        return `"${label}" is ₱${amt.toFixed(2)} — that's far outside any real charge for this business. Double-check the amount before continuing.`;
       }
     }
   }
   const t = Math.abs(Number(total) || 0);
   if (t > PRICE_SANITY_TOTAL_CEILING) {
-    return `This total is $${t.toFixed(2)} — that's far outside any real job for this business. Double-check the amount before continuing.`;
+    return `This total is ₱${t.toFixed(2)} — that's far outside any real job for this business. Double-check the amount before continuing.`;
   }
   return null;
+}
+
+async function quoteRequestsList(req, res, db) {
+  const status = String(req.query.status || 'open');
+  let q = db.from('quote_requests').select('*').order('created_at', { ascending: false }).limit(200);
+  if (status === 'open') q = q.in('status', ['new', 'contacted']);
+  else if (status !== 'all') q = q.eq('status', status);
+  const { data, error } = await q;
+  if (error) throw error;
+  const { count } = await db.from('quote_requests').select('id', { count: 'exact', head: true }).eq('status', 'new');
+  return res.status(200).json({ requests: data || [], new_count: count || 0 });
+}
+async function quoteRequestSet(req, res, db, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const patch = { updated_at: new Date().toISOString() };
+  if (body.status) {
+    if (!['new', 'contacted', 'booked', 'declined'].includes(body.status)) return res.status(400).json({ error: 'Bad status' });
+    patch.status = body.status;
+  }
+  if (body.booking_id) { patch.booking_id = body.booking_id; patch.status = 'booked'; }
+  const { error } = await db.from('quote_requests').update(patch).eq('id', body.id);
+  if (error) throw error;
+  return res.status(200).json({ ok: true });
+}
+
+async function paymentSettings(req, res, db) {
+  const { qr } = await businessPaySettings(db);
+  return res.status(200).json({ qr, methods: PAY_METHODS, paymongo_on: paymongoOn(), texts_on: textsOn() });
+}
+async function paymentQrAdd(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  const label = String(body.label || '').trim().slice(0, 40);
+  if (!label || !body.image) return res.status(400).json({ error: 'Pick a name and a QR image.' });
+  const { bizId, settings, qr } = await businessPaySettings(db);
+  let up; try { up = await uploadImage(body.image, `payment-qr/${bizId}`); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+  const next = [...qr, { label, url: up.url, path: up.path }].slice(-6);
+  const { error } = await db.from('businesses').update({ settings: { ...settings, payment_qr: next } }).eq('id', bizId);
+  if (error) throw error;
+  return res.status(200).json({ qr: next });
+}
+async function paymentQrDelete(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  const { bizId, settings, qr } = await businessPaySettings(db);
+  const gone = qr.find((q) => q.url === body.url);
+  const next = qr.filter((q) => q.url !== body.url);
+  const { error } = await db.from('businesses').update({ settings: { ...settings, payment_qr: next } }).eq('id', bizId);
+  if (error) throw error;
+  if (gone && gone.path) { try { await deleteImage(gone.path); } catch (_) {} }
+  return res.status(200).json({ qr: next });
+}
+async function bookingMarkPaid(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  try { return res.status(200).json(await markPaid(db, body.id, String(body.method || ''), { by: auth.role === 'owner' ? 'Owner' : (auth.name || 'Office') })); }
+  catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+}
+async function bookingPayLink(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  let link; try { link = await createPaymongoLink(db, body.id); } catch (e) { return res.status(e.status || 500).json({ error: e.message }); }
+  let texted = false;
+  if (body.text && link.customer && link.customer.phone) {
+    const r = await sendText(link.customer.phone, `Hi ${String(link.customer.name || '').split(' ')[0] || 'there'}! Here's your TidyHaus payment link for ₱${link.amount.toLocaleString('en-PH')}. Pay by QR Ph, GCash, Maya or card: ${link.url}`, { kind: 'pay_link', bookingId: body.id, db });
+    texted = !!r.ok;
+  }
+  return res.status(200).json({ url: link.url, texted });
+}
+
+async function textSettingsAction(req, res, db, auth, body) {
+  const t = await textSettings(db);
+  if (req.method === 'POST') {
+    if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+    const next = { ...t.texts };
+    for (const k of ['confirm', 'reminder', 'otw']) if (typeof body[k] === 'boolean') next[k] = body[k];
+    const { error } = await db.from('businesses').update({ settings: { ...t.settings, texts: next } }).eq('id', t.bizId);
+    if (error) throw error;
+    t.texts = next;
+  }
+  const { data: log } = await db.from('text_log').select('created_at, kind, phone, body, status, error').order('created_at', { ascending: false }).limit(50);
+  return res.status(200).json({ on: textsOn(), texts: t.texts, owner_alerts: !!process.env.OWNER_PHONE_NUMBER, log: log || [] });
+}
+async function bookingConfirmText(req, res, db, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  const { texts } = await textSettings(db);
+  if (!texts.confirm) return res.status(200).json({ sent: false, reason: 'off' });
+  const { data: b } = await db.from('bookings').select('id, scheduled_at, price, customer:customers ( name, phone )').eq('id', body.id).maybeSingle();
+  if (!b || !b.customer?.phone) return res.status(200).json({ sent: false, reason: 'no phone' });
+  if (await alreadySent(db, b.id, 'confirm')) return res.status(200).json({ sent: false, reason: 'already sent' });
+  const r = await sendText(b.customer.phone, confirmMessage(b), { kind: 'confirm', bookingId: b.id, db });
+  return res.status(200).json({ sent: !!r.ok, reason: r.skipped || null });
+}
+
+async function cleanerPay(req, res, db, auth) {
+  if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  return res.status(200).json(await weekPay(db, weekStartOf(String(req.query.week || ''))));
+}
+async function cleanerPayMark(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (auth.role !== 'owner') return res.status(403).json({ error: 'Owner only' });
+  const week = weekStartOf(String(body.week || ''));
+  if (body.undo) {
+    const { error } = await db.from('cleaner_payouts').delete().eq('week_start', week).eq('technician_id', body.technician_id);
+    if (error) throw error;
+    return res.status(200).json({ ok: true });
+  }
+  const { error } = await db.from('cleaner_payouts').upsert({ week_start: week, technician_id: body.technician_id, amount: Number(body.amount) || 0, method: String(body.method || '').slice(0, 30) || null }, { onConflict: 'week_start,technician_id' });
+  if (error) throw error;
+  return res.status(200).json({ ok: true });
 }
 
 const REPEAT_RULES = { weekly: { days: 7, count: 12 }, biweekly: { days: 14, count: 12 }, monthly: { months: 1, count: 6 } };
@@ -3432,25 +3555,29 @@ async function bookingRepeat(req, res, db, auth, body) {
   const keep = ['business_id', 'customer_id', 'technician_id', 'secondary_technician_id', 'service_id', 'service_area_id', 'status', 'source',
     'duration_minutes', 'subtotal', 'discount', 'price', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'lat', 'lng',
     'notes', 'customer_notes', 'payment_required', 'payment_method', 'sms_consent', 'extra_slots'];
-  const created = [], unassigned = [];
+  const rows = [];
   for (let i = 1; i <= count; i++) {
     const at = rule.months ? addMonthsKeepTime(b.scheduled_at, i * rule.months) : new Date(Date.parse(b.scheduled_at) + i * rule.days * 86400000).toISOString();
-    const row = { status: 'confirmed' };
+    const row = {};
     for (const k of keep) if (b[k] !== undefined) row[k] = b[k];
     Object.assign(row, { scheduled_at: at, scheduled_end: b.scheduled_end ? new Date(Date.parse(at) + (Date.parse(b.scheduled_end) - Date.parse(b.scheduled_at))).toISOString() : null,
       status: b.status === 'cancelled' || b.status === 'completed' ? 'confirmed' : b.status, metadata: { ...meta, series_index: i } });
-    let { data: nb, error: e1 } = await db.from('bookings').insert(row).select('id').single();
-    if (e1 && /bookings_tech_slot_unique/.test(e1.message || '')) {
-      ({ data: nb, error: e1 } = await db.from('bookings').insert({ ...row, technician_id: null, secondary_technician_id: null }).select('id').single());
-      if (!e1) unassigned.push(at);
-    }
-    if (e1) throw e1;
-    if (items && items.length) {
-      const { error: e2 } = await db.from('booking_line_items').insert(items.map((li) => ({ ...li, booking_id: nb.id, business_id: biz.id })));
-      if (e2) console.warn('[admin] repeat line items failed:', e2.message);
-    }
-    created.push({ id: nb.id, scheduled_at: at });
+    rows.push(row);
   }
+  const unassigned = [];
+  if (b.technician_id) {
+    const { data: busy } = await db.from('bookings').select('scheduled_at').eq('technician_id', b.technician_id).neq('status', 'cancelled').in('scheduled_at', rows.map((r) => r.scheduled_at));
+    const taken = new Set((busy || []).map((x) => new Date(x.scheduled_at).toISOString()));
+    for (const r of rows) if (taken.has(r.scheduled_at)) { r.technician_id = null; r.secondary_technician_id = null; unassigned.push(r.scheduled_at); }
+  }
+  const { data: made, error: insErr } = await db.from('bookings').insert(rows).select('id, scheduled_at');
+  if (insErr) throw insErr;
+  if (items && items.length) {
+    const li = made.flatMap((nb) => items.map((x) => ({ ...x, booking_id: nb.id, business_id: biz.id })));
+    const { error: e2 } = await db.from('booking_line_items').insert(li);
+    if (e2) console.warn('[admin] repeat line items failed:', e2.message);
+  }
+  const created = made.map((x) => ({ id: x.id, scheduled_at: x.scheduled_at }));
   return res.status(200).json({ ok: true, series_id: seriesId, created, unassigned });
 }
 async function bookingSeriesStop(req, res, db, auth, body) {
@@ -3699,7 +3826,7 @@ async function bookingCreate(req, res, db, auth, body) {
       return res.status(400).json({ error: 'TV Dismount Only must be the only service on the booking, at $109. For more work use Home Cleaning.' });
     }
     if (_price > 0 && _price < MIN_TICKET_PRICE && !_isHandyman && !_isDismountOnly) {
-      return res.status(400).json({ error: `Jobs must total at least $${MIN_TICKET_PRICE}. Add another service or add-on before saving.`, below_minimum: true });
+      return res.status(400).json({ error: `Jobs must total at least ₱${MIN_TICKET_PRICE}. Add another service or add-on before saving.`, below_minimum: true });
     }
   }
 
@@ -4826,7 +4953,7 @@ async function bookingPayment(req, res, db, auth, body) {
           .eq('id', id).eq('payment_status', b.payment_status).select('id').maybeSingle();
         if (!rec) return res.status(409).json({ error: 'The payment state just changed — refresh and check before marking it.' });
         return res.status(200).json({ ok: true, payment_status: 'paid', recovered: true,
-          warning: `This booking's card charge actually WENT THROUGH ($${landed.amount.toFixed(2)}) on an earlier attempt that looked like it failed. It's been recorded as a CARD payment — don't also collect cash.` });
+          warning: `This booking's card charge actually WENT THROUGH (₱${landed.amount.toFixed(2)}) on an earlier attempt that looked like it failed. It's been recorded as a CARD payment — don't also collect cash.` });
       }
     }
     const patch = act === 'mark_paid'
@@ -4858,7 +4985,7 @@ async function bookingPayment(req, res, db, auth, body) {
     if (!requestedDollars || !isFinite(requestedDollars) || requestedDollars <= 0) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
     const requestedCents = Math.round(Number((requestedDollars * 100).toFixed(2)));
     if (requestedCents <= 0) return res.status(400).json({ error: 'Enter an amount greater than $0.' });
-    if (requestedCents > remainingCents) return res.status(400).json({ error: `Amount exceeds the refundable balance ($${(remainingCents / 100).toFixed(2)}).` });
+    if (requestedCents > remainingCents) return res.status(400).json({ error: `Amount exceeds the refundable balance (₱${(remainingCents / 100).toFixed(2)}).` });
     const idempotencyKey = `refund-${id}-${refundedCents}-${requestedCents}`;
     try { await stripe('/refunds', { idempotencyKey, body: { payment_intent: b.stripe_payment_intent_id, amount: requestedCents }, ...acct }); }
     catch (e) { return res.status(e.status || 400).json({ error: 'Refund failed: ' + e.message }); }
@@ -4871,10 +4998,10 @@ async function bookingPayment(req, res, db, auth, body) {
       if (isAmountRefundedErr(updErr)) {
         amountRefundedCol = false;
         const { error: fallbackErr } = await db.from('bookings').update({ payment_status }).eq('id', id);
-        if (fallbackErr) return res.status(200).json({ ok: true, payment_status, amount_refunded, warning: `Refund succeeded on Stripe ($${(requestedCents / 100).toFixed(2)}), but saving it to the booking failed: ${fallbackErr.message}. Please reconcile manually.` });
+        if (fallbackErr) return res.status(200).json({ ok: true, payment_status, amount_refunded, warning: `Refund succeeded on Stripe (₱${(requestedCents / 100).toFixed(2)}), but saving it to the booking failed: ${fallbackErr.message}. Please reconcile manually.` });
         return res.status(200).json({ ok: true, payment_status, amount_refunded, warning: 'Refund succeeded, but the running refunded-total could not be saved yet — run migration 0061, then it will track correctly on the next refund.' });
       }
-      return res.status(200).json({ ok: true, payment_status, amount_refunded, warning: `Refund succeeded on Stripe ($${(requestedCents / 100).toFixed(2)}), but saving it to the booking failed: ${updErr.message}. Please reconcile manually.` });
+      return res.status(200).json({ ok: true, payment_status, amount_refunded, warning: `Refund succeeded on Stripe (₱${(requestedCents / 100).toFixed(2)}), but saving it to the booking failed: ${updErr.message}. Please reconcile manually.` });
     }
     return res.status(200).json({ ok: true, payment_status, amount_refunded, remaining: (capturedCents - newRefundedCents) / 100 });
   }
@@ -4919,7 +5046,7 @@ async function bookingPayment(req, res, db, auth, body) {
       if (recErr) ({ error: recErr } = await db.from('bookings').update(patch).eq('id', id));
       if (recErr) { await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id); console.error('[admin charge] CRITICAL: landed-charge adopt write failed', { booking: id, pi: landed.id, err: recErr.message }); }
       return res.status(200).json({ ok: true, payment_status: 'paid', amount: landed.amount, tip: landed.tip, payment_intent_id: landed.id, recovered: true,
-        warning: `This booking was ALREADY charged $${landed.amount.toFixed(2)} on an earlier attempt that looked like it failed. No new charge was made.` });
+        warning: `This booking was ALREADY charged ₱${landed.amount.toFixed(2)} on an earlier attempt that looked like it failed. No new charge was made.` });
     };
     if (!b.stripe_payment_intent_id) {
       const landed = await findLandedCharge(id, acct);
@@ -4933,7 +5060,7 @@ async function bookingPayment(req, res, db, auth, body) {
       if (issue) { const e = new Error(issue); e.status = 409; e.code = 'high_price_confirm_required'; throw e; }
     }
     const tip = Math.max(0, Math.round((Number(body.tip) || 0) * 100) / 100);
-    if (tip > ticketAmount) { const e = new Error(`Tip ($${tip.toFixed(2)}) can't be more than the amount charged ($${ticketAmount.toFixed(2)}).`); e.status = 400; throw e; }
+    if (tip > ticketAmount) { const e = new Error(`Tip (₱${tip.toFixed(2)}) can't be more than the amount charged (₱${ticketAmount.toFixed(2)}).`); e.status = 400; throw e; }
     const dollars = Math.round((ticketAmount + tip) * 100) / 100;
 
     let custId = b.stripe_customer_id || (b.customer && b.customer.stripe_customer_id) || null;
@@ -4984,7 +5111,7 @@ async function bookingPayment(req, res, db, auth, body) {
       const { error: fbErr } = await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id);
       console.error('[admin charge] CRITICAL: Stripe charge succeeded but booking update failed', { booking: id, pi: pi.id, err: payErr.message, minimal_write_ok: !fbErr });
       return res.status(200).json({ ok: true, payment_status: 'paid', amount: dollars, tip, payment_intent_id: pi.id,
-        warning: `The charge WENT THROUGH on Stripe ($${dollars.toFixed(2)}, intent ${pi.id}), but saving it to the booking failed: ${payErr.message}. Do NOT charge again — reconcile manually.` });
+        warning: `The charge WENT THROUGH on Stripe (₱${dollars.toFixed(2)}, intent ${pi.id}), but saving it to the booking failed: ${payErr.message}. Do NOT charge again — reconcile manually.` });
     }
 
     await saveAuthorization(db, req, { ...b, business_id: biz.id }, { businessId: biz.id, total: dollars, ticketAmount, tip, card, pi, chargeId, body });
@@ -5055,7 +5182,7 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
     return res.status(200).json({ ok: true, due: dueDollars, has_card: !!(custId && pmId), brand: (card && card.brand) || null, last4: (card && card.last4) || null, card_error: cardErr || undefined });
   }
   if (Number(body.expected_cents) !== due.dueCents) {
-    return fail(409, `The balance is now $${dueDollars.toFixed(2)}. Reopen the job and check it.`, { due: dueDollars });
+    return fail(409, `The balance is now ₱${dueDollars.toFixed(2)}. Reopen the job and check it.`, { due: dueDollars });
   }
   if (act === 'charge_balance') {
     if (!stripeConfigured(acct)) return fail(400, 'Payments are not configured for this business. Use Send invoice or Cash.');
@@ -5083,7 +5210,7 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
       } catch (e) { e.status = e.status || 402; e.message = 'Charge failed: ' + e.message; throw e; }
       if (pi.id === b.stripe_payment_intent_id) { const e = new Error('Stripe returned the original payment, not a new one. Nothing was charged; check Stripe.'); e.status = 409; throw e; }
       if (pi.status !== 'succeeded') { const e = new Error(`Charge not completed (status: ${pi.status}).`); e.status = 402; throw e; }
-      if (Number(pi.amount) !== due.dueCents) { const e = new Error(`Stripe shows $${(Number(pi.amount) / 100).toFixed(2)} for this charge, not $${dueDollars.toFixed(2)}. Check Stripe.`); e.status = 409; throw e; }
+      if (Number(pi.amount) !== due.dueCents) { const e = new Error(`Stripe shows ₱${(Number(pi.amount) / 100).toFixed(2)} for this charge, not ₱${dueDollars.toFixed(2)}. Check Stripe.`); e.status = 409; throw e; }
       piId = pi.id;
       if (extras.some(x => x && x.pi === piId)) { await unlock(); return res.status(200).json({ ok: true, payment_status: 'paid', amount: dueDollars, warning: 'This balance was already recorded. No new charge was made.' }); }
     }
@@ -5104,11 +5231,11 @@ async function balanceAction({ req, res, db, biz, auth, b, acct, id, body, act, 
       await db.from('bookings').update({ payment_status: 'paid' }).eq('id', id);
       console.error('[admin balance] CRITICAL: balance collected but booking update failed', { booking: id, pi: piId, err: recErr.message });
       return res.status(200).json({ ok: true, payment_status: 'paid', amount: dueDollars,
-        warning: `The $${dueDollars.toFixed(2)} was collected${piId ? ` (Stripe ${piId})` : ''}, but saving it failed: ${recErr.message}. Do NOT collect again. Tell the owner.` });
+        warning: `The ₱${dueDollars.toFixed(2)} was collected${piId ? ` (Stripe ${piId})` : ''}, but saving it failed: ${recErr.message}. Do NOT collect again. Tell the owner.` });
     }
     try {
       await db.from('booking_notes').insert({ booking_id: id, business_id: biz.id,
-        body: `Balance $${dueDollars.toFixed(2)} collected (${method})`,
+        body: `Balance ₱${dueDollars.toFixed(2)} collected (${method})`,
         author_kind: 'owner', author_id: null, author_name: (auth && auth.name) || 'Office' });
     } catch (_) { /* best-effort */ }
     return res.status(200).json({ ok: true, payment_status: 'paid', amount: dueDollars, payment_intent_id: piId });
@@ -6033,7 +6160,7 @@ async function insightsOverview(req, res, db, auth) {
   const revAvgWeekly = revTrail / 4;
   const revPct = revAvgWeekly > 0 ? Math.round(((revCur - revAvgWeekly) / revAvgWeekly) * 100) : null;
   if (revAvgWeekly >= 500 && revPct != null && revPct <= -20) {
-    flags.push({ severity: 'high', text: `Revenue this week ($${Math.round(revCur)}) is down ${Math.abs(revPct)}% vs the trailing weekly average ($${Math.round(revAvgWeekly)}).` });
+    flags.push({ severity: 'high', text: `Revenue this week (₱${Math.round(revCur)}) is down ${Math.abs(revPct)}% vs the trailing weekly average (₱${Math.round(revAvgWeekly)}).` });
   }
 
   const cur30 = now - 30 * DAY, prior30 = now - 60 * DAY;
@@ -6888,7 +7015,7 @@ async function invoiceSend(req, res, db, auth, body) {
   const acct = { account: b.stripe_account || null, slug: biz.slug };
   const baseUrl = process.env.PUBLIC_URL || (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : 'http://localhost:3000');
   const brand = brandFor(biz.slug);
-  const money = (n) => `$${(Number(n) || 0).toFixed(2)}`;
+  const money = (n) => `₱${(Number(n) || 0).toFixed(2)}`;
 
   let payUrl = null;
   if (stripeConfigured(acct)) {
@@ -7416,6 +7543,7 @@ function shapeBooking(b) {
     created_at: b.created_at || null,
     li_rev: Number(b.metadata?.li_rev) || 0,
     rescheduled_from: b.metadata?.rescheduled_from || null,
+    payment_method: b.payment_method || null, paid_by_label: b.metadata?.paid_by_label || null, checklist: b.metadata?.checklist || null,
     series_id: b.metadata?.series_id || null, series_every: b.metadata?.series_every || null, series_index: Number(b.metadata?.series_index) || 0,
     stripe_pk: bookingStripePk(b.business?.slug || null),
     scheduled_at: b.scheduled_at,
@@ -11754,7 +11882,7 @@ async function callAnalytics(req, res, db, auth) {
       const levers = [];
       if (m.source) levers.push(m.source);
       if (m.coupon) levers.push(m.coupon);
-      if (Number(m.manual) > 0) levers.push(`manual $${Math.round(Number(m.manual))}`);
+      if (Number(m.manual) > 0) levers.push(`manual ₱${Math.round(Number(m.manual))}`);
       return {
         at: e.created_at, person: e.actor || c.handled_by || 'Unknown',
         amount: Number(m.amount) || 0, levers,
@@ -11870,7 +11998,7 @@ function approveTokenDiscount(raw) {
 
 function applyCouponToItems(items, discount) {
   const list = Array.isArray(items) ? items.slice() : [];
-  if (discount > 0 && list.length) list.push({ description: `$${discount} off — thanks for getting back to us`, qty: 1, unit_price: -discount });
+  if (discount > 0 && list.length) list.push({ description: `₱${discount} off — thanks for getting back to us`, qty: 1, unit_price: -discount });
   return list;
 }
 
@@ -12541,7 +12669,7 @@ async function bookEstimateAppointment(db, biz, est, combinedItems, totals, slot
   }
 
   if ((Number(totals.total) || 0) > 0 && Number(totals.total) < MIN_TICKET_PRICE && !isDismountOnlyLines(combinedItems)) {
-    const e = new Error(`This estimate totals $${Number(totals.total).toFixed(2)}, under the $${MIN_TICKET_PRICE} minimum — it cannot be booked as-is.`);
+    const e = new Error(`This estimate totals ₱${Number(totals.total).toFixed(2)}, under the ₱${MIN_TICKET_PRICE} minimum — it cannot be booked as-is.`);
     e.conflict = true; throw e;
   }
 
@@ -12778,7 +12906,7 @@ async function estimateApprove(req, res, body) {
     status: booking && booking.bookingId ? 'booked' : 'approved',
     ...(booking && booking.bookingId ? { booked_booking_id: booking.bookingId, booked_at: now } : {}),
   };
-  if (discount > 0) patch.notes = [est.notes, `$${discount} follow-up coupon applied at approval (${now}).`].filter(Boolean).join('\n').slice(0, 2000);
+  if (discount > 0) patch.notes = [est.notes, `₱${discount} follow-up coupon applied at approval (${now}).`].filter(Boolean).join('\n').slice(0, 2000);
   let error;
   for (let i = 0; i < 4; i++) {
     ({ error } = await db.from('estimates').update(patch).eq('id', est.id));

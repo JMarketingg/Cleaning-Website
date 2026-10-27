@@ -34,7 +34,7 @@ export function checkSellPrice(subPrice, sellPrice, override) {
   if (sell === null) return { ok: false, error: 'Enter a sell price.' };
   const belowMin = sell < min;
   if (belowMin && !override) {
-    return { ok: false, belowMin: true, min, error: `Sell price is below the $${min} minimum (20 percent over the $${sub} sub price). Tick the override to save it anyway.` };
+    return { ok: false, belowMin: true, min, error: `Sell price is below the ₱${min} minimum (20 percent over the ₱${sub} sub price). Tick the override to save it anyway.` };
   }
   return { ok: true, belowMin, min, sub, sell, spread: spread(sub, sell) };
 }

@@ -54,7 +54,7 @@ async function liveData(db, question) {
   for (const b of biz || []) {
     out[b.name] = {
       services: (svcs || []).filter(s => s.business_id === b.id).map(s => ({ name: s.name, base_price: Number(s.base_price), minutes: s.duration_minutes, category: s.category })),
-      tv_mounting_options_by_group: (opts || []).filter(o => o.business_id === b.id).reduce((m, o) => { const g = (o.group && o.group.label) || 'Other'; (m[g] ||= []).push(`${o.label} = $${Number(o.price)}`); return m; }, {}),
+      tv_mounting_options_by_group: (opts || []).filter(o => o.business_id === b.id).reduce((m, o) => { const g = (o.group && o.group.label) || 'Other'; (m[g] ||= []).push(`${o.label} = ₱${Number(o.price)}`); return m; }, {}),
       service_areas: (areas || []).filter(a => a.business_id === b.id).map(a => `${a.name}${a.state ? ', ' + a.state : ''}${a.unstaffed ? ' (unstaffed)' : ''}`),
       active_coupons: (coupons || []).filter(c => c.business_id === b.id).map(c => ({ code: c.code, amount: Number(c.amount), expires: c.expires_on })),
     };

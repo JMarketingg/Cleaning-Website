@@ -149,7 +149,23 @@
     form.dataset.message = text;
   }
 
+
+  function sendToCrm(channel) {
+    var body = {
+      channel: channel, name: value('name'), phone: value('phone'),
+      area: value('area') === 'other' ? 'other: ' + value('area_other') : value('area'),
+      service: value('service'), place: value('place'), bedrooms: value('bedrooms'), bathrooms: value('bathrooms'),
+      office_size: value('office_size'), frequency: value('frequency'), date: value('date'), time: value('time'),
+      building: value('building'), notes: value('notes'), ref: document.referrer || null
+    };
+    try { body.vid = localStorage.getItem('th_vid'); } catch (e) {}
+    try {
+      fetch('https://tidyhaus-crm.vercel.app/api/quote', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'text/plain' }, body: JSON.stringify(body) }).catch(function () {});
+    } catch (e) {}
+  }
+  document.getElementById('bk-sms').addEventListener('click', function () { sendToCrm('text'); });
   document.getElementById('bk-fb').addEventListener('click', function () {
+    sendToCrm('facebook');
     var note = document.getElementById('bk-copied');
     var text = form.dataset.message || '';
     function done(ok) {

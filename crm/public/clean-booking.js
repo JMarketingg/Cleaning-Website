@@ -115,6 +115,14 @@
     document.body.appendChild(wrap);
     var f = wrap.querySelector('#cbBox');
     var key = 'cb-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    var pf = opts.prefill || {};
+    function setv(name, v) { var el = f.elements[name]; if (el && v != null && v !== '' && [].some.call(el.options || [], function (o) { return o.value === v; })) el.value = v; else if (el && !el.options && v) el.value = v; }
+    setv('name', pf.name); setv('phone', pf.phone); setv('area', pf.area); setv('service', pf.service);
+    setv('bedrooms', pf.bedrooms === '4+' ? '4' : pf.bedrooms === '1' ? '1' : pf.bedrooms);
+    setv('bathrooms', pf.bathrooms === '3+' ? '3' : pf.bathrooms); setv('office_size', pf.office_size);
+    setv('frequency', pf.frequency); setv('slot', { morning: 's1', afternoon: 's3' }[pf.time] || '');
+    if (pf.date && pf.date >= f.date.min) f.date.value = pf.date;
+    setv('address', pf.address); setv('notes', pf.notes);
 
     function update() {
       var office = f.service.value === 'office';
@@ -157,6 +165,8 @@
         scheduled_date: f.date.value, scheduled_slot: f.slot.value,
         technician_id: null, payment_method: 'quote', notes: notes || null
       } }).then(function (r) {
+        if (opts.onSaved && r && r.id) { try { opts.onSaved(r.id); } catch (_) {} }
+        if (r && r.id && !r.duplicate) window.api('booking_confirm_text', { method: 'POST', body: { id: r.id } }).catch(function () {});
         var every = f.frequency.value;
         if (every === 'once' || !r || !r.id || r.duplicate) return { r: r };
         btn.textContent = 'Booking the repeats…';
