@@ -3195,12 +3195,12 @@ function fmtDuration(b){
 }
 function fmtDateTime(iso){ if(!iso) return '—'; try{ return new Date(iso).toLocaleString('en-PH',{timeZone:tz(),weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }catch{ return iso; } }
 const _areaTz={};
-const TZ_ABBR={'Asia/Manila':'CT','Asia/Manila':'PHT','Asia/Manila':'PT','Asia/Manila':'ET','Asia/Manila':'AZ'};
+const TZ_ABBR={'Asia/Manila':'PHT'};
 function jobTz(b){ return (b&&(b.tz||_areaTz[b.service_area_id]||(b.service_area&&b.service_area.timezone)))||bookingTz(b).tz; }
 function jobTzTag(b){ const z=jobTz(b); return z&&z!==tz()&&TZ_ABBR[z]?' '+TZ_ABBR[z]:''; }
 function jobClock(b){ return (b.slot_time||fmtClock(b.scheduled_at,jobTz(b)))+jobTzTag(b); }
 function bookingTz(b){
-  if(b&&(b.tz||_areaTz[b.service_area_id])){ const t=b.tz||_areaTz[b.service_area_id]; return { tz:t, label:({'Asia/Manila':'Central time','Asia/Manila':'Manila time','Asia/Manila':'Pacific time','Asia/Manila':'Arizona time'})[t]||'' }; }
+  if(b&&(b.tz||_areaTz[b.service_area_id])){ const t=b.tz||_areaTz[b.service_area_id]; return { tz:t, label:({'Asia/Manila':'Manila time'})[t]||'' }; }
   const z=String((b&&b.postal_code)||'').trim();
   if(/^8[01]/.test(z)) return { tz:'Asia/Manila',  label:'Manila time' };
   if(/^7[3-8]/.test(z)) return { tz:'Asia/Manila', label:'Manila time'  };
@@ -4854,8 +4854,9 @@ function openBooking(b){
     <div class="bk-d"><div class="bk-dtile">${bkIcon('user')}</div><div>
       <span class="bk-dl">Assigned to</span>
       <div class="bk-dv"><span class="lead">${esc(b.technician?.name||'Unassigned')}</span>
-        ${b.secondary_technician?`<br><span class="dim">2nd tech: ${esc(b.secondary_technician.name)}${b.secondary_technician.cross_company?' ('+esc(b.secondary_technician.company||'partner')+')':''}</span>`:''}
+        ${b.secondary_technician?`<br><span class="dim">2nd cleaner: ${esc(b.secondary_technician.name)}${b.secondary_technician.cross_company?' ('+esc(b.secondary_technician.company||'partner')+')':''}</span>`:''}
         <br><span class="dim">Booked by ${esc(bookedBy)}</span>
+        ${b.series_id?`<br><span class="dim">🔁 Repeats ${esc({weekly:'every week',biweekly:'every 2 weeks',monthly:'every month'}[b.series_every]||'')} · visit ${Number(b.series_index||0)+1}</span><br><button type="button" class="btn ghost sm" style="width:auto;margin-top:6px;" onclick="stopRepeat('${esc(b.id)}')">Stop repeating after this visit</button>`:''}
         ${b.metadata?.landing_page?`<br><span class="dim">From ${esc(b.metadata.landing_page)}${b.metadata.traffic_source?' · '+esc(b.metadata.traffic_source):''}</span>`:''}</div>
       ${b.cross_company?`<div class="bk-xco" style="margin:9px 0 0;">⚠ Cross-company job — ${esc(b.technician?.name||'this tech')} is from ${esc(b.partner_company||'the partner company')}.</div>`:''}
       ${(b.needs_lifting||b.tv_size_category)?`<div class="bk-dv" style="margin-top:7px;"><span class="dim">Two-person lift${b.tv_size_category?' · '+esc(LIFT_LABEL[b.tv_size_category]||b.tv_size_category):''}</span></div>`:''}
@@ -7632,7 +7633,7 @@ function waRender(){
 }
 
 function waTzLabel(tz){
-  const m={'Asia/Manila':'Eastern','Asia/Manila':'Eastern','Asia/Manila':'Central','Asia/Manila':'Manila','Asia/Manila':'Manila','Asia/Manila':'Arizona','Asia/Manila':'Pacific','America/Anchorage':'Alaska','Pacific/Honolulu':'Hawaii'};
+  const m={'Asia/Manila':'Manila'};
   return (m[tz]?m[tz]+' ':'')+'('+String(tz||'').replace(/^America\//,'').replace(/_/g,' ')+')';
 }
 function waPanel(p){
@@ -9959,7 +9960,7 @@ let _va=null;
 const VA_DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
 const VA_AFTER='After-hours (Owner)';
 function vaGroup(g){ return g==='tidyhaus'?'TidyHaus':g==='doms'?'Dom’s':g==='all'?'All brands':(g||''); }
-function vaTz(tz){ return ({'Asia/Manila':'PHT','Asia/Manila':'CT','Asia/Manila':'ET','Asia/Manila':'PT','Asia/Manila':'AZ'})[tz]||''; }
+function vaTz(tz){ return ({'Asia/Manila':'PHT'})[tz]||''; }
 function vaMin(t){ const [h,m]=String(t||'0:0').split(':').map(Number); return h*60+(m||0); }
 function vaT(t){ const x=vaMin(t), h=Math.floor(x/60)%24, m=x%60; return (h%12||12)+(m?':'+String(m).padStart(2,'0'):'')+(h<12?'a':'p'); }
 function vaNow(tz){
@@ -11187,7 +11188,7 @@ function plClockCard(p){
   const mins=hm=>{ const [h,m]=String(hm).split(':').map(Number); return h*60+(m||0); };
   const hm=x=>`${Math.floor(x/60)}h ${x%60}m`;
   const grp=p.all?'All':p.week?(p.today_group?bizShort(p.today_group):''):(p.home?bizShort(p.home):'');
-  const tzS=({'Asia/Manila':'PHT','Asia/Manila':'CT','Asia/Manila':'ET','Asia/Manila':'PT'})[tz]||'';
+  const tzS=({'Asia/Manila':'PHT'})[tz]||'';
   let big, col, state, pct=0, bar='#e5e7eb', lab='';
   if(p.hours){
     const a=mins(p.hours.start), b=mins(p.hours.end);
@@ -14010,7 +14011,7 @@ async function renderLaCalls(){
   const byLine={}; rows.forEach(r=>{ const k=r.line_name||r.business?.name||'LA'; byLine[k]=(byLine[k]||0)+1; });
   const W=iso=>new Date(iso).toLocaleString('en-PH',{timeZone:'Asia/Manila',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
   view.innerHTML=`<div class="wrap" style="max-width:900px;">
-    <h2 style="margin:0 0 4px;">Los Angeles calls</h2><div class="meta" style="margin-bottom:12px;">Last 30 days · Pacific time · owner only</div>
+    <h2 style="margin:0 0 4px;">Los Angeles calls</h2><div class="meta" style="margin-bottom:12px;">Last 30 days · Manila time · owner only</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;">
       <div class="card" style="padding:10px 14px;"><div class="meta">Calls</div><b style="font-size:22px;">${rows.length}</b></div>
       <div class="card" style="padding:10px 14px;"><div class="meta">Missed</div><b style="font-size:22px;">${missed}</b></div>
@@ -16062,7 +16063,7 @@ function topBannerBox(){
   return top;
 }
 
-const RA_TZ_ABBR={'Asia/Manila':'CT','Asia/Manila':'PHT','Asia/Manila':'PT','Asia/Manila':'ET','Asia/Manila':'AZ'};
+const RA_TZ_ABBR={'Asia/Manila':'PHT'};
 function raPhone(p){ const x=String(p||''); return x.length===10?'('+x.slice(0,3)+') '+x.slice(3,6)+'-'+x.slice(6):x; }
 function raDayKey(ms,tz){ try{ return new Date(ms).toLocaleDateString('en-CA',{ timeZone:tz }); }catch(_){ return ''; } }
 function raClock(iso,tz,now){
@@ -21463,7 +21464,7 @@ function cwScheduleToday(draft=callWiz, now=new Date()){
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 function cwScheduleZoneLabel(draft=callWiz){
-  return ({'Asia/Manila':'Manila time','Asia/Manila':'Central time','Asia/Manila':'Pacific time','Asia/Manila':'Eastern time'})[cwScheduleTimezone(draft)]||'the customer’s local time';
+  return ({'Asia/Manila':'Manila time'})[cwScheduleTimezone(draft)]||'the customer’s local time';
 }
 function cwScheduleParams(draft=callWiz){
   const params={business:draft.business,technician_id:draft.technicianId||'any',pool:'own',strict_roster:'1'};
@@ -24693,7 +24694,7 @@ function embedAuditorBoot(q){
   else tryAutoLogin(); }
 </script>
 <script src="/onway.js?v=1"></script>
-<script src="/clean-booking.js?v=1"></script>
+<script src="/clean-booking.js?v=2"></script>
 <script>
 (function(){ function t(){ try{ var el=document.getElementById('ctClock'); if(!el) return; var r=(typeof role!=='undefined')?role:''; el.style.display='none';
   document.getElementById('ctClockT').textContent=new Date().toLocaleString('en-PH',{timeZone:'Asia/Manila',weekday:'short',hour:'numeric',minute:'2-digit'}); }catch(_){} }

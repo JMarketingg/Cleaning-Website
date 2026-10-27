@@ -157,8 +157,19 @@
         scheduled_date: f.date.value, scheduled_slot: f.slot.value,
         technician_id: null, payment_method: 'quote', notes: notes || null
       } }).then(function (r) {
+        var every = f.frequency.value;
+        if (every === 'once' || !r || !r.id || r.duplicate) return { r: r };
+        btn.textContent = 'Booking the repeats…';
+        return window.api('booking_repeat', { method: 'POST', body: { business: slugNow(), id: r.id, every: every } })
+          .then(function (rep) { return { r: r, rep: rep }; })
+          .catch(function (x) { return { r: r, repErr: (x && x.message) || 'Could not book the repeats.' }; });
+      }).then(function (o) {
+        var r = o.r, msg = 'Booking saved ✓';
+        if (o.rep) msg = 'Booking saved ✓ plus ' + o.rep.created.length + ' repeat visits' + (o.rep.unassigned.length ? ' (' + o.rep.unassigned.length + ' need a cleaner)' : '');
+        if (o.repErr) msg = 'Booking saved, but the repeats failed: ' + o.repErr;
+        if (r && r.warning) msg += ' ' + r.warning;
         wrap.remove();
-        window.toast && toast(r && r.warning ? 'Booking saved. ' + r.warning : 'Booking saved ✓');
+        window.toast && toast(msg);
         if (typeof window.renderSchedule === 'function') window.renderSchedule(true);
       }).catch(function (x) {
         btn.disabled = false; btn.textContent = 'Save booking';
@@ -183,3 +194,10 @@
   window.openNewBooking = function (prefill) { open({ phone: prefill && (prefill.phone || (prefill.customer && prefill.customer.phone)) }); };
   window.openTakeCall = function (o) { open({ call: true, phone: o && o.phone }); };
 })();
+
+window.stopRepeat = function (id) {
+  if (!confirm('Cancel every visit in this series after this one?')) return;
+  window.api('booking_series_stop', { method: 'POST', body: { business: 'tidyhaus', id: id } })
+    .then(function (r) { toast('Repeat stopped. ' + r.cancelled + ' later visits cancelled.'); if (typeof window.renderSchedule === 'function') window.renderSchedule(true); })
+    .catch(function (x) { toast((x && x.message) || 'Could not stop the repeat.'); });
+};

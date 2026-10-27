@@ -341,6 +341,8 @@ export default async function handler(req, res) {
       case 'availability_overview': return await availabilityOverview(req, res, db, auth);
       case 'bookings':          return await bookings(req, res, db, auth);
       case 'booking_create':    return await bookingCreate(req, res, db, auth, body);
+      case 'booking_repeat':    return await bookingRepeat(req, res, db, auth, body);
+      case 'booking_series_stop': return await bookingSeriesStop(req, res, db, auth, body);
       case 'booking_update':    return await bookingUpdate(req, res, db, auth, body);
       case 'booking_address_update': return await bookingAddressUpdate(req, res, db, auth, body);
       case 'booking_authorization': return await bookingAuthorization(req, res, db, auth);
@@ -3402,6 +3404,68 @@ function priceSanityIssue({ lines, total } = {}) {
     return `This total is $${t.toFixed(2)} — that's far outside any real job for this business. Double-check the amount before continuing.`;
   }
   return null;
+}
+
+const REPEAT_RULES = { weekly: { days: 7, count: 12 }, biweekly: { days: 14, count: 12 }, monthly: { months: 1, count: 6 } };
+function addMonthsKeepTime(iso, n) {
+  const d = new Date(iso);
+  const day = d.getUTCDate();
+  d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + n);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d.toISOString();
+}
+async function bookingRepeat(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
+  const rule = REPEAT_RULES[String(body.every || '')];
+  if (!rule) return res.status(400).json({ error: 'every must be weekly, biweekly or monthly' });
+  const count = Math.max(1, Math.min(rule.count, Number(body.count) || rule.count));
+  const { data: b, error } = await db.from('bookings').select('*').eq('id', body.id).eq('business_id', biz.id).maybeSingle();
+  if (error) throw error;
+  if (!b || !b.scheduled_at) return res.status(404).json({ error: 'Booking not found' });
+  if (b.metadata?.series_id && b.metadata.series_id !== b.id) return res.status(409).json({ error: 'This booking is already part of a repeat series.' });
+  const { data: items } = await db.from('booking_line_items').select('kind, name, quantity, unit_price, line_total, service_id, option_id, sort_order').eq('booking_id', b.id);
+  const seriesId = b.id;
+  const meta = { ...(b.metadata || {}), series_id: seriesId, series_every: body.every };
+  await db.from('bookings').update({ metadata: { ...meta, series_index: 0 } }).eq('id', b.id);
+  const keep = ['business_id', 'customer_id', 'technician_id', 'secondary_technician_id', 'service_id', 'service_area_id', 'status', 'source',
+    'duration_minutes', 'subtotal', 'discount', 'price', 'address_line1', 'address_line2', 'city', 'state', 'postal_code', 'lat', 'lng',
+    'notes', 'customer_notes', 'payment_required', 'payment_method', 'sms_consent', 'extra_slots'];
+  const created = [], unassigned = [];
+  for (let i = 1; i <= count; i++) {
+    const at = rule.months ? addMonthsKeepTime(b.scheduled_at, i * rule.months) : new Date(Date.parse(b.scheduled_at) + i * rule.days * 86400000).toISOString();
+    const row = { status: 'confirmed' };
+    for (const k of keep) if (b[k] !== undefined) row[k] = b[k];
+    Object.assign(row, { scheduled_at: at, scheduled_end: b.scheduled_end ? new Date(Date.parse(at) + (Date.parse(b.scheduled_end) - Date.parse(b.scheduled_at))).toISOString() : null,
+      status: b.status === 'cancelled' || b.status === 'completed' ? 'confirmed' : b.status, metadata: { ...meta, series_index: i } });
+    let { data: nb, error: e1 } = await db.from('bookings').insert(row).select('id').single();
+    if (e1 && /bookings_tech_slot_unique/.test(e1.message || '')) {
+      ({ data: nb, error: e1 } = await db.from('bookings').insert({ ...row, technician_id: null, secondary_technician_id: null }).select('id').single());
+      if (!e1) unassigned.push(at);
+    }
+    if (e1) throw e1;
+    if (items && items.length) {
+      const { error: e2 } = await db.from('booking_line_items').insert(items.map((li) => ({ ...li, booking_id: nb.id, business_id: biz.id })));
+      if (e2) console.warn('[admin] repeat line items failed:', e2.message);
+    }
+    created.push({ id: nb.id, scheduled_at: at });
+  }
+  return res.status(200).json({ ok: true, series_id: seriesId, created, unassigned });
+}
+async function bookingSeriesStop(req, res, db, auth, body) {
+  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  let biz; try { biz = await resolveBusiness(db, auth, body.business); } catch (e) { return bail(res, e); }
+  const { data: b } = await db.from('bookings').select('id, scheduled_at, metadata').eq('id', body.id).eq('business_id', biz.id).maybeSingle();
+  const seriesId = b?.metadata?.series_id;
+  if (!seriesId) return res.status(400).json({ error: 'This booking does not repeat.' });
+  const from = new Date(Math.max(Date.now(), Date.parse(b.scheduled_at) + 1)).toISOString();
+  const { data, error } = await db.from('bookings')
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancellation_reason: 'Repeat stopped' })
+    .eq('business_id', biz.id).eq('metadata->>series_id', seriesId).gt('scheduled_at', from)
+    .not('status', 'in', '(completed,cancelled)').select('id');
+  if (error) throw error;
+  return res.status(200).json({ ok: true, cancelled: (data || []).length });
 }
 
 async function bookingCreate(req, res, db, auth, body) {
@@ -7352,6 +7416,7 @@ function shapeBooking(b) {
     created_at: b.created_at || null,
     li_rev: Number(b.metadata?.li_rev) || 0,
     rescheduled_from: b.metadata?.rescheduled_from || null,
+    series_id: b.metadata?.series_id || null, series_every: b.metadata?.series_every || null, series_index: Number(b.metadata?.series_index) || 0,
     stripe_pk: bookingStripePk(b.business?.slug || null),
     scheduled_at: b.scheduled_at,
     scheduled_end: b.scheduled_end,

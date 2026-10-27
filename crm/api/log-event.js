@@ -126,7 +126,7 @@ async function bookingStats(req, res) {
   const rows = [];
   for (let from = 0; from < 50000; from += 1000) {
     const { data, error } = await db.from('bookings')
-      .select('id, status, source, price, created_at, scheduled_at, completed_at, customer_id, notes, service:services ( name ), area:service_areas ( name ), line_items:booking_line_items ( name, line_total )')
+      .select('id, status, source, price, created_at, scheduled_at, completed_at, customer_id, notes, metadata, service:services ( name ), area:service_areas ( name ), line_items:booking_line_items ( name, line_total )')
       .or(`created_at.gte.${since},scheduled_at.gte.${since}`).order('created_at').range(from, from + 999);
     if (error) return res.status(500).json({ error: error.message });
     rows.push(...data);
@@ -148,7 +148,7 @@ async function bookingStats(req, res) {
     const sched = b.scheduled_at ? Date.parse(b.scheduled_at) : null;
     if (b.status === 'completed' && b.completed_at && Date.parse(b.completed_at) >= sinceMs) { completed++; revenue += price; }
     if (b.status !== 'cancelled' && b.status !== 'completed' && sched && sched > now) { upcoming++; upcomingValue += price; }
-    if (!createdIn) continue;
+    if (!createdIn || Number(b.metadata?.series_index) > 0) continue;
     made++;
     inc(statuses, b.status);
     if (b.status === 'cancelled') { cancelled++; continue; }
