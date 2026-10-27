@@ -117,6 +117,76 @@ async function stats(req, res) {
   });
 }
 
+async function bookingStats(req, res) {
+  const auth = verifyToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+  if (!auth || !['owner', 'secretary'].includes(auth.role)) return res.status(401).json({ error: 'Log in to the CRM first.' });
+  const days = Math.max(1, Math.min(365, Number(req.query.days) || 30));
+  const since = new Date(Date.now() - days * 86400000).toISOString();
+  const db = serviceClient();
+  const rows = [];
+  for (let from = 0; from < 50000; from += 1000) {
+    const { data, error } = await db.from('bookings')
+      .select('id, status, source, price, created_at, scheduled_at, completed_at, customer_id, notes, service:services ( name ), area:service_areas ( name ), line_items:booking_line_items ( name, line_total )')
+      .or(`created_at.gte.${since},scheduled_at.gte.${since}`).order('created_at').range(from, from + 999);
+    if (error) return res.status(500).json({ error: error.message });
+    rows.push(...data);
+    if (data.length < 1000) break;
+  }
+  const { data: prior } = await db.from('bookings').select('customer_id').lt('created_at', since).neq('status', 'cancelled');
+  const seenBefore = new Set((prior || []).map((r) => r.customer_id));
+  const tz = 'Asia/Manila';
+  const dayFmt = new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const wdFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' });
+  const hrFmt = new Intl.DateTimeFormat('en-US', { timeZone: tz, hour: 'numeric', hour12: true });
+  const now = Date.now(), sinceMs = Date.parse(since);
+  const daily = {}, services = {}, servicesValue = {}, areas = {}, sources = {}, statuses = {}, weekdays = {}, hours = {}, addons = {}, freq = {};
+  let made = 0, cancelled = 0, value = 0, completed = 0, revenue = 0, upcoming = 0, upcomingValue = 0, repeat = 0;
+  const custCount = {};
+  for (const b of rows) {
+    const price = Number(b.price) || 0;
+    const createdIn = Date.parse(b.created_at) >= sinceMs;
+    const sched = b.scheduled_at ? Date.parse(b.scheduled_at) : null;
+    if (b.status === 'completed' && b.completed_at && Date.parse(b.completed_at) >= sinceMs) { completed++; revenue += price; }
+    if (b.status !== 'cancelled' && b.status !== 'completed' && sched && sched > now) { upcoming++; upcomingValue += price; }
+    if (!createdIn) continue;
+    made++;
+    inc(statuses, b.status);
+    if (b.status === 'cancelled') { cancelled++; continue; }
+    value += price;
+    const day = dayFmt.format(new Date(b.created_at));
+    daily[day] = daily[day] || { day, bookings: 0, value: 0 };
+    daily[day].bookings++; daily[day].value += price;
+    const svc = b.service?.name || (b.line_items || [])[0]?.name || 'Other';
+    inc(services, svc); inc(servicesValue, svc, price);
+    inc(areas, b.area?.name || 'No area');
+    inc(sources, b.source === 'manual' ? 'Entered in CRM' : (b.source || 'Other'));
+    if (sched) { inc(weekdays, wdFmt.format(new Date(sched))); inc(hours, hrFmt.format(new Date(sched))); }
+    const rep = /Repeats: (.+)/.exec(b.notes || '');
+    inc(freq, rep ? rep[1].trim() : 'One time');
+    for (const li of b.line_items || []) {
+      if (/^(Inside|Laundry)/i.test(li.name || '')) inc(addons, li.name);
+    }
+    if (b.customer_id) {
+      custCount[b.customer_id] = (custCount[b.customer_id] || 0) + 1;
+      if (seenBefore.has(b.customer_id) || custCount[b.customer_id] > 1) repeat++;
+    }
+  }
+  const kept = made - cancelled;
+  return res.status(200).json({
+    days,
+    totals: {
+      bookings: made, kept, cancelled, value, avg_value: kept ? Math.round(value / kept) : 0,
+      completed, revenue, upcoming, upcoming_value: upcomingValue,
+      cancel_pct: made ? Math.round((cancelled / made) * 100) : 0,
+      repeat_pct: kept ? Math.round((repeat / kept) * 100) : 0,
+    },
+    daily: Object.values(daily).sort((a, b) => a.day.localeCompare(b.day)),
+    services: top(services).map((s) => ({ ...s, value: servicesValue[s.key] || 0 })),
+    areas: top(areas), sources: top(sources), statuses: top(statuses), frequency: top(freq), addons: top(addons),
+    weekdays: top(weekdays), hours: top(hours),
+  });
+}
+
 export default async function handler(req, res) {
   const origin = String(req.headers.origin || '');
   if (ALLOWED_ORIGIN.test(origin)) {
@@ -128,7 +198,7 @@ export default async function handler(req, res) {
   if (req.method === 'OPTIONS') return res.status(204).end();
   try {
     if (req.method === 'POST') return await collect(req, res);
-    if (req.method === 'GET') return await stats(req, res);
+    if (req.method === 'GET') return req.query.report === 'bookings' ? await bookingStats(req, res) : await stats(req, res);
     return res.status(405).end();
   } catch (e) {
     return res.status(500).json({ error: e.message });

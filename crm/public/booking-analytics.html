@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Booking Analytics · TidyHaus</title>
+<link rel="icon" href="/favicon-admin.svg">
+<style>
+  :root { --bg:#f6f7f5; --panel:#fff; --ink:#1c2422; --mute:#66706d; --line:#e2e6e3; --brand:#1f3a3d; --accent:#e8a33d; --bar:#2f6f73; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#121615; --panel:#1b2120; --ink:#e7ece9; --mute:#9aa5a1; --line:#2b3331; --brand:#9fd3cf; --bar:#5fb3b3; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display:flex; flex-wrap:wrap; gap:12px; align-items:center; justify-content:space-between; padding:16px; max-width:1100px; margin:0 auto; }
+  h1 { font-size:20px; margin:0; }
+  a { color:var(--brand); }
+  select { font:inherit; padding:6px 10px; border-radius:8px; border:1px solid var(--line); background:var(--panel); color:var(--ink); }
+  main { max-width:1100px; margin:0 auto; padding:0 16px 40px; }
+  .tiles { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; margin-bottom:14px; }
+  .tile, .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
+  .tile b { display:block; font-size:26px; font-variant-numeric:tabular-nums; }
+  .tile span { color:var(--mute); font-size:13px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:12px; }
+  .card h2 { font-size:15px; margin:0 0 10px; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:5px 0; border-top:1px solid var(--line); vertical-align:top; }
+  td.n { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; padding-left:10px; }
+  td.k { word-break:break-word; }
+  .meter { height:4px; background:var(--bar); border-radius:2px; margin-top:3px; opacity:.6; }
+  .chart { width:100%; height:180px; }
+  .msg { padding:30px 16px; text-align:center; color:var(--mute); }
+  .legend { color:var(--mute); font-size:13px; margin-top:6px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Bookings · TidyHaus</h1>
+  <div>
+    <select id="days" aria-label="Date range">
+      <option value="7">Last 7 days</option>
+      <option value="30" selected>Last 30 days</option>
+      <option value="90">Last 90 days</option>
+      <option value="365">Last 12 months</option>
+    </select>
+    <a href="/admin.html" id="backCrm" style="margin-left:10px;">← CRM</a>
+  </div>
+</header>
+<main id="out"><div class="msg">Loading…</div></main>
+<script>
+(function(){
+  var out=document.getElementById('out'), sel=document.getElementById('days');
+  if(/embed=1/.test(location.search)){ var bc=document.getElementById('backCrm'); if(bc) bc.remove(); }
+  var token=''; try{ token=localStorage.getItem('ha_admin_token')||''; }catch(e){}
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  function n(v){ return Number(v||0).toLocaleString('en-PH'); }
+  function peso(v){ return '₱'+Math.round(Number(v)||0).toLocaleString('en-PH'); }
+  function list(title, rows, extra){
+    if(!rows||!rows.length) return '<div class="card"><h2>'+esc(title)+'</h2><div class="legend">No bookings yet.</div></div>';
+    var max=rows[0].n||1;
+    return '<div class="card"><h2>'+esc(title)+'</h2><table>'+rows.map(function(r){
+      return '<tr><td class="k">'+esc(r.key)+'<div class="meter" style="width:'+Math.max(2,Math.round(r.n/max*100))+'%"></div></td>'+
+        (extra?'<td class="n">'+esc(extra(r))+'</td>':'')+'<td class="n">'+n(r.n)+'</td></tr>';
+    }).join('')+'</table></div>';
+  }
+  function chart(daily){
+    if(!daily.length) return '';
+    var w=1000,h=180,pad=24,max=Math.max.apply(null,daily.map(function(d){return d.bookings;}).concat([1])), bw=(w-pad*2)/daily.length;
+    var bars=daily.map(function(d,i){ var bh=Math.round((d.bookings/max)*(h-pad*2));
+      return '<rect x="'+(pad+i*bw+1)+'" y="'+(h-pad-bh)+'" width="'+Math.max(1,bw-2)+'" height="'+bh+'" rx="2" fill="var(--bar)"><title>'+esc(d.day)+': '+d.bookings+' bookings, '+peso(d.value)+'</title></rect>'; }).join('');
+    return '<div class="card" style="margin-bottom:12px;"><h2>Bookings made per day</h2><svg class="chart" viewBox="0 0 '+w+' '+h+'" preserveAspectRatio="none" role="img" aria-label="Bookings per day">'+bars+
+      '<text x="'+pad+'" y="'+(h-6)+'" font-size="12" fill="currentColor">'+esc(daily[0].day)+'</text><text x="'+(w-pad)+'" y="'+(h-6)+'" font-size="12" text-anchor="end" fill="currentColor">'+esc(daily[daily.length-1].day)+'</text></svg>'+
+      '<div class="legend">Hover a bar for the day and its value.</div></div>';
+  }
+  function load(){
+    if(!token){ out.innerHTML='<div class="msg">Open the <a href="/admin.html">CRM</a> first, then come back here.</div>'; return; }
+    out.innerHTML='<div class="msg">Loading…</div>';
+    fetch('/api/log-event?report=bookings&days='+sel.value,{ headers:{ Authorization:'Bearer '+token } })
+      .then(function(r){ return r.json().then(function(d){ if(!r.ok) throw new Error(d.error||'Could not load'); return d; }); })
+      .then(function(d){
+        var t=d.totals;
+        out.innerHTML='<div class="tiles">'+
+          [['Bookings made',n(t.kept)],['Booked value',peso(t.value)],['Average booking',peso(t.avg_value)],['Cleanings done',n(t.completed)],['Revenue from done cleanings',peso(t.revenue)],['Upcoming cleanings',n(t.upcoming)+' · '+peso(t.upcoming_value)],['Cancelled',n(t.cancelled)+' ('+t.cancel_pct+'%)'],['Repeat customers',t.repeat_pct+'%']]
+          .map(function(x){ return '<div class="tile"><b>'+x[1]+'</b><span>'+x[0]+'</span></div>'; }).join('')+'</div>'+
+          chart(d.daily)+
+          '<div class="grid">'+
+          list('Service', d.services, function(r){ return peso(r.value); })+
+          list('Area', d.areas)+
+          list('How often', d.frequency)+
+          list('Add-ons', d.addons)+
+          list('Day of the cleaning', d.weekdays)+
+          list('Start time', d.hours)+
+          list('Status', d.statuses)+
+          list('Where the booking came from', d.sources)+
+          '</div><p class="legend">Counts bookings made in this period (cancelled ones are counted only in Cancelled). Cleanings done and revenue use the day the cleaning was finished. Times are Manila time.</p>';
+      })
+      .catch(function(e){ out.innerHTML='<div class="msg">'+esc(e.message)+'</div>'; });
+  }
+  sel.addEventListener('change',load);
+  load();
+})();
+</script>
+</body>
+</html>
