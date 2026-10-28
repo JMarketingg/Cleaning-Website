@@ -18,6 +18,14 @@ function table(rows) {
     '</table>';
 }
 
+// Link to the owner-only /confirm page with this request filled in.
+// The details go after "#" so they never reach the server or its logs.
+function confirmLink(d) {
+  const prefill = { name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
+    date: d.date, time: d.time, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
+  return 'https://tidyhausph.com/confirm#' + Buffer.from(JSON.stringify(prefill)).toString('base64url');
+}
+
 async function sendEmail(payload) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -67,7 +75,8 @@ module.exports = async function handler(req, res) {
       to: OWNER_EMAIL,
       reply_to: data.email || undefined,
       subject: `New quote request: ${data.service}, ${data.area || ''} (${data.name})`,
-      html: `<h2 style="font-family:Arial,sans-serif;color:#26372D">New quote request</h2>${table(rows)}`
+      html: `<h2 style="font-family:Arial,sans-serif;color:#26372D">New quote request</h2>${table(rows)}
+<p style="margin-top:20px"><a href="${confirmLink(data)}" style="background:#344B38;color:#ffffff;padding:12px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Confirm this booking</a></p>`
     });
   } catch (e) {
     console.error(e);
