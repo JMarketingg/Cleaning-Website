@@ -121,6 +121,9 @@
   };
   var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'deep' };
 
+  // Added for each bathroom after the first.
+  var EXTRA_BATHROOM = { '2': 300, '3+': 600 };
+
   // Discount per visit for regular cleaning.
   var DISCOUNTS = {
     weekly: { rate: 0.15, label: '15% weekly discount' },
@@ -133,6 +136,7 @@
     if (!table || value('place') === 'office') return '';
     var amount = table[value('bedrooms')];
     if (!amount) return '';
+    amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
     var discount = DISCOUNTS[value('frequency')];
     if (!discount) return peso(amount);
     // Rounded to the nearest ₱10.
