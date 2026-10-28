@@ -970,3 +970,10 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-option.is-full span { opacity: 0.45; text-decoration: line-through; cursor: not-allowed; }
 .bk-option.is-full span::after { content: "Full"; margin-left: auto; font-size: 0.8rem; font-weight: 700; text-decoration: none; }
 .bk-option.is-full input { cursor: not-allowed; }
+
+/* Big price box on the review step */
+.bk-total { margin: 8px 0 22px; padding: 20px 22px; border-radius: var(--radius); background: var(--forest); color: var(--white); text-align: center; box-shadow: var(--shadow); }
+.bk-total p { margin: 0; }
+.bk-total-label { font-size: 0.85rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.bk-total-amount { font-size: clamp(2.2rem, 7vw, 3rem); font-weight: 800; line-height: 1.15; margin: 4px 0 !important; }
+.bk-total-note { font-size: 0.95rem; }

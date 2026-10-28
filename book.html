@@ -170,8 +170,12 @@
     <div class="bk-step" data-key="review" hidden>
       <h2 class="bk-question" tabindex="-1">Review and book</h2>
       <p class="bk-hint">Check your details, then submit. We'll send your booking confirmation and payment details by email or text.</p>
+      <div class="bk-total" aria-live="polite">
+        <p class="bk-total-label">Your price</p>
+        <p id="bk-total-amount" class="bk-total-amount"></p>
+        <p id="bk-total-note" class="bk-total-note"></p>
+      </div>
       <dl id="bk-summary" class="bk-summary"></dl>
-      <p class="bk-hint bk-price-note">Price is per visit.</p>
       <div class="bk-send">
         <button id="bk-submit" class="btn btn-primary btn-lg" type="button">Submit request</button>
       </div>

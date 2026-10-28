@@ -165,11 +165,17 @@
     if (value('email')) lines.push(['Email', value('email')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
     lines.push(['Payment', label('payment')]);
-    lines.push(['Price', estimatedPrice() || 'We will send you a quote']);
     return lines;
   }
 
   function buildSummary() {
+    // The price goes in its own big box so it's the first thing people see.
+    var price = estimatedPrice();
+    var cut = price.indexOf(' (');
+    document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
+    document.getElementById('bk-total-note').textContent = price
+      ? 'per visit' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      : "Office prices depend on the space. We'll send your price with your confirmation.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
     list.innerHTML = '';
