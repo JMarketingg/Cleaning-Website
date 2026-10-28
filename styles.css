@@ -967,3 +967,6 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .prose ul { padding-left: 22px; }
 .prose li { margin-bottom: 6px; }
 .bk-save { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--beige); color: var(--forest); font-style: normal; font-size: 0.8rem; font-weight: 700; }
+.bk-option.is-full span { opacity: 0.45; text-decoration: line-through; cursor: not-allowed; }
+.bk-option.is-full span::after { content: "Full"; margin-left: auto; font-size: 0.8rem; font-weight: 700; text-decoration: none; }
+.bk-option.is-full input { cursor: not-allowed; }

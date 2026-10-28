@@ -1,12 +1,13 @@
 // Receives a quote request from /book and sends two emails through Resend:
 // one to the owner, and a confirmation to the customer if they gave an email.
 // The browser also sends the request to the CRM's Quote Requests (see book.js).
-// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL.
+// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET.
+const crypto = require('crypto');
 
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
   date: 'Preferred date', time: 'Time', name: 'Name', phone: 'Mobile', email: 'Email',
-  building: 'Building / street', notes: 'Notes', price: 'Estimated price'
+  building: 'Building / street', notes: 'Notes', price: 'Price', payment: 'Payment'
 };
 
 function escapeHtml(s) {
@@ -21,10 +22,13 @@ function table(rows) {
 
 // Link to the owner-only /confirm page with this request filled in.
 // The details go after "#" so they never reach the server or its logs.
+// The signature proves the link came from us, so /confirm needs no password.
 function confirmLink(d) {
   const prefill = { name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
-    date: d.date, time: d.time, price: d.price, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
-  return 'https://tidyhausph.com/confirm#' + Buffer.from(JSON.stringify(prefill)).toString('base64url');
+    date: d.date, time: d.time, price: d.price, payment: d.payment, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
+  const b64 = Buffer.from(JSON.stringify(prefill)).toString('base64url');
+  const sig = crypto.createHmac('sha256', process.env.CONFIRM_SECRET).update(b64).digest('base64url');
+  return 'https://tidyhausph.com/confirm#' + b64 + '.' + sig;
 }
 
 async function sendEmail(payload) {
@@ -46,8 +50,8 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
-  const { RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL } = process.env;
-  if (!RESEND_API_KEY || !OWNER_EMAIL || !FROM_EMAIL) {
+  const { RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET } = process.env;
+  if (!RESEND_API_KEY || !OWNER_EMAIL || !FROM_EMAIL || !CONFIRM_SECRET) {
     return res.status(503).json({ ok: false, error: 'Not set up yet' });
   }
 
@@ -75,8 +79,8 @@ module.exports = async function handler(req, res) {
       from: FROM_EMAIL,
       to: OWNER_EMAIL,
       reply_to: data.email || undefined,
-      subject: `New quote request: ${data.service}, ${data.area || ''} (${data.name})`,
-      html: `<h2 style="font-family:Arial,sans-serif;color:#26372D">New quote request</h2>${table(rows)}
+      subject: `New booking request: ${data.service}, ${data.area || ''} (${data.name})`,
+      html: `<h2 style="font-family:Arial,sans-serif;color:#26372D">New booking request</h2>${table(rows)}
 <p style="margin-top:20px"><a href="${confirmLink(data)}" style="background:#344B38;color:#ffffff;padding:12px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Confirm this booking</a></p>`
     });
   } catch (e) {
@@ -89,10 +93,10 @@ module.exports = async function handler(req, res) {
       await sendEmail({
         from: FROM_EMAIL,
         to: data.email,
-        subject: 'We got your cleaning quote request — TidyHaus',
+        subject: 'We got your cleaning booking request — TidyHaus',
         html: `<div style="font-family:Arial,sans-serif;color:#26372D;font-size:15px;line-height:1.5">
 <p>Hi ${escapeHtml(data.name)},</p>
-<p>Thanks for your quote request. We'll reply with availability and your final price soon. This is not a confirmed booking yet.</p>
+<p>Thanks for your booking request. We'll send your booking confirmation and payment details soon.</p>
 ${table(rows)}
 <p>Questions? Text or call us at +63 992 309 5621.</p>
 <p>TidyHaus Home Cleaning<br><a href="https://tidyhausph.com" style="color:#344B38">tidyhausph.com</a></p></div>`

@@ -59,9 +59,9 @@
 
 <section class="bk-hero">
   <div class="container narrow">
-    <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Request a quote</p>
-    <h1>Get a cleaning quote in <span class="hero-accent">2 minutes</span></h1>
-    <p class="lead">Answer a few quick questions. We'll reply with availability and a price before anything is booked.</p>
+    <p class="eyebrow"><span class="eyebrow-dot" aria-hidden="true"></span>Online booking</p>
+    <h1>Book your cleaning in <span class="hero-accent">2 minutes</span></h1>
+    <p class="lead">Answer a few quick questions, see your price, and pick an open date and time.</p>
   </div>
 </section>
 
@@ -141,18 +141,27 @@
     </fieldset>
     <fieldset class="bk-step" data-key="when" data-auto="false" hidden>
       <legend class="bk-question" tabindex="-1">When would you like us to come?</legend>
-      <p class="bk-hint">This is your preferred date. We'll confirm what's available.</p>
-      <label class="bk-field">Preferred date<input type="date" name="date" required></label>
-      <p class="bk-sub">Time of day</p>
+      <p class="bk-hint">Pick a date, then an open time. Full times are greyed out.</p>
+      <label class="bk-field">Date<input type="date" name="date" required></label>
+      <p class="bk-sub">Time</p>
+      <p id="bk-avail" class="bk-hint" role="status" aria-live="polite"></p>
       <div class="bk-options">
         <label class="bk-option"><input type="radio" name="time" value="morning" data-label="Morning (8 AM to 12 PM)"><span>Morning (8 AM to 12 PM)</span></label>
         <label class="bk-option"><input type="radio" name="time" value="afternoon" data-label="Afternoon (1 PM to 5 PM)"><span>Afternoon (1 PM to 5 PM)</span></label>
-        <label class="bk-option"><input type="radio" name="time" value="flexible" data-label="Any time"><span>Any time</span></label>
+      </div>
+    </fieldset>
+    <fieldset class="bk-step" data-key="payment" data-auto="true" hidden>
+      <legend class="bk-question" tabindex="-1">How would you like to pay?</legend>
+      <p class="bk-hint">We'll send the payment details with your booking confirmation. We don't accept cash.</p>
+      <div class="bk-options">
+        <label class="bk-option"><input type="radio" name="payment" value="gcash" data-label="GCash"><span>GCash</span></label>
+        <label class="bk-option"><input type="radio" name="payment" value="maya" data-label="Maya"><span>Maya</span></label>
+        <label class="bk-option"><input type="radio" name="payment" value="card" data-label="Credit or debit card"><span>Credit or debit card</span></label>
       </div>
     </fieldset>
     <fieldset class="bk-step" data-key="details" data-auto="false" hidden>
       <legend class="bk-question" tabindex="-1">How can we reach you?</legend>
-      <p class="bk-hint">We'll reply with availability and a quote.</p>
+      <p class="bk-hint">We'll use these to confirm your booking.</p>
       <label class="bk-field">Your name<input type="text" name="name" autocomplete="name" maxlength="80" required></label>
       <label class="bk-field">Mobile number<input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="0917 123 4567" maxlength="20" required></label>
       <label class="bk-field">Email <span class="bk-optional">(optional, for your confirmation)</span><input type="email" name="email" autocomplete="email" maxlength="120"></label>
@@ -162,10 +171,10 @@
       <p class="bk-hint">Please don't include door codes or building access details.</p>
     </fieldset>
     <div class="bk-step" data-key="review" hidden>
-      <h2 class="bk-question" tabindex="-1">Send your quote request</h2>
-      <p class="bk-hint">Check your details, then submit. This is a quote request, not a confirmed booking. We'll reply with availability and a price.</p>
+      <h2 class="bk-question" tabindex="-1">Review and book</h2>
+      <p class="bk-hint">Check your details, then submit. We'll send your booking confirmation and payment details by email or text.</p>
       <dl id="bk-summary" class="bk-summary"></dl>
-      <p class="bk-hint bk-price-note">Estimated price is per visit. Final price is confirmed after we review your request.</p>
+      <p class="bk-hint bk-price-note">Price is per visit.</p>
       <div class="bk-send">
         <button id="bk-submit" class="btn btn-primary btn-lg" type="button">Submit request</button>
       </div>

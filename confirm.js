@@ -3,12 +3,14 @@
   var errorBox = document.getElementById('cf-error');
   var statusBox = document.getElementById('cf-status');
   var sendBtn = document.getElementById('cf-send');
+  var token = '';
 
   // Fill in the request details carried in the link from the owner's email.
   try {
-    var hash = window.location.hash.slice(1);
-    if (hash) {
-      var json = decodeURIComponent(escape(atob(hash.replace(/-/g, '+').replace(/_/g, '/'))));
+    token = window.location.hash.slice(1);
+    if (token) {
+      var b64 = token.split('.')[0];
+      var json = decodeURIComponent(escape(atob(b64.replace(/-/g, '+').replace(/_/g, '/'))));
       var data = JSON.parse(json);
       Object.keys(data).forEach(function (k) {
         if (form.elements[k] && data[k]) form.elements[k].value = data[k];
@@ -21,13 +23,14 @@
   form.addEventListener('submit', function (e) {
     e.preventDefault();
     var payload = {};
-    ['name', 'email', 'phone', 'service', 'size', 'date', 'time', 'address', 'price', 'payment', 'notes', 'password']
+    ['name', 'email', 'phone', 'service', 'size', 'date', 'time', 'address', 'price', 'payment', 'notes']
       .forEach(function (k) { payload[k] = (form.elements[k].value || '').trim(); });
-    var missing = ['name', 'email', 'service', 'date', 'time', 'price', 'password'].filter(function (k) { return !payload[k]; });
+    var missing = ['name', 'email', 'service', 'date', 'time', 'price'].filter(function (k) { return !payload[k]; });
     if (missing.length) {
       errorBox.textContent = 'Please fill in: ' + missing.join(', ') + '.';
       return;
     }
+    payload.token = token;
     errorBox.textContent = '';
     sendBtn.disabled = true;
     statusBox.className = 'bk-status';

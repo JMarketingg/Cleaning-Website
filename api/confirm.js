@@ -1,6 +1,6 @@
 // Sends a booking confirmation email to a customer. Used by /confirm, the owner-only page.
 // After sending, it marks the customer's open request in the CRM's Quote Requests as booked.
-// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, ADMIN_PASSWORD,
+// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET,
 // and for the CRM: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 const crypto = require('crypto');
 
@@ -8,10 +8,15 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-function samePassword(a, b) {
-  const x = crypto.createHash('sha256').update(String(a)).digest();
-  const y = crypto.createHash('sha256').update(String(b)).digest();
-  return crypto.timingSafeEqual(x, y);
+// Checks the signed link from the owner's email (see confirmLink in quote.js).
+// Returns the signed request details, or null if the link was changed or made up.
+function readToken(token, secret) {
+  const [b64, sig] = String(token || '').split('.');
+  if (!b64 || !sig) return null;
+  const want = crypto.createHmac('sha256', secret).update(b64).digest();
+  const got = Buffer.from(sig, 'base64url');
+  if (got.length !== want.length || !crypto.timingSafeEqual(got, want)) return null;
+  try { return JSON.parse(Buffer.from(b64, 'base64url').toString('utf8')); } catch (e) { return null; }
 }
 
 async function sendEmail(payload) {
@@ -65,20 +70,22 @@ module.exports = async function handler(req, res) {
     res.setHeader('Allow', 'POST');
     return res.status(405).json({ ok: false, error: 'Method not allowed' });
   }
-  const { RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, ADMIN_PASSWORD } = process.env;
-  if (!RESEND_API_KEY || !OWNER_EMAIL || !FROM_EMAIL || !ADMIN_PASSWORD) {
+  const { RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET } = process.env;
+  if (!RESEND_API_KEY || !OWNER_EMAIL || !FROM_EMAIL || !CONFIRM_SECRET) {
     return res.status(503).json({ ok: false, error: 'Not set up yet' });
   }
 
   const body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : (req.body || {});
-  if (!samePassword(body.password || '', ADMIN_PASSWORD)) {
-    // Slow down password guessing.
-    await new Promise((r) => setTimeout(r, 1500));
-    return res.status(401).json({ ok: false, error: 'Wrong password' });
+  const signed = readToken(body.token, CONFIRM_SECRET);
+  if (!signed) {
+    return res.status(401).json({ ok: false, error: 'Open this page from the button in the request email' });
   }
 
   const d = {};
   for (const k of FIELDS) d[k] = typeof body[k] === 'string' ? body[k].trim().slice(0, 300) : '';
+  // The email and phone come from the signed link, so the link can't be reused to email anyone else.
+  d.email = signed.email || '';
+  d.phone = signed.phone || '';
   if (!d.name || !d.service || !d.date || !d.time || !d.price) {
     return res.status(400).json({ ok: false, error: 'Fill in name, service, date, time and price' });
   }

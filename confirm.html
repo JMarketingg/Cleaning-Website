@@ -55,19 +55,18 @@
   <div class="container narrow">
     <form id="confirm" class="bk-card" novalidate>
       <h1 class="bk-question">Confirm a booking</h1>
-      <p class="bk-hint">Check the details, add the price, date and time, then send. The customer gets a confirmation email and you get a copy.</p>
+      <p class="bk-hint">Check the details, then send. The customer gets a confirmation email and you get a copy.</p>
       <label class="bk-field">Customer name<input type="text" name="name" placeholder="" maxlength="300" required></label>
-      <label class="bk-field">Customer email<input type="email" name="email" placeholder="" maxlength="300" required></label>
-      <label class="bk-field">Mobile<input type="tel" name="phone" placeholder="" maxlength="300"></label>
+      <label class="bk-field">Customer email<input type="email" name="email" placeholder="" maxlength="300" readonly required></label>
+      <label class="bk-field">Mobile<input type="tel" name="phone" placeholder="" maxlength="300" readonly></label>
       <label class="bk-field">Service<input type="text" name="service" placeholder="" maxlength="300" required></label>
       <label class="bk-field">Size<input type="text" name="size" placeholder="" maxlength="300"></label>
       <label class="bk-field">Date<input type="text" name="date" placeholder="e.g. Thu, Oct 29, 2026" maxlength="300" required></label>
       <label class="bk-field">Time<input type="text" name="time" placeholder="e.g. 9:00 AM" maxlength="300" required></label>
       <label class="bk-field">Address / building<input type="text" name="address" placeholder="" maxlength="300"></label>
       <label class="bk-field">Price<input type="text" name="price" placeholder="e.g. ₱1,500" maxlength="300" required></label>
-      <label class="bk-field">Payment<input type="text" name="payment" placeholder="e.g. GCash or cash on the day" maxlength="300"></label>
+      <label class="bk-field">Payment<input type="text" name="payment" placeholder="e.g. GCash" maxlength="300"></label>
       <label class="bk-field">Notes for the customer <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="300"></textarea></label>
-      <label class="bk-field">Owner password<input type="password" name="password" autocomplete="current-password" required></label>
       <p id="cf-error" class="bk-error" role="alert"></p>
       <div class="bk-send"><button id="cf-send" class="btn btn-primary btn-lg" type="submit">Send confirmation</button></div>
       <p id="cf-status" class="bk-status" role="status" aria-live="polite"></p>

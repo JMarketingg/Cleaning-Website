@@ -45,11 +45,13 @@
     },
     office: function () { if (!value('office_size')) return 'Pick the size of the office.'; },
     frequency: function () { if (!value('frequency')) return 'Pick how often.'; },
+    payment: function () { if (!value('payment')) return 'Pick how you want to pay.'; },
     when: function () {
       var d = value('date');
       if (!d) return 'Pick a date.';
       if (d < form.elements.date.min) return 'Pick a date from tomorrow onward.';
-      if (!value('time')) return 'Pick a time of day.';
+      if (!value('time')) return 'Pick an open time.';
+      if (takenSlots.indexOf(value('time')) !== -1) return 'That time is full. Pick another time or date.';
     },
     details: function () {
       if (!value('name')) return 'Enter your name.';
@@ -154,7 +156,7 @@
       ['Place', label('place')],
       isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
       ['How often', label('frequency')],
-      ['Preferred date', formatDate(value('date'))],
+      ['Date', formatDate(value('date'))],
       ['Time', label('time')],
       ['Name', value('name')],
       ['Mobile', value('phone')]
@@ -162,7 +164,8 @@
     if (value('building')) lines.push(['Building / street', value('building')]);
     if (value('email')) lines.push(['Email', value('email')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
-    lines.push(['Estimated price', estimatedPrice() || 'We will send you a quote']);
+    lines.push(['Payment', label('payment')]);
+    lines.push(['Price', estimatedPrice() || 'We will send you a quote']);
     return lines;
   }
 
@@ -189,7 +192,8 @@
     var isOffice = value('place') === 'office';
     var extra = [];
     if (value('email')) extra.push('Email: ' + value('email'));
-    if (estimatedPrice()) extra.push('Estimated price: ' + estimatedPrice());
+    if (estimatedPrice()) extra.push('Price: ' + estimatedPrice());
+    extra.push('Payment: ' + label('payment'));
     var body = {
       name: value('name'),
       phone: value('phone'),
@@ -235,6 +239,7 @@
       place: label('place'),
       size: isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
       frequency: label('frequency'),
+      payment: label('payment'),
       date: formatDate(value('date')),
       time: label('time'),
       name: value('name'),
@@ -266,6 +271,38 @@
         statusBox.textContent = "Sorry, we couldn't send your request. Please try again, or text us at " + PHONE + '.';
       });
   });
+
+  // Grey out times that are already booked on the chosen date.
+  var takenSlots = [];
+  var availBox = document.getElementById('bk-avail');
+  function checkAvailability() {
+    var d = value('date');
+    var radios = form.querySelectorAll('input[name="time"]');
+    takenSlots = [];
+    Array.prototype.forEach.call(radios, function (r) {
+      r.disabled = false;
+      r.closest('.bk-option').classList.remove('is-full');
+    });
+    availBox.textContent = '';
+    if (!d) return;
+    availBox.textContent = 'Checking open times…';
+    fetch('/api/availability?date=' + encodeURIComponent(d))
+      .then(function (r) { return r.json(); })
+      .then(function (res) {
+        if (value('date') !== d) return;
+        takenSlots = res.taken || [];
+        Array.prototype.forEach.call(radios, function (r) {
+          var full = takenSlots.indexOf(r.value) !== -1;
+          r.disabled = full;
+          r.closest('.bk-option').classList.toggle('is-full', full);
+          if (full && r.checked) r.checked = false;
+        });
+        availBox.textContent = takenSlots.length >= radios.length
+          ? 'This date is fully booked. Please pick another date.'
+          : (takenSlots.length ? 'Some times are full on this date.' : 'All times are open on this date.');
+      }, function () { availBox.textContent = ''; });
+  }
+  form.elements.date.addEventListener('change', checkAvailability);
 
   form.addEventListener('submit', function (e) { e.preventDefault(); });
 
