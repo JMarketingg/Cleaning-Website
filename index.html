@@ -564,6 +564,7 @@
         result.textContent = 'Pick your area first.';
         return;
       }
+      if (window.thTrack) window.thTrack('area_pick', select.value);
       window.location.href = '/book?area=' + encodeURIComponent(select.value);
     }
     select.addEventListener('change', goToBooking);
@@ -593,5 +594,6 @@
     selectTab(tabs[0]);
   })();
 </script>
+<script src="/track.js" defer></script>
 </body>
 </html>

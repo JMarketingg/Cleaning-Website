@@ -68,6 +68,7 @@
     var visible = steps.filter(applies);
     var pos = visible.indexOf(steps[i]) + 1;
     count.textContent = 'Step ' + pos + ' of ' + visible.length;
+    if (window.thTrack) window.thTrack('quote_step', pos + '. ' + steps[i].getAttribute('data-key'));
     bar.style.width = Math.round((pos / visible.length) * 100) + '%';
     backBtn.hidden = i === 0;
     var last = i === steps.length - 1;
@@ -270,6 +271,7 @@
           : 'Thank you! We got your request. We will reply soon.';
         submitBtn.hidden = true;
         backBtn.hidden = true;
+        if (window.thTrack) window.thTrack('quote_send', label('service'));
       })
       .catch(function () {
         submitBtn.disabled = false;
