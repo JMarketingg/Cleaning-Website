@@ -1,8 +1,7 @@
 // Receives a quote request from /book and sends two emails through Resend:
 // one to the owner, and a confirmation to the customer if they gave an email.
-// It also saves the request in the CRM (Supabase, app.estimates) when that is set up.
-// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL,
-// and for the CRM: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TIDYHAUS_BUSINESS_ID.
+// The browser also sends the request to the CRM's Quote Requests (see book.js).
+// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL.
 
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
@@ -26,43 +25,6 @@ function confirmLink(d) {
   const prefill = { name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
     date: d.date, time: d.time, price: d.price, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
   return 'https://tidyhausph.com/confirm#' + Buffer.from(JSON.stringify(prefill)).toString('base64url');
-}
-
-// Saves the request as a new, unpriced estimate so it shows up in the CRM.
-// Never blocks the emails: if the CRM is down, the owner still gets the request by email.
-async function saveToCrm(d) {
-  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, TIDYHAUS_BUSINESS_ID } = process.env;
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !TIDYHAUS_BUSINESS_ID) return;
-  const description = Object.keys(FIELDS)
-    .filter((k) => d[k] && !['name', 'phone', 'email'].includes(k))
-    .map((k) => `${FIELDS[k]}: ${d[k]}`).join('\n');
-  const row = {
-    business_id: TIDYHAUS_BUSINESS_ID,
-    service_label: d.service,
-    customer_name: d.name,
-    customer_phone: d.phone,
-    customer_email: d.email || null,
-    customer_address: d.building || null,
-    customer_city: d.area || null,
-    description,
-    customer_note: d.notes || null,
-    preferred_slots: [{ date: d.date, time: d.time || null }],
-    tax_rate: 0,
-    source: 'website_form',
-    status: 'unsent'
-  };
-  const r = await fetch(`${SUPABASE_URL}/rest/v1/estimates`, {
-    method: 'POST',
-    headers: {
-      apikey: SUPABASE_SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-      'Content-Type': 'application/json',
-      'Content-Profile': 'app',
-      Prefer: 'return=minimal'
-    },
-    body: JSON.stringify(row)
-  });
-  if (!r.ok) throw new Error(`CRM ${r.status}: ${await r.text()}`);
 }
 
 async function sendEmail(payload) {
@@ -107,12 +69,6 @@ module.exports = async function handler(req, res) {
   }
 
   const rows = Object.keys(FIELDS).filter((k) => data[k]).map((k) => [FIELDS[k], data[k]]);
-
-  try {
-    await saveToCrm(data);
-  } catch (e) {
-    console.error(e);
-  }
 
   try {
     await sendEmail({

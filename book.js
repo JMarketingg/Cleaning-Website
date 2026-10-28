@@ -182,6 +182,37 @@
 
   var submitBtn = document.getElementById('bk-submit');
   var statusBox = document.getElementById('bk-status');
+  // Copy of the request for the CRM's Quote Requests list. It never blocks the
+  // customer: the emails from /api/quote are the main record.
+  var CRM_URL = 'https://tidyhaus-crm.vercel.app/api/quote';
+  function sendToCrm() {
+    var isOffice = value('place') === 'office';
+    var extra = [];
+    if (value('email')) extra.push('Email: ' + value('email'));
+    if (estimatedPrice()) extra.push('Estimated price: ' + estimatedPrice());
+    var body = {
+      name: value('name'),
+      phone: value('phone'),
+      area: value('area') === 'other' ? value('area_other') : label('area'),
+      service: label('service'),
+      place: label('place'),
+      bedrooms: isOffice ? '' : label('bedrooms'),
+      bathrooms: isOffice ? '' : label('bathrooms'),
+      office_size: isOffice ? label('office_size') : '',
+      frequency: label('frequency'),
+      date: value('date'),
+      time: label('time'),
+      building: value('building'),
+      notes: [value('notes')].concat(extra).filter(Boolean).join('\n'),
+      channel: 'website',
+      ref: document.referrer
+    };
+    try {
+      fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true })
+        .catch(function () {});
+    } catch (e) {}
+  }
+
   // Until the email service is set up, Submit opens a pre-filled text message instead.
   var serverReady = false;
   fetch('/api/quote').then(function (r) { return r.json(); })
@@ -214,6 +245,7 @@
       price: estimatedPrice(),
       website: value('website')
     };
+    sendToCrm();
     submitBtn.disabled = true;
     statusBox.className = 'bk-status';
     statusBox.textContent = 'Sending your request…';
