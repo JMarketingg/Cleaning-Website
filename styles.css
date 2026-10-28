@@ -966,3 +966,4 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .prose h2 { font-size: 1.35rem; margin-top: 36px; }
 .prose ul { padding-left: 22px; }
 .prose li { margin-bottom: 6px; }
+.bk-save { margin-left: auto; padding: 2px 10px; border-radius: 999px; background: var(--beige); color: var(--forest); font-style: normal; font-size: 0.8rem; font-weight: 700; }

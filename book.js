@@ -121,12 +121,25 @@
   };
   var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'deep' };
 
+  // Discount per visit for regular cleaning.
+  var DISCOUNTS = {
+    weekly: { rate: 0.15, label: '15% weekly discount' },
+    biweekly: { rate: 0.10, label: '10% every-2-weeks discount' },
+    monthly: { rate: 0.05, label: '5% monthly discount' }
+  };
+
   function estimatedPrice() {
     var table = PRICES[PRICE_TABLE[value('service')]];
     if (!table || value('place') === 'office') return '';
     var amount = table[value('bedrooms')];
-    return amount ? '₱' + amount.toLocaleString('en-PH') : '';
+    if (!amount) return '';
+    var discount = DISCOUNTS[value('frequency')];
+    if (!discount) return peso(amount);
+    // Rounded to the nearest ₱10.
+    var discounted = Math.round(amount * (1 - discount.rate) / 10) * 10;
+    return peso(discounted) + ' (' + discount.label + ', regular ' + peso(amount) + ')';
   }
+  function peso(n) { return '₱' + n.toLocaleString('en-PH'); }
 
   function summaryLines() {
     var isOffice = value('place') === 'office';
