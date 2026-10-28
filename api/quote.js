@@ -5,7 +5,7 @@
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
   date: 'Preferred date', time: 'Time', name: 'Name', phone: 'Mobile', email: 'Email',
-  building: 'Building / street', notes: 'Notes'
+  building: 'Building / street', notes: 'Notes', price: 'Estimated price'
 };
 
 function escapeHtml(s) {
@@ -22,7 +22,7 @@ function table(rows) {
 // The details go after "#" so they never reach the server or its logs.
 function confirmLink(d) {
   const prefill = { name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
-    date: d.date, time: d.time, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
+    date: d.date, time: d.time, price: d.price, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
   return 'https://tidyhausph.com/confirm#' + Buffer.from(JSON.stringify(prefill)).toString('base64url');
 }
 
@@ -91,7 +91,7 @@ module.exports = async function handler(req, res) {
         subject: 'We got your cleaning quote request — TidyHaus',
         html: `<div style="font-family:Arial,sans-serif;color:#26372D;font-size:15px;line-height:1.5">
 <p>Hi ${escapeHtml(data.name)},</p>
-<p>Thanks for your quote request. We'll reply with availability and a price soon. This is not a confirmed booking yet.</p>
+<p>Thanks for your quote request. We'll reply with availability and your final price soon. This is not a confirmed booking yet.</p>
 ${table(rows)}
 <p>Questions? Text or call us at +63 992 309 5621.</p>
 <p>TidyHaus Home Cleaning<br><a href="https://tidyhausph.com" style="color:#344B38">tidyhausph.com</a></p></div>`

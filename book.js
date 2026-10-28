@@ -113,6 +113,21 @@
     return d.toLocaleDateString('en-PH', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
   }
 
+  // Estimated price per visit, by service and number of bedrooms.
+  // Condo and Airbnb use standard prices; move-in/out uses deep prices. Offices are quoted by hand.
+  var PRICES = {
+    standard: { studio: 1300, '1': 1500, '2': 1900, '3': 2500, '4+': 3100 },
+    deep: { studio: 1900, '1': 2400, '2': 3000, '3': 3800, '4+': 4600 }
+  };
+  var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'deep' };
+
+  function estimatedPrice() {
+    var table = PRICES[PRICE_TABLE[value('service')]];
+    if (!table || value('place') === 'office') return '';
+    var amount = table[value('bedrooms')];
+    return amount ? '₱' + amount.toLocaleString('en-PH') : '';
+  }
+
   function summaryLines() {
     var isOffice = value('place') === 'office';
     var area = value('area') === 'other' ? value('area_other') : label('area');
@@ -130,6 +145,7 @@
     if (value('building')) lines.push(['Building / street', value('building')]);
     if (value('email')) lines.push(['Email', value('email')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
+    lines.push(['Estimated price', estimatedPrice() || 'We will send you a quote']);
     return lines;
   }
 
@@ -178,6 +194,7 @@
       email: value('email'),
       building: value('building'),
       notes: value('notes'),
+      price: estimatedPrice(),
       website: value('website')
     };
     submitBtn.disabled = true;
