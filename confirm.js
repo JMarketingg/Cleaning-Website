@@ -38,7 +38,8 @@
         sendBtn.disabled = false;
         if (d.ok) {
           statusBox.classList.add('is-ok');
-          statusBox.textContent = 'Confirmation sent to ' + payload.email + '. A copy went to your inbox.';
+          statusBox.textContent = 'Confirmation sent to ' + payload.email + '. A copy went to your inbox. ' +
+            (d.crmUpdated ? 'Marked as booked in the CRM.' : 'Update this request in the CRM by hand.');
           sendBtn.hidden = true;
         } else {
           statusBox.classList.add('is-error');

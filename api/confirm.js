@@ -1,5 +1,7 @@
 // Sends a booking confirmation email to a customer. Used by /confirm, the owner-only page.
-// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, ADMIN_PASSWORD.
+// After sending, it marks the customer's open request in the CRM's Quote Requests as booked.
+// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, ADMIN_PASSWORD,
+// and for the CRM: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 const crypto = require('crypto');
 
 function escapeHtml(s) {
@@ -19,6 +21,41 @@ async function sendEmail(payload) {
     body: JSON.stringify(payload)
   });
   if (!r.ok) throw new Error(`Resend ${r.status}: ${await r.text()}`);
+}
+
+// Same format the CRM stores phone numbers in.
+function phPhone(raw) {
+  const d = String(raw || '').replace(/\D/g, '');
+  if (/^09\d{9}$/.test(d)) return '+63' + d.slice(1);
+  if (/^639\d{9}$/.test(d)) return '+' + d;
+  if (/^9\d{9}$/.test(d)) return '+63' + d;
+  return null;
+}
+
+// Marks this customer's latest open quote request as booked. Returns true if one was updated.
+async function markBookedInCrm(phone) {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  const p = phPhone(phone);
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !p) return false;
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    'Accept-Profile': 'app',
+    'Content-Profile': 'app',
+    'Content-Type': 'application/json'
+  };
+  const base = `${SUPABASE_URL}/rest/v1/quote_requests`;
+  const find = await fetch(`${base}?select=id&phone=eq.${encodeURIComponent(p)}&status=in.(new,contacted)&order=created_at.desc&limit=1`, { headers });
+  if (!find.ok) throw new Error(`CRM ${find.status}: ${await find.text()}`);
+  const rows = await find.json();
+  if (!rows.length) return false;
+  const upd = await fetch(`${base}?id=eq.${rows[0].id}`, {
+    method: 'PATCH',
+    headers: { ...headers, Prefer: 'return=minimal' },
+    body: JSON.stringify({ status: 'booked', updated_at: new Date().toISOString() })
+  });
+  if (!upd.ok) throw new Error(`CRM ${upd.status}: ${await upd.text()}`);
+  return true;
 }
 
 const FIELDS = ['name', 'email', 'phone', 'service', 'size', 'date', 'time', 'address', 'price', 'payment', 'notes'];
@@ -78,5 +115,12 @@ ${table}
     console.error(e);
     return res.status(502).json({ ok: false, error: 'Could not send the email' });
   }
-  return res.status(200).json({ ok: true });
+  let crmUpdated = false;
+  try {
+    crmUpdated = await markBookedInCrm(d.phone);
+  } catch (e) {
+    // The confirmation already went out; the owner can update the CRM by hand.
+    console.error(e);
+  }
+  return res.status(200).json({ ok: true, crmUpdated });
 };
