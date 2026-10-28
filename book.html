@@ -141,14 +141,11 @@
     </fieldset>
     <fieldset class="bk-step" data-key="when" data-auto="false" hidden>
       <legend class="bk-question" tabindex="-1">When would you like us to come?</legend>
-      <p class="bk-hint">Pick a date, then an open time. Full times are greyed out.</p>
+      <p class="bk-hint">Pick a date, then an open start time. Times that are taken are greyed out.</p>
       <label class="bk-field">Date<input type="date" name="date" required></label>
-      <p class="bk-sub">Time</p>
+      <p class="bk-sub">Start time</p>
       <p id="bk-avail" class="bk-hint" role="status" aria-live="polite"></p>
-      <div class="bk-options">
-        <label class="bk-option"><input type="radio" name="time" value="morning" data-label="Morning (8 AM to 12 PM)"><span>Morning (8 AM to 12 PM)</span></label>
-        <label class="bk-option"><input type="radio" name="time" value="afternoon" data-label="Afternoon (1 PM to 5 PM)"><span>Afternoon (1 PM to 5 PM)</span></label>
-      </div>
+      <div id="bk-times" class="bk-options"></div>
     </fieldset>
     <fieldset class="bk-step" data-key="payment" data-auto="true" hidden>
       <legend class="bk-question" tabindex="-1">How would you like to pay?</legend>
@@ -168,7 +165,7 @@
       <label class="bk-hp" aria-hidden="true">Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
       <label class="bk-field">Building or street <span class="bk-optional">(optional)</span><input type="text" name="building" autocomplete="address-line1" maxlength="120"></label>
       <label class="bk-field">Anything we should know? <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
-      <p class="bk-hint">Please don't include door codes or building access details.</p>
+      <p class="bk-hint">For safety, don't include door codes here. Give them in person or leave them with your building's guard or reception.</p>
     </fieldset>
     <div class="bk-step" data-key="review" hidden>
       <h2 class="bk-question" tabindex="-1">Review and book</h2>

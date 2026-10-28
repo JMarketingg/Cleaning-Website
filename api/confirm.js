@@ -104,7 +104,7 @@ module.exports = async function handler(req, res) {
 <p>Hi ${escapeHtml(d.name)},</p>
 <p>Your cleaning is <strong>confirmed</strong>. Here are the details:</p>
 ${table}
-<p>If your building needs our cleaner's name or ID, we'll send it before the visit. Please don't send door codes by message.</p>
+<p>If your building needs our cleaner's name or ID, we'll send it before the visit. For safety, please give door codes in person or leave them with your building's guard or reception, not by message.</p>
 <p>If we miss anything on the checklist, tell us within 24 hours and we'll come back to fix it for free.</p>
 <p>Need to change something? Text or call us at +63 992 309 5621, or reply to this email.</p>
 <p>TidyHaus Home Cleaning<br><a href="https://tidyhausph.com" style="color:#344B38">tidyhausph.com</a></p></div>`;

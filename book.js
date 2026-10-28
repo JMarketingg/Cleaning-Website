@@ -50,8 +50,8 @@
       var d = value('date');
       if (!d) return 'Pick a date.';
       if (d < form.elements.date.min) return 'Pick a date from tomorrow onward.';
-      if (!value('time')) return 'Pick an open time.';
-      if (takenSlots.indexOf(value('time')) !== -1) return 'That time is full. Pick another time or date.';
+      if (!value('time')) return 'Pick an open start time.';
+      if (openStarts.indexOf(Number(value('time'))) === -1) return 'That time is taken. Pick another time or date.';
     },
     details: function () {
       if (!value('name')) return 'Enter your name.';
@@ -272,36 +272,81 @@
       });
   });
 
-  // Grey out times that are already booked on the chosen date.
-  var takenSlots = [];
+  // How long a clean takes for 1 cleaner, in hours. Rough industry figures; adjust as we learn.
+  var HOURS = {
+    standard: { studio: 2, '1': 2.5, '2': 3, '3': 4, '4+': 5 },
+    deep: { studio: 3, '1': 4, '2': 5, '3': 6, '4+': 8 }
+  };
+  var EXTRA_BATHROOM_HOURS = { standard: 0.5, deep: 1 };
+  var EXTRA_BATHROOMS = { '2': 1, '3+': 2 };
+  var OFFICE_HOURS = { small: 3, medium: 5, large: 8 };
+  var DAY_START = 8 * 60, DAY_END = 18 * 60, GAP = 60; // Minutes; GAP is the break and travel between jobs.
+
+  function durationMinutes() {
+    if (value('place') === 'office') return (OFFICE_HOURS[value('office_size')] || 4) * 60;
+    var kind = PRICE_TABLE[value('service')] || 'standard';
+    var h = HOURS[kind][value('bedrooms')] || 3;
+    h += (EXTRA_BATHROOMS[value('bathrooms')] || 0) * EXTRA_BATHROOM_HOURS[kind];
+    return h * 60;
+  }
+  function clock(m) {
+    var h = Math.floor(m / 60), min = m % 60;
+    return ((h + 11) % 12 + 1) + ':' + (min < 10 ? '0' : '') + min + (h < 12 ? ' AM' : ' PM');
+  }
+  function hoursText(m) { var h = m / 60; return h + (h === 1 ? ' hour' : ' hours'); }
+
+  // Show the start times that still fit this clean on the chosen date.
+  var openStarts = [];
+  var busy = [];
   var availBox = document.getElementById('bk-avail');
+  var timesBox = document.getElementById('bk-times');
+  function renderTimes() {
+    var len = durationMinutes();
+    var picked = value('time');
+    timesBox.innerHTML = '';
+    openStarts = [];
+    if (!value('date')) return;
+    for (var s = DAY_START; s + len <= DAY_END; s += 60) {
+      var free = busy.every(function (b) { return s + len + GAP <= b[0] || s >= b[1] + GAP; });
+      if (free) openStarts.push(s);
+      var text = clock(s) + ' to ' + clock(s + len);
+      var opt = document.createElement('label');
+      opt.className = 'bk-option' + (free ? '' : ' is-full');
+      var input = document.createElement('input');
+      input.type = 'radio';
+      input.name = 'time';
+      input.value = String(s);
+      input.disabled = !free;
+      input.checked = free && picked === String(s);
+      input.setAttribute('data-label', text + ' (about ' + hoursText(len) + ')');
+      var span = document.createElement('span');
+      span.textContent = text;
+      opt.appendChild(input);
+      opt.appendChild(span);
+      timesBox.appendChild(opt);
+    }
+    availBox.textContent = openStarts.length
+      ? 'Your clean takes about ' + hoursText(len) + '. Pick a start time.'
+      : 'This date is fully booked. Please pick another date.';
+  }
   function checkAvailability() {
     var d = value('date');
-    var radios = form.querySelectorAll('input[name="time"]');
-    takenSlots = [];
-    Array.prototype.forEach.call(radios, function (r) {
-      r.disabled = false;
-      r.closest('.bk-option').classList.remove('is-full');
-    });
-    availBox.textContent = '';
-    if (!d) return;
+    busy = [];
+    renderTimes();
+    if (!d) { availBox.textContent = ''; return; }
     availBox.textContent = 'Checking open times…';
     fetch('/api/availability?date=' + encodeURIComponent(d))
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (value('date') !== d) return;
-        takenSlots = res.taken || [];
-        Array.prototype.forEach.call(radios, function (r) {
-          var full = takenSlots.indexOf(r.value) !== -1;
-          r.disabled = full;
-          r.closest('.bk-option').classList.toggle('is-full', full);
-          if (full && r.checked) r.checked = false;
-        });
-        availBox.textContent = takenSlots.length >= radios.length
-          ? 'This date is fully booked. Please pick another date.'
-          : (takenSlots.length ? 'Some times are full on this date.' : 'All times are open on this date.');
-      }, function () { availBox.textContent = ''; });
+        busy = res.busy || [];
+        renderTimes();
+      }, function () { renderTimes(); });
   }
+  // The length of the clean depends on earlier answers, so redraw when they change.
+  form.addEventListener('change', function (e) {
+    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size'].indexOf(e.target.name) !== -1) renderTimes();
+  });
   form.elements.date.addEventListener('change', checkAvailability);
 
   form.addEventListener('submit', function (e) { e.preventDefault(); });
