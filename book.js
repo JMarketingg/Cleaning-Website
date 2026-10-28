@@ -1,6 +1,5 @@
 (function () {
   var PHONE = '+639923095621';
-  var FACEBOOK = 'https://www.facebook.com/profile.php?id=61595598907795';
 
   var form = document.getElementById('booking');
   var steps = Array.prototype.slice.call(form.querySelectorAll('.bk-step'));
@@ -56,6 +55,8 @@
       if (!value('name')) return 'Enter your name.';
       var phone = value('phone').replace(/[\s()-]/g, '');
       if (!/^(\+?63|0)9\d{9}$/.test(phone)) return 'Enter a mobile number like 0917 123 4567.';
+      var email = value('email');
+      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
     }
   };
 
@@ -127,6 +128,7 @@
       ['Mobile', value('phone')]
     ];
     if (value('building')) lines.push(['Building / street', value('building')]);
+    if (value('email')) lines.push(['Email', value('email')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
     return lines;
   }
@@ -143,25 +145,60 @@
       list.appendChild(dt);
       list.appendChild(dd);
     });
-    var text = 'Hi TidyHaus! I would like a quote.\n' + lines.map(function (l) { return l[0] + ': ' + l[1]; }).join('\n');
-    document.getElementById('bk-sms').href = 'sms:' + PHONE + '?&body=' + encodeURIComponent(text);
-    form.dataset.message = text;
   }
 
-  document.getElementById('bk-fb').addEventListener('click', function () {
-    var note = document.getElementById('bk-copied');
-    var text = form.dataset.message || '';
-    function done(ok) {
-      note.textContent = ok
-        ? 'Your request is copied. Paste it in the Facebook chat that opens.'
-        : 'Opening Facebook. Please type your request in the chat.';
+  var submitBtn = document.getElementById('bk-submit');
+  var statusBox = document.getElementById('bk-status');
+  // Until the email service is set up, Submit opens a pre-filled text message instead.
+  var serverReady = false;
+  fetch('/api/quote').then(function (r) { return r.json(); })
+    .then(function (d) { serverReady = Boolean(d && d.ready); }, function () {});
+  function textFallback() {
+    var text = 'Hi TidyHaus! I would like a quote.\n' +
+      summaryLines().map(function (l) { return l[0] + ': ' + l[1]; }).join('\n');
+    window.location.href = 'sms:' + PHONE + '?&body=' + encodeURIComponent(text);
+  }
+
+  submitBtn.addEventListener('click', function () {
+    if (!serverReady) {
+      textFallback();
+      return;
     }
-    if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(text).then(function () { done(true); }, function () { done(false); });
-    } else {
-      done(false);
-    }
-    window.open(FACEBOOK, '_blank', 'noopener');
+    var isOffice = value('place') === 'office';
+    var payload = {
+      area: value('area') === 'other' ? value('area_other') : label('area'),
+      service: label('service'),
+      place: label('place'),
+      size: isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
+      frequency: label('frequency'),
+      date: formatDate(value('date')),
+      time: label('time'),
+      name: value('name'),
+      phone: value('phone'),
+      email: value('email'),
+      building: value('building'),
+      notes: value('notes'),
+      website: value('website')
+    };
+    submitBtn.disabled = true;
+    statusBox.className = 'bk-status';
+    statusBox.textContent = 'Sending your request…';
+    fetch('/api/quote', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      .then(function (r) { return r.json().then(function (d) { return r.ok && d.ok; }); })
+      .then(function (ok) {
+        if (!ok) throw new Error('failed');
+        statusBox.classList.add('is-ok');
+        statusBox.textContent = payload.email
+          ? 'Thank you! We got your request and sent a confirmation to your email. We will reply soon.'
+          : 'Thank you! We got your request. We will reply soon.';
+        submitBtn.hidden = true;
+        backBtn.hidden = true;
+      })
+      .catch(function () {
+        submitBtn.disabled = false;
+        statusBox.classList.add('is-error');
+        statusBox.textContent = "Sorry, we couldn't send your request. Please try again, or text us at " + PHONE + '.';
+      });
   });
 
   form.addEventListener('submit', function (e) { e.preventDefault(); });

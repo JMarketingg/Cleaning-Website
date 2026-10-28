@@ -888,12 +888,16 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-error:not(:empty) { margin-top: 4px; }
 .bk-nav { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; }
 .bk-nav .btn { min-width: 130px; }
-.bk-nav .btn[hidden] { display: none; }
+.bk-nav .btn[hidden], .bk-send .btn[hidden] { display: none; }
 .bk-nav #bk-next { margin-left: auto; }
 .bk-summary { display: grid; grid-template-columns: max-content 1fr; gap: 8px 18px; margin: 0 0 22px; padding: 18px; background: var(--cream); border-radius: 12px; }
 .bk-summary dt { font-weight: 700; color: var(--evergreen); }
 .bk-summary dd { margin: 0; color: var(--evergreen); overflow-wrap: anywhere; }
-.bk-send { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 12px; }
+.bk-send { display: flex; justify-content: center; margin-bottom: 12px; }
+.bk-status { text-align: center; font-weight: 600; margin: 0; }
+.bk-status.is-ok { color: var(--forest); }
+.bk-status.is-error { color: #8A2B1D; }
+.bk-hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
 @media (max-width: 560px) {
   .bk-card { padding: 22px; border-radius: 16px; }
   .bk-two { grid-template-columns: 1fr; }

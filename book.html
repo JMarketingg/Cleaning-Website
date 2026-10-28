@@ -155,20 +155,20 @@
       <p class="bk-hint">We'll reply with availability and a quote.</p>
       <label class="bk-field">Your name<input type="text" name="name" autocomplete="name" maxlength="80" required></label>
       <label class="bk-field">Mobile number<input type="tel" name="phone" autocomplete="tel" inputmode="tel" placeholder="0917 123 4567" maxlength="20" required></label>
+      <label class="bk-field">Email <span class="bk-optional">(optional, for your confirmation)</span><input type="email" name="email" autocomplete="email" maxlength="120"></label>
+      <label class="bk-hp" aria-hidden="true">Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
       <label class="bk-field">Building or street <span class="bk-optional">(optional)</span><input type="text" name="building" autocomplete="address-line1" maxlength="120"></label>
       <label class="bk-field">Anything we should know? <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
       <p class="bk-hint">Please don't include door codes or building access details.</p>
     </fieldset>
     <div class="bk-step" data-key="review" hidden>
       <h2 class="bk-question" tabindex="-1">Send your quote request</h2>
-      <p class="bk-hint">Check your details, then send them to us. This is a quote request, not a confirmed booking. We'll reply with availability and a price.</p>
+      <p class="bk-hint">Check your details, then submit. This is a quote request, not a confirmed booking. We'll reply with availability and a price.</p>
       <dl id="bk-summary" class="bk-summary"></dl>
       <div class="bk-send">
-        <a id="bk-sms" class="btn btn-primary btn-lg" href="#">Send by text message</a>
-        <button id="bk-fb" class="btn btn-ghost btn-lg" type="button">Send on Facebook<span class="visually-hidden"> (opens in a new tab)</span></button>
+        <button id="bk-submit" class="btn btn-primary btn-lg" type="button">Submit request</button>
       </div>
-      <p id="bk-copied" class="bk-hint" role="status" aria-live="polite"></p>
-      <p class="bk-hint">Text message works on phones. On a computer, use Facebook.</p>
+      <p id="bk-status" class="bk-status" role="status" aria-live="polite"></p>
     </div>
       <p id="bk-error" class="bk-error" role="alert"></p>
       <div class="bk-nav">
