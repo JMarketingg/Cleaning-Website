@@ -234,7 +234,9 @@
     window.location.href = 'sms:' + PHONE + '?&body=' + encodeURIComponent(text);
   }
 
+  var sending = false;
   submitBtn.addEventListener('click', function () {
+    if (sending) return;
     if (!serverReady) {
       textFallback();
       return;
@@ -257,6 +259,7 @@
       price: estimatedPrice(),
       website: value('website')
     };
+    sending = true;
     sendToCrm();
     submitBtn.disabled = true;
     statusBox.className = 'bk-status';
@@ -275,6 +278,7 @@
       })
       .catch(function () {
         submitBtn.disabled = false;
+        sending = false;
         statusBox.classList.add('is-error');
         statusBox.textContent = "Sorry, we couldn't send your request. Please try again, or text us at " + PHONE + '.';
       });
