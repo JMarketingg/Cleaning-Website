@@ -3,6 +3,7 @@
 // Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET,
 // and for the CRM: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 const crypto = require('crypto');
+const SIGNATURE = require('./_signature');
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -107,7 +108,7 @@ ${table}
 <p>If your building needs our cleaner's name or ID, we'll send it before the visit. For safety, please give door codes in person or leave them with your building's guard or reception, not by message.</p>
 <p>If we miss anything on the checklist, tell us within 24 hours and we'll come back to fix it for free.</p>
 <p>Need to change something? Text or call us at +63 992 309 5621, or reply to this email.</p>
-<p>TidyHaus Home Cleaning<br><a href="https://tidyhausph.com" style="color:#344B38">tidyhausph.com</a></p></div>`;
+${SIGNATURE}</div>`;
 
   try {
     await sendEmail({

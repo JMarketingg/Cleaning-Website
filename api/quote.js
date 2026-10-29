@@ -3,6 +3,7 @@
 // The browser also sends the request to the CRM's Quote Requests (see book.js).
 // Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET.
 const crypto = require('crypto');
+const SIGNATURE = require('./_signature');
 
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
@@ -99,7 +100,7 @@ module.exports = async function handler(req, res) {
 <p>Thanks for your booking request. We'll send your booking confirmation and payment details soon.</p>
 ${table(rows)}
 <p>Questions? Text or call us at +63 992 309 5621.</p>
-<p>TidyHaus Home Cleaning<br><a href="https://tidyhausph.com" style="color:#344B38">tidyhausph.com</a></p></div>`
+${SIGNATURE}</div>`
       });
     } catch (e) {
       // The owner already has the request, so a failed confirmation isn't fatal.
