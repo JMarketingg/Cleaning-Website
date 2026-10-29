@@ -978,16 +978,8 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-total-amount { font-size: clamp(2.2rem, 7vw, 3rem); font-weight: 800; line-height: 1.15; margin: 4px 0 !important; }
 .bk-total-note { font-size: 0.95rem; }
 
-/* Map loads on tap (see site.js) */
-.map-facade { position: relative; min-height: 220px; }
-.map-facade iframe[data-src] { visibility: hidden; }
-.map-load {
-  position: absolute; inset: 0; z-index: 1; width: 100%; border: 0; cursor: pointer;
-  font: inherit; font-weight: 700; font-size: 1.05rem; color: var(--white);
-  background: var(--forest) url("images/map-pin.svg") center 38% / 44px no-repeat;
-  padding-top: 70px;
-}
-.map-load:hover, .map-load:focus-visible { background-color: var(--evergreen); }
+/* Map loads just before it scrolls into view (see site.js) */
+.map-facade { min-height: 220px; background: var(--forest); }
 
 /* Second booking box at the bottom of the page */
 .cta-book { flex: 1 1 320px; max-width: 440px; background: var(--white); color: var(--evergreen); }
