@@ -3,7 +3,7 @@
 // The browser also sends the request to the CRM's Quote Requests (see book.js).
 // Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET.
 const crypto = require('crypto');
-const SIGNATURE = require('./_signature');
+const mail = require('./_email');
 
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
@@ -25,7 +25,7 @@ function table(rows) {
 // The details go after "#" so they never reach the server or its logs.
 // The signature proves the link came from us, so /confirm needs no password.
 function confirmLink(d) {
-  const prefill = { name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
+  const prefill = { ref: d.ref, name: d.name, email: d.email, phone: d.phone, service: d.service, size: d.size,
     date: d.date, time: d.time, price: d.price, payment: d.payment, address: [d.building, d.area].filter(Boolean).join(', '), notes: d.notes };
   const b64 = Buffer.from(JSON.stringify(prefill)).toString('base64url');
   const sig = crypto.createHmac('sha256', process.env.CONFIRM_SECRET).update(b64).digest('base64url');
@@ -73,14 +73,15 @@ module.exports = async function handler(req, res) {
     return res.status(400).json({ ok: false, error: 'Invalid email' });
   }
 
-  const rows = Object.keys(FIELDS).filter((k) => data[k]).map((k) => [FIELDS[k], data[k]]);
+  data.ref = mail.bookingRef();
+  const rows = [['Booking reference', data.ref]].concat(Object.keys(FIELDS).filter((k) => data[k]).map((k) => [FIELDS[k], data[k]]));
 
   try {
     await sendEmail({
       from: FROM_EMAIL,
       to: OWNER_EMAIL,
       reply_to: data.email || undefined,
-      subject: `New booking request: ${data.service}, ${data.area || ''} (${data.name})`,
+      subject: `New booking request ${data.ref}: ${data.service}, ${data.area || ''} (${data.name})`,
       html: `<h2 style="font-family:Arial,sans-serif;color:#26372D">New booking request</h2>${table(rows)}
 <p style="margin-top:20px"><a href="${confirmLink(data)}" style="background:#344B38;color:#ffffff;padding:12px 22px;border-radius:999px;text-decoration:none;font-family:Arial,sans-serif;font-weight:bold">Confirm this booking</a></p>`
     });
@@ -94,13 +95,25 @@ module.exports = async function handler(req, res) {
       await sendEmail({
         from: FROM_EMAIL,
         to: data.email,
-        subject: 'We got your cleaning booking request — TidyHaus',
-        html: `<div style="font-family:Arial,sans-serif;color:#26372D;font-size:15px;line-height:1.5">
-<p>Hi ${escapeHtml(data.name)},</p>
-<p>Thanks for your booking request. We'll send your booking confirmation and payment details soon.</p>
-${table(rows)}
-<p>Questions? Text or call us at +63 992 309 5621.</p>
-${SIGNATURE}</div>`
+        reply_to: OWNER_EMAIL,
+        subject: `We got your booking request (${data.ref}) — TidyHaus`,
+        html: mail.layout({
+          preheader: `Request ${data.ref}: ${data.service} on ${data.date}. We'll confirm soon.`,
+          badge: 'Booking request received',
+          title: `Thanks, ${data.name.split(' ')[0]}! We got your request.`,
+          intro: `Your booking reference is <strong style="white-space:nowrap;">${mail.esc(data.ref)}</strong>. Keep it handy if you text or call us. This is a request, not a confirmed booking yet. We'll confirm your date and time soon.`,
+          body: mail.card([
+            ['Date', data.date], ['Time', data.time], ['Service', data.service], ['Place', data.place], ['Size', data.size],
+            ['How often', data.frequency], ['Address', [data.building, data.area].filter(Boolean).join(', ')],
+            ['Price per visit', data.price], ['Payment', data.payment]
+          ]) +
+          mail.section('What happens next', mail.list([
+            'We check your date, time and address.',
+            'We email your booking confirmation with your payment details.',
+            'Our cleaner arrives and follows our room-by-room checklist.'
+          ], true)) +
+          mail.section('Need to change something?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)
+        })
       });
     } catch (e) {
       // The owner already has the request, so a failed confirmation isn't fatal.

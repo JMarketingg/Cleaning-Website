@@ -45,7 +45,7 @@
       </div>
       <a href="/#how">How It Works</a>
       <a href="/#faq">FAQ</a>
-      <a href="/book" class="btn btn-primary btn-small">Request a Quote</a>
+      <a href="/book" class="btn btn-primary btn-small">Book Online</a>
     </nav>
   </div>
 </header>
@@ -66,7 +66,7 @@
       <label class="bk-field">Address / building<input type="text" name="address" placeholder="" maxlength="300"></label>
       <label class="bk-field">Price<input type="text" name="price" placeholder="e.g. ₱1,500" maxlength="300" required></label>
       <label class="bk-field">Payment<input type="text" name="payment" placeholder="e.g. GCash" maxlength="300"></label>
-      <label class="bk-field">Notes for the customer <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="300"></textarea></label>
+      <label class="bk-field">Payment details and notes for the customer <span class="bk-optional">(for example, your GCash or Maya number)</span><textarea name="notes" rows="3" maxlength="300"></textarea></label>
       <p id="cf-error" class="bk-error" role="alert"></p>
       <div class="bk-send"><button id="cf-send" class="btn btn-primary btn-lg" type="submit">Send confirmation</button></div>
       <p id="cf-status" class="bk-status" role="status" aria-live="polite"></p>
@@ -114,8 +114,9 @@
       <p><a href="https://www.tiktok.com/@tidyhauscleaningph" target="_blank" rel="noopener noreferrer">TikTok<span class="visually-hidden"> (opens in a new tab)</span></a></p>
       <p><a href="/privacy">Privacy Notice</a></p>
     </div>
-    <div class="footer-map">
-      <iframe src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3861.6254209645313!2d121.03669389999999!3d14.563400399999995!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3397c971803a8a6b%3A0xc92bcce00e20a95b!2sTidyHaus%20Home%20Cleaning!5e0!3m2!1sen!2sph!4v1792939279736!5m2!1sen!2sph" title="TidyHaus Home Cleaning on Google Maps" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
+    <div class="footer-map map-facade">
+      <button type="button" class="map-load">Show map</button>
+      <iframe data-src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3861.6254209645313!2d121.03669389999999!3d14.563400399999995!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3397c971803a8a6b%3A0xc92bcce00e20a95b!2sTidyHaus%20Home%20Cleaning!5e0!3m2!1sen!2sph!4v1792939279736!5m2!1sen!2sph" title="TidyHaus Home Cleaning on Google Maps" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
     </div>
     <p class="footer-copy">&copy; 2026 TidyHaus</p>
   </div>
@@ -163,5 +164,6 @@
   })();
 </script>
 <script src="confirm.js"></script>
+<script src="/site.js" defer></script>
 </body>
 </html>
