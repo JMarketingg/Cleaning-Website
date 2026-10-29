@@ -17,9 +17,15 @@
     Array.prototype.forEach.call(maps, loadMap);
   }
 
-  // Phones: show the Menu button only after people scroll down a little.
+  // Phones: the top bar shows after people scroll past the first screen,
+  // and hides again from the bottom booking box down to the end of the page.
   var root = document.documentElement;
-  function onScroll() { root.classList.toggle('scrolled', window.scrollY > 120); }
-  onScroll();
-  window.addEventListener('scroll', onScroll, { passive: true });
+  var bookBox = document.getElementById('book-now');
+  function update() {
+    var reachedBookBox = bookBox && bookBox.getBoundingClientRect().top < window.innerHeight * 0.5;
+    root.classList.toggle('show-header', window.scrollY > window.innerHeight * 0.6 && !reachedBookBox);
+  }
+  update();
+  window.addEventListener('scroll', update, { passive: true });
+  window.addEventListener('resize', update);
 })();

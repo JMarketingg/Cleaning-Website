@@ -991,7 +991,8 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .hero-media img { aspect-ratio: 16 / 9 !important; border-radius: 0 0 20px 20px; }
 }
 @media (max-width: 860px) {
-  /* Menu button appears once people start scrolling */
-  .js .menu-toggle { transition: opacity 0.2s; }
-  .js:not(.scrolled) .menu-toggle[aria-expanded="false"] { opacity: 0; pointer-events: none; }
+  /* Phones: the whole top bar is hidden at first, slides in once people scroll down,
+     and hides again at the bottom booking box (see site.js). */
+  .js .site-header { position: fixed; left: 0; right: 0; transform: translateY(-110%); transition: transform 0.25s ease; }
+  .js.show-header .site-header, .js .site-header:has(.menu-toggle[aria-expanded="true"]) { transform: none; }
 }
