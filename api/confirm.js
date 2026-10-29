@@ -92,6 +92,7 @@ module.exports = async function handler(req, res) {
 
   const ref = /^TH-[A-Z0-9]{6}$/.test(signed.ref || '') ? signed.ref : '';
   const cal = mail.calendarLink(d.date, d.time, d.address);
+  const ics = mail.icsLink(d.date, d.time, d.address);
   const p = (t) => `<p style="font-family:Arial,Helvetica,sans-serif;margin:0 0 8px;font-size:15px;line-height:1.6;color:#26372D;">${t}</p>`;
   const html = mail.layout({
     preheader: `Confirmed: ${d.service} on ${d.date}, ${d.time}.`,
@@ -102,7 +103,7 @@ module.exports = async function handler(req, res) {
       ['Date', d.date], ['Time', d.time], ['Address', d.address], ['Service', d.service],
       ['Size', d.size], ['Price per visit', d.price], ['Payment', d.payment], ['Payment details and notes', d.notes]
     ]) +
-    (cal ? `<p style="margin:16px 0 0;">${mail.button(cal, 'Add to Google Calendar')}</p>` : '') +
+    (cal ? `<p style="margin:16px 0 0;">${mail.button(cal, 'Google Calendar')}&nbsp; ${mail.button(ics, 'Apple or Outlook calendar')}</p>` : '') +
     mail.section("What we'll clean", mail.list([
       '<strong>Living areas:</strong> dust shelves and surfaces, wipe tables, sweep and mop, tidy up, take out the trash',
       '<strong>Kitchen:</strong> wipe the counters, clean the sink, wipe the outside of appliances, sweep and mop',

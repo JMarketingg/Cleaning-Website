@@ -58,22 +58,47 @@ ${SIGNATURE}
 }
 
 const MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
-function hhmm(h, m, ap) { return String((Number(h) % 12) + (/p/i.test(ap) ? 12 : 0)).padStart(2, '0') + m + '00'; }
 
-// "Add to Google Calendar" link from "Tue, Nov 10, 2026" and "9:00 AM to 1:00 PM (about 4 hours)".
-// Returns '' if the date or time is in a format we can't read.
-function calendarLink(date, time, address) {
+// Reads "Tue, Nov 10, 2026" and "9:00 AM to 1:00 PM (about 4 hours)" into start and end times
+// (Manila time, written as UTC like 20261110T010000Z). Returns null if we can't read them.
+function cleanTimes(date, time) {
   const d = String(date).match(/([A-Z][a-z]{2})[a-z]*\.? (\d{1,2}),? (\d{4})/);
   const t = String(time).match(/(\d{1,2}):(\d{2})\s*(AM|PM)\s*to\s*(\d{1,2}):(\d{2})\s*(AM|PM)/i);
-  if (!d || !t || MONTHS[d[1]] == null) return '';
-  const day = d[3] + String(MONTHS[d[1]] + 1).padStart(2, '0') + String(d[2]).padStart(2, '0');
-  const q = new URLSearchParams({
-    action: 'TEMPLATE', text: 'TidyHaus cleaning', ctz: 'Asia/Manila',
-    dates: `${day}T${hhmm(t[1], t[2], t[3])}/${day}T${hhmm(t[4], t[5], t[6])}`,
-    details: 'Your TidyHaus cleaning. Questions? Text or call +63 992 309 5621.',
-    location: address || ''
-  });
+  if (!d || !t || MONTHS[d[1]] == null) return null;
+  // Manila is UTC+8 all year (no daylight saving).
+  const utc = (h, m, ap) => new Date(Date.UTC(+d[3], MONTHS[d[1]], +d[2], (+h % 12) + (/p/i.test(ap) ? 12 : 0) - 8, +m))
+    .toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return { start: utc(t[1], t[2], t[3]), end: utc(t[4], t[5], t[6]) };
+}
+
+const CAL_TITLE = 'TidyHaus cleaning';
+const CAL_DETAILS = 'Your TidyHaus cleaning. Questions? Text or call +63 992 309 5621.';
+
+// "Add to Google Calendar" link. Returns '' if the date or time can't be read.
+function calendarLink(date, time, address) {
+  const c = cleanTimes(date, time);
+  if (!c) return '';
+  const q = new URLSearchParams({ action: 'TEMPLATE', text: CAL_TITLE, dates: `${c.start}/${c.end}`, details: CAL_DETAILS, location: address || '' });
   return 'https://calendar.google.com/calendar/render?' + q.toString();
 }
 
-module.exports = { esc, bookingRef, card, section, list, button, layout, calendarLink };
+// Link to /api/calendar, which returns a calendar file that iPhone (Apple Calendar) and Outlook open.
+function icsLink(date, time, address) {
+  if (!cleanTimes(date, time)) return '';
+  return 'https://tidyhausph.com/api/calendar?' + new URLSearchParams({ date, time, address: address || '' }).toString();
+}
+
+// The calendar file itself (.ics).
+function icsFile(date, time, address) {
+  const c = cleanTimes(date, time);
+  if (!c) return '';
+  const txt = (v) => String(v).replace(/[\;,]/g, (x) => '\\' + x).replace(/\n/g, '\\n');
+  const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+  return ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//TidyHaus//Booking//EN', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH',
+    'BEGIN:VEVENT', `UID:${c.start}-${Math.random().toString(36).slice(2)}@tidyhausph.com`, `DTSTAMP:${stamp}`,
+    `DTSTART:${c.start}`, `DTEND:${c.end}`, `SUMMARY:${txt(CAL_TITLE)}`, `DESCRIPTION:${txt(CAL_DETAILS)}`,
+    `LOCATION:${txt(address || '')}`, 'BEGIN:VALARM', 'TRIGGER:-PT12H', 'ACTION:DISPLAY', `DESCRIPTION:${txt(CAL_TITLE)}`, 'END:VALARM',
+    'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
+}
+
+module.exports = { esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile };
