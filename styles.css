@@ -1038,6 +1038,6 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .svc-steps { margin: 0; padding-left: 22px; line-height: 1.7; }
 .svc-steps li { margin-bottom: 6px; }
 .svc-others { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
-@media (max-width: 900px) { .svc-hero { padding-top: 32px; } }
+@media (max-width: 900px) { .svc-hero { padding-block: 32px 8px; } }
 .svc-more { display: inline-block; margin-top: 14px; font-weight: 700; color: var(--forest); text-decoration: none; }
 .svc-more:hover { text-decoration: underline; }
