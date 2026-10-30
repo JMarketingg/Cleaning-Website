@@ -1,7 +1,8 @@
 // Receives a quote request from /book and sends two emails through Resend:
 // one to the owner, and a confirmation to the customer if they gave an email.
 // The browser also sends the request to the CRM's Quote Requests (see book.js).
-// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET.
+// Settings (Vercel environment variables): RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL, CONFIRM_SECRET,
+// and optionally TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for a Telegram alert to the owner.
 const crypto = require('crypto');
 const mail = require('./_email');
 
@@ -30,6 +31,18 @@ function confirmLink(d) {
   const b64 = Buffer.from(JSON.stringify(prefill)).toString('base64url');
   const sig = crypto.createHmac('sha256', process.env.CONFIRM_SECRET).update(b64).digest('base64url');
   return 'https://tidyhausph.com/confirm#' + b64 + '.' + sig;
+}
+
+// Free instant alert to the owner's Telegram. Skipped until both settings are added.
+async function sendTelegram(text) {
+  const { TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID } = process.env;
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  const r = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, disable_web_page_preview: true })
+  });
+  if (!r.ok) throw new Error(`Telegram ${r.status}: ${await r.text()}`);
 }
 
 async function sendEmail(payload) {
@@ -88,6 +101,21 @@ module.exports = async function handler(req, res) {
   } catch (e) {
     console.error(e);
     return res.status(502).json({ ok: false, error: 'Could not send' });
+  }
+
+  try {
+    await sendTelegram([
+      `🧹 New booking request ${data.ref}`,
+      `${data.name} · ${data.phone}`,
+      `${data.service}${data.size ? ', ' + data.size : ''}`,
+      `${data.date}, ${data.time || ''}`,
+      [data.building, data.area].filter(Boolean).join(', '),
+      [data.price, data.payment].filter(Boolean).join(' · '),
+      'Confirm it from your email.'
+    ].filter(Boolean).join('\n'));
+  } catch (e) {
+    // The email already went out, so a failed Telegram alert isn't fatal.
+    console.error(e);
   }
 
   if (data.email) {
