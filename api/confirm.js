@@ -116,6 +116,8 @@ module.exports = async function handler(req, res) {
       'Put away valuables and anything you don\'t want us to move.'
     ])) +
     mail.section('Our promise', p("If we miss anything on the checklist, tell us within 24 hours and we'll come back to fix it for free.")) +
+    mail.section('Happy with your clean?', p('A quick Google review helps other families in Makati and BGC find us. Thank you!') +
+      `<p style="margin:10px 0 0;">${mail.button('https://g.page/r/CVupIA7gzCvJEBM/review', 'Leave us a Google review')}</p>`) +
     mail.section('Need to change something?', p('Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.'))
   });
 
