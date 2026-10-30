@@ -996,3 +996,32 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .js .site-header { position: fixed; left: 0; right: 0; transform: translateY(-110%); transition: transform 0.25s ease; }
   .js.show-header .site-header, .js .site-header:has(.menu-toggle[aria-expanded="true"]) { transform: none; }
 }
+
+/* Price table on the home and BGC pages */
+.price-box { margin-top: 48px; background: var(--white); border: 1px solid var(--beige); border-radius: var(--radius); box-shadow: var(--shadow); padding: 28px; }
+.price-title { margin: 0 0 6px; font-size: 1.4rem; color: var(--evergreen); }
+.price-intro { margin: 0 0 18px; color: var(--muted); }
+.price-scroll { overflow-x: auto; }
+.price-table { width: 100%; border-collapse: collapse; font-size: 1rem; min-width: 420px; }
+.price-table th, .price-table td { padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--beige); }
+.price-table thead th { background: var(--forest); color: var(--white); font-size: 0.92rem; }
+.price-table thead th:first-child { border-top-left-radius: 10px; }
+.price-table thead th:last-child { border-top-right-radius: 10px; }
+.price-table tbody th { font-weight: 700; color: var(--evergreen); }
+.price-table td { font-weight: 700; color: var(--forest); font-variant-numeric: tabular-nums; }
+.price-notes { margin: 18px 0 0; padding: 0; list-style: none; color: var(--muted); font-size: 0.95rem; }
+.price-notes li { padding: 4px 0 4px 22px; position: relative; }
+.price-notes li::before { content: "✓"; position: absolute; left: 0; color: var(--forest); font-weight: 700; }
+@media (max-width: 480px) { .price-box { padding: 20px 16px; } .price-table { min-width: 0; font-size: 0.92rem; } .price-table th, .price-table td { padding: 10px 8px; } }
+
+/* Phones: sticky "Book now" button at the bottom (see site.js) */
+.sticky-book { display: none; }
+@media (max-width: 860px) {
+  .sticky-book {
+    display: block; position: fixed; left: 12px; right: 12px; bottom: max(12px, env(safe-area-inset-bottom));
+    z-index: 30; text-align: center; transform: translateY(150%); transition: transform 0.25s ease;
+  }
+  .sticky-book .btn { width: 100%; min-height: 54px; font-size: 1.05rem; box-shadow: 0 10px 28px rgba(38, 55, 45, 0.35); }
+  .show-header .sticky-book { transform: none; }
+  .show-header .site-footer { padding-bottom: 90px; }
+}
