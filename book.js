@@ -377,7 +377,9 @@
     if (input) input.checked = true;
   });
 
-  // Coming from "Find your area" with a known city skips the area question.
+  // Coming from "Find your area" with a known city skips the area question,
+  // and coming from a service page also skips the service question.
   var startArea = params.get('area');
-  show(startArea === 'makati' || startArea === 'bgc' ? 1 : 0);
+  var knownArea = startArea === 'makati' || startArea === 'bgc';
+  show(knownArea ? (value('service') ? 2 : 1) : 0);
 })();

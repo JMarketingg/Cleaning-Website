@@ -1025,3 +1025,19 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
   .show-header .sticky-book { transform: none; }
   .show-header .site-footer { padding-bottom: 90px; }
 }
+
+/* Service pages */
+.svc-hero { padding-block: 56px 48px; }
+.svc-hero h1 { margin-top: 8px; }
+.crumbs { font-size: 0.9rem; color: var(--muted); }
+.crumbs a { color: var(--forest); font-weight: 600; }
+.svc-body { display: grid; gap: 28px; }
+.svc-block h2 { font-size: 1.45rem; margin: 0 0 14px; color: var(--evergreen); }
+.svc-block.price-box { margin-top: 0; }
+.svc-note { margin: 12px 0 0; color: var(--muted); }
+.svc-steps { margin: 0; padding-left: 22px; line-height: 1.7; }
+.svc-steps li { margin-bottom: 6px; }
+.svc-others { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+@media (max-width: 900px) { .svc-hero { padding-top: 32px; } }
+.svc-more { display: inline-block; margin-top: 14px; font-weight: 700; color: var(--forest); text-decoration: none; }
+.svc-more:hover { text-decoration: underline; }
