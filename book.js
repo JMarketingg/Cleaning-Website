@@ -117,12 +117,13 @@
   }
 
   // Estimated price per visit, by service and number of bedrooms.
-  // Condo and Airbnb use standard prices; move-in/out uses deep prices. Offices are quoted by hand.
+  // Condo and Airbnb use standard prices. Move-in/out costs more than deep (empty unit, inside cabinets). Offices are quoted by hand.
   var PRICES = {
     standard: { studio: 1300, '1': 1500, '2': 1900, '3': 2500, '4+': 3100 },
-    deep: { studio: 1900, '1': 2400, '2': 3000, '3': 3800, '4+': 4600 }
+    deep: { studio: 1900, '1': 2400, '2': 3000, '3': 3800, '4+': 4600 },
+    move: { studio: 2500, '1': 3000, '2': 3800, '3': 4800, '4+': 5800 }
   };
-  var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'deep' };
+  var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'move' };
 
   // Added for each bathroom after the first.
   var EXTRA_BATHROOM = { '2': 300, '3+': 600 };
@@ -296,7 +297,8 @@
 
   function durationMinutes() {
     if (value('place') === 'office') return (OFFICE_HOURS[value('office_size')] || 4) * 60;
-    var kind = PRICE_TABLE[value('service')] || 'standard';
+    // Move-in/out takes about as long as a deep clean.
+    var kind = PRICE_TABLE[value('service')] === 'standard' ? 'standard' : 'deep';
     var h = HOURS[kind][value('bedrooms')] || 3;
     h += (EXTRA_BATHROOMS[value('bathrooms')] || 0) * EXTRA_BATHROOM_HOURS[kind];
     return h * 60;
