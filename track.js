@@ -7,7 +7,8 @@
   function store(k, v) { try { if (v === undefined) return localStorage.getItem(k); if (v === null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { return null; } }
   if (params.get('notrack') === '1') { store('th_notrack', '1'); alert('This device won\'t be counted in TidyHaus analytics.'); }
   if (params.get('track') === '1') store('th_notrack', null);
-  if (store('th_notrack') === '1') { window.thTrack = function () {}; return; }
+  // Skip the owner's own devices and automated browsers (site checkers, crawlers).
+  if (store('th_notrack') === '1' || navigator.webdriver) { window.thTrack = function () {}; return; }
 
   function id() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
   var vid = store('th_vid') || id();
