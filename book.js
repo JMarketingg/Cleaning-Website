@@ -49,7 +49,7 @@
     when: function () {
       var d = value('date');
       if (!d) return 'Pick a date.';
-      if (d < form.elements.date.min) return 'Pick a date from tomorrow onward.';
+      if (d < form.elements.date.min) return 'We start cleaning on Jan 5, 2027. Pick a date from then on.';
       if (!value('time')) return 'Pick an open start time.';
       if (openStarts.indexOf(Number(value('time'))) === -1) return 'That time is taken. Pick another time or date.';
     },
@@ -399,11 +399,13 @@
   var linkPromo = new URLSearchParams(window.location.search).get('promo');
   if (linkPromo) { promoInput.value = linkPromo.toUpperCase(); applyPromo(); }
 
-  // Earliest date is tomorrow, in the visitor's own time zone.
+  // Earliest date is tomorrow, in the visitor's own time zone, and never before we open.
+  var OPENING_DAY = '2027-01-05';
   var t = new Date();
   t.setDate(t.getDate() + 1);
   var pad = function (n) { return String(n).padStart(2, '0'); };
-  form.elements.date.min = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+  var tomorrow = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+  form.elements.date.min = tomorrow > OPENING_DAY ? tomorrow : OPENING_DAY;
 
   // Links like /book?area=bgc&service=deep start with those answers picked.
   var params = new URLSearchParams(window.location.search);
