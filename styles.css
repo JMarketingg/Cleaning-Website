@@ -872,7 +872,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-option input:focus-visible + span { outline: 3px solid var(--forest); outline-offset: 3px; }
 .bk-field { display: grid; gap: 6px; font-weight: 700; color: var(--evergreen); margin-bottom: 16px; }
 .bk-optional { font-weight: 500; color: var(--muted); }
-.bk-field input, .bk-field textarea {
+.bk-field input, .bk-field textarea, .bk-promo-row input {
   font: inherit;
   font-weight: 400;
   color: var(--evergreen);
@@ -1041,3 +1041,9 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 @media (max-width: 900px) { .svc-hero { padding-block: 32px 8px; } }
 .svc-more { display: inline-block; margin-top: 14px; font-weight: 700; color: var(--forest); text-decoration: none; }
 .svc-more:hover { text-decoration: underline; }
+
+/* Promo code box on the review step */
+.bk-promo { margin: 0 0 20px; }
+.bk-promo .bk-field { margin-bottom: 6px; }
+.bk-promo-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.bk-promo-row input { flex: 1 1 180px; min-width: 0; text-transform: uppercase; }

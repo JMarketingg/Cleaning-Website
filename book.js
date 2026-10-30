@@ -135,17 +135,32 @@
     monthly: { rate: 0.05, label: '5% monthly discount' }
   };
 
+  // Promo codes: amount off the first visit only.
+  var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
+  function promo() {
+    var code = (form.elements.promo && form.elements.promo.value || '').trim().toUpperCase();
+    return PROMOS[code] ? { code: code, off: PROMOS[code].off, label: PROMOS[code].label } : null;
+  }
+
+  // Price text like "₱1,500" or "₱1,300 (FIRSTCLEAN: ₱200 off your first cleaning, then ₱1,500 per visit)".
   function estimatedPrice() {
     var table = PRICES[PRICE_TABLE[value('service')]];
     if (!table || value('place') === 'office') return '';
     var amount = table[value('bedrooms')];
     if (!amount) return '';
     amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
+    var notes = [];
+    var perVisit = amount;
     var discount = DISCOUNTS[value('frequency')];
-    if (!discount) return peso(amount);
-    // Rounded to the nearest ₱10.
-    var discounted = Math.round(amount * (1 - discount.rate) / 10) * 10;
-    return peso(discounted) + ' (' + discount.label + ', regular ' + peso(amount) + ')';
+    if (discount) {
+      // Rounded to the nearest ₱10.
+      perVisit = Math.round(amount * (1 - discount.rate) / 10) * 10;
+      notes.push(discount.label + ', regular ' + peso(amount));
+    }
+    var p = promo();
+    if (!p) return peso(perVisit) + (notes.length ? ' (' + notes.join('; ') + ')' : '');
+    notes.unshift(p.label + ', then ' + peso(perVisit) + ' per visit');
+    return peso(Math.max(0, perVisit - p.off)) + ' (' + notes.join('; ') + ')';
   }
   function peso(n) { return '₱' + n.toLocaleString('en-PH'); }
 
@@ -167,6 +182,7 @@
     if (value('email')) lines.push(['Email', value('email')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
     lines.push(['Payment', label('payment')]);
+    if (promo()) lines.push(['Promo code', promo().code]);
     return lines;
   }
 
@@ -176,7 +192,7 @@
     var cut = price.indexOf(' (');
     document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
     document.getElementById('bk-total-note').textContent = price
-      ? 'per visit' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      ? (promo() ? 'first cleaning' : 'per visit') + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
       : "Office prices depend on the space. We'll send your price with your confirmation.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
@@ -202,6 +218,7 @@
     if (value('email')) extra.push('Email: ' + value('email'));
     if (estimatedPrice()) extra.push('Price: ' + estimatedPrice());
     extra.push('Payment: ' + label('payment'));
+    if (promo()) extra.push('Promo: ' + promo().code);
     var body = {
       name: value('name'),
       phone: value('phone'),
@@ -250,6 +267,7 @@
       size: isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
       frequency: label('frequency'),
       payment: label('payment'),
+      promo: promo() ? promo().code : '',
       date: formatDate(value('date')),
       time: label('time'),
       name: value('name'),
@@ -364,6 +382,22 @@
   form.elements.date.addEventListener('change', checkAvailability);
 
   form.addEventListener('submit', function (e) { e.preventDefault(); });
+
+  // Promo code box on the review step. Links like /book?promo=FIRSTCLEAN fill it in.
+  var promoInput = form.elements.promo;
+  var promoMsg = document.getElementById('bk-promo-msg');
+  function applyPromo() {
+    var typed = promoInput.value.trim();
+    promoMsg.textContent = !typed ? '' : promo()
+      ? promo().label + '. For first-time customers; we check this when we confirm.'
+      : "That code doesn't work. Check the spelling and try again.";
+    buildSummary();
+  }
+  document.getElementById('bk-promo-apply').addEventListener('click', applyPromo);
+  promoInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } });
+  promoInput.addEventListener('change', applyPromo);
+  var linkPromo = new URLSearchParams(window.location.search).get('promo');
+  if (linkPromo) { promoInput.value = linkPromo.toUpperCase(); applyPromo(); }
 
   // Earliest date is tomorrow, in the visitor's own time zone.
   var t = new Date();

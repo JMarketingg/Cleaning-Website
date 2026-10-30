@@ -175,6 +175,14 @@
         <p id="bk-total-amount" class="bk-total-amount"></p>
         <p id="bk-total-note" class="bk-total-note"></p>
       </div>
+      <div class="bk-promo">
+        <label class="bk-field" for="bk-promo">Promo code <span class="bk-optional">(optional)</span></label>
+        <div class="bk-promo-row">
+          <input id="bk-promo" name="promo" type="text" autocomplete="off" autocapitalize="characters" maxlength="30" placeholder="e.g. FIRSTCLEAN">
+          <button id="bk-promo-apply" class="btn btn-ghost" type="button">Apply</button>
+        </div>
+        <p id="bk-promo-msg" class="bk-hint" role="status" aria-live="polite"></p>
+      </div>
       <dl id="bk-summary" class="bk-summary"></dl>
       <div class="bk-send">
         <button id="bk-submit" class="btn btn-primary btn-lg" type="button">Submit request</button>

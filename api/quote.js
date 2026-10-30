@@ -9,7 +9,7 @@ const mail = require('./_email');
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
   date: 'Preferred date', time: 'Time', name: 'Name', phone: 'Mobile', email: 'Email',
-  building: 'Building / street', notes: 'Notes', price: 'Price', payment: 'Payment'
+  building: 'Building / street', notes: 'Notes', price: 'Price', payment: 'Payment', promo: 'Promo code'
 };
 
 function escapeHtml(s) {
