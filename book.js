@@ -49,7 +49,7 @@
     when: function () {
       var d = value('date');
       if (!d) return 'Pick a date.';
-      if (d < form.elements.date.min) return 'We start cleaning on Jan 5, 2027. Pick a date from then on.';
+      if (d < form.elements.date.min) return 'Cleanings start on Jan 5, 2027. Pick a date from then on.';
       if (!value('time')) return 'Pick an open start time.';
       if (openStarts.indexOf(Number(value('time'))) === -1) return 'That time is taken. Pick another time or date.';
     },
