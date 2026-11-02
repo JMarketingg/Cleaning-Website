@@ -79,7 +79,8 @@ module.exports = async function handler(req, res) {
     if (v) data[key] = v;
   }
   const phone = (data.phone || '').replace(/[\s()-]/g, '');
-  if (!data.name || !/^(\+?63|0)9\d{9}$/.test(phone) || !data.service || !data.date) {
+  const okPhone = /^(\+?63|0)9\d{9}$/.test(phone) || /^\+(?!63)\d{8,15}$/.test(phone);
+  if (!data.name || !okPhone || !data.service || !data.date) {
     return res.status(400).json({ ok: false, error: 'Missing or invalid details' });
   }
   if (data.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(data.email)) {

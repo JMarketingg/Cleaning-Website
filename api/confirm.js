@@ -31,6 +31,8 @@ function phPhone(raw) {
   if (/^09\d{9}$/.test(d)) return '+63' + d.slice(1);
   if (/^639\d{9}$/.test(d)) return '+' + d;
   if (/^9\d{9}$/.test(d)) return '+63' + d;
+  // International numbers, saved the same way the CRM saves them.
+  if (/^\s*\+/.test(String(raw)) && !/^63/.test(d) && d.length >= 8 && d.length <= 15) return '+' + d;
   return null;
 }
 

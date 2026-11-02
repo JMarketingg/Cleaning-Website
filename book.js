@@ -56,7 +56,10 @@
     details: function () {
       if (!value('name')) return 'Enter your name.';
       var phone = value('phone').replace(/[\s()-]/g, '');
-      if (!/^(\+?63|0)9\d{9}$/.test(phone)) return 'Enter a mobile number like 0917 123 4567.';
+      // Philippine mobile, or an international number with + (expats, OFWs).
+      var ph = /^(\+?63|0)9\d{9}$/.test(phone);
+      var intl = /^\+(?!63)\d{8,15}$/.test(phone);
+      if (!ph && !intl) return 'Enter a mobile number like 0917 123 4567, or an international number starting with +.';
       var email = value('email');
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
     }
