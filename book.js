@@ -65,7 +65,8 @@
     }
   };
 
-  function show(i) {
+  // first=true on page load: don't move focus, so the page doesn't jump down to the form.
+  function show(i, first) {
     steps.forEach(function (s, j) { s.hidden = j !== i; });
     current = i;
     var visible = steps.filter(applies);
@@ -79,7 +80,12 @@
     errorBox.textContent = '';
     if (last) buildSummary();
     var heading = steps[i].querySelector('.bk-question');
-    if (heading) heading.focus();
+    if (heading && !first) {
+      heading.focus({ preventScroll: true });
+      // Keep the top of the form in view when moving between steps.
+      var top = form.getBoundingClientRect().top;
+      if (top < 0 || top > window.innerHeight * 0.5) form.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
   }
 
   function move(dir) {
@@ -422,5 +428,5 @@
   // and coming from a service page also skips the service question.
   var startArea = params.get('area');
   var knownArea = startArea === 'makati' || startArea === 'bgc';
-  show(knownArea ? (value('service') ? 2 : 1) : 0);
+  show(knownArea ? (value('service') ? 2 : 1) : 0, true);
 })();

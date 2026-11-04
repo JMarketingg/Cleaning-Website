@@ -17,6 +17,18 @@
     Array.prototype.forEach.call(maps, loadMap);
   }
 
+  // Smooth scrolling for links to a section on the same page (#checklist, #how, ...).
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest && e.target.closest('a[href*="#"]');
+    if (!a || a.pathname !== location.pathname || !a.hash) return;
+    var target = document.getElementById(a.hash.slice(1));
+    if (!target) return;
+    e.preventDefault();
+    var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+    history.replaceState(null, '', a.hash);
+  });
+
   // Phones: the top bar shows after people scroll past the first screen,
   // and hides again from the bottom booking box down to the end of the page.
   var root = document.documentElement;

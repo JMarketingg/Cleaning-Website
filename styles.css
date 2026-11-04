@@ -17,7 +17,8 @@
 
 * { box-sizing: border-box; }
 
-html { scroll-behavior: smooth; scroll-padding-top: 90px; }
+/* No global smooth scroll: it made the page animate down and up when a phone restored its scroll position on refresh. In-page links scroll smoothly via site.js. */
+html { scroll-padding-top: 90px; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
