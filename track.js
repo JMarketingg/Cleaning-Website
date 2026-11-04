@@ -10,6 +10,14 @@
   // Skip the owner's own devices and automated browsers (site checkers, crawlers).
   if (store('th_notrack') === '1' || navigator.webdriver) { window.thTrack = function () {}; return; }
 
+  // Microsoft Clarity (free heatmaps and session replays), project "TidyHaus".
+  // Loaded only here, so the owner's devices and bots are skipped too.
+  (function (c, l, a, r, i, t, y) {
+    c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments); };
+    t = l.createElement(r); t.async = 1; t.src = 'https://www.clarity.ms/tag/' + i;
+    y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+  })(window, document, 'clarity', 'script', 'z8hc9hku8z');
+
   function id() { return Math.random().toString(36).slice(2) + Date.now().toString(36); }
   var vid = store('th_vid') || id();
   store('th_vid', vid);
