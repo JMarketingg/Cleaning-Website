@@ -101,4 +101,4 @@ function icsFile(date, time, address) {
     'END:VEVENT', 'END:VCALENDAR'].join('\r\n') + '\r\n';
 }
 
-module.exports = { esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile };
+module.exports = { esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile, cleanTimes };

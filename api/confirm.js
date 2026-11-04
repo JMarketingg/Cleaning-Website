@@ -36,30 +36,82 @@ function phPhone(raw) {
   return null;
 }
 
-// Marks this customer's latest open quote request as booked. Returns true if one was updated.
+function crmHeaders() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  return { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'app', 'Content-Profile': 'app', 'Content-Type': 'application/json' };
+}
+async function crm(path, opts = {}) {
+  const r = await fetch(`${process.env.SUPABASE_URL}/rest/v1/${path}`, { ...opts, headers: { ...crmHeaders(), ...(opts.headers || {}) } });
+  if (!r.ok) throw new Error(`CRM ${r.status}: ${await r.text()}`);
+  const t = await r.text();
+  return t ? JSON.parse(t) : null;
+}
+
+// Marks this customer's latest open quote request as booked. Returns its id, or null if none was found.
 async function markBookedInCrm(phone) {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
   const p = phPhone(phone);
-  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !p) return false;
-  const headers = {
-    apikey: SUPABASE_SERVICE_ROLE_KEY,
-    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    'Accept-Profile': 'app',
-    'Content-Profile': 'app',
-    'Content-Type': 'application/json'
-  };
-  const base = `${SUPABASE_URL}/rest/v1/quote_requests`;
-  const find = await fetch(`${base}?select=id&phone=eq.${encodeURIComponent(p)}&status=in.(new,contacted)&order=created_at.desc&limit=1`, { headers });
-  if (!find.ok) throw new Error(`CRM ${find.status}: ${await find.text()}`);
-  const rows = await find.json();
-  if (!rows.length) return false;
-  const upd = await fetch(`${base}?id=eq.${rows[0].id}`, {
-    method: 'PATCH',
-    headers: { ...headers, Prefer: 'return=minimal' },
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !p) return null;
+  const rows = await crm(`quote_requests?select=id&phone=eq.${encodeURIComponent(p)}&status=in.(new,contacted)&order=created_at.desc&limit=1`);
+  if (!rows.length) return null;
+  await crm(`quote_requests?id=eq.${rows[0].id}`, {
+    method: 'PATCH', headers: { Prefer: 'return=minimal' },
     body: JSON.stringify({ status: 'booked', updated_at: new Date().toISOString() })
   });
-  if (!upd.ok) throw new Error(`CRM ${upd.status}: ${await upd.text()}`);
-  return true;
+  return rows[0].id;
+}
+
+// "20270112T010000Z" -> "2027-01-12T01:00:00Z"
+function isoFromCompact(c) { return c.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, '$1-$2-$3T$4:$5:$6Z'); }
+
+// Creates the job in the CRM so it shows in the cleaner's app. If TidyHaus has exactly one active
+// cleaner, the job is assigned to them. Returns the new booking id, or null if the CRM isn't set up.
+async function createCrmJob(d, quoteId) {
+  const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
+  if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return null;
+  const [biz] = await crm('businesses?select=id&slug=eq.tidyhaus&limit=1');
+  if (!biz) return null;
+  const phone = phPhone(d.phone);
+
+  // Find or add the customer.
+  let customer = phone ? (await crm(`customers?select=id&business_id=eq.${biz.id}&phone=eq.${encodeURIComponent(phone)}&limit=1`))[0] : null;
+  if (!customer) {
+    [customer] = await crm('customers', {
+      method: 'POST', headers: { Prefer: 'return=representation' },
+      body: JSON.stringify({ business_id: biz.id, name: d.name, phone, email: d.email || null, address_line1: d.address || null, city: 'Metro Manila' })
+    });
+  }
+
+  // Match the service by its first word (Standard, Condo, Deep, Move, Airbnb, Office).
+  const services = await crm(`services?select=id,name&business_id=eq.${biz.id}&active=eq.true`);
+  const first = String(d.service).split(/[\s/&-]+/)[0].toLowerCase();
+  const service = services.find((s) => s.name.toLowerCase().startsWith(first)) ||
+    (first === 'standard' ? services.find((s) => /^house|^standard/i.test(s.name)) : null);
+
+  const cleaners = await crm(`technicians?select=id&business_id=eq.${biz.id}&active=eq.true`);
+  const times = mail.cleanTimes(d.date, d.time);
+  const price = Number((String(d.price).match(/₱?\s*([\d,]+)/) || [])[1]?.replace(/,/g, '') || 0);
+  const start = times ? isoFromCompact(times.start) : null;
+  const end = times ? isoFromCompact(times.end) : null;
+
+  const [booking] = await crm('bookings', {
+    method: 'POST', headers: { Prefer: 'return=representation' },
+    body: JSON.stringify({
+      business_id: biz.id, customer_id: customer.id, service_id: service ? service.id : null,
+      technician_id: cleaners.length === 1 ? cleaners[0].id : null,
+      status: cleaners.length === 1 ? 'assigned' : 'confirmed', source: 'website_form',
+      scheduled_at: start, scheduled_end: end,
+      duration_minutes: start && end ? Math.round((Date.parse(end) - Date.parse(start)) / 60000) : null,
+      price, subtotal: price, address_line1: d.address || null, city: 'Metro Manila',
+      customer_notes: d.notes || null,
+      notes: [d.size && `Size: ${d.size}`, d.payment && `Payment: ${d.payment}`, d.ref && `Ref: ${d.ref}`].filter(Boolean).join('\n') || null,
+      metadata: { ref: d.ref || null, payment: d.payment || null, from: 'website', quote_request_id: quoteId || null }
+    })
+  });
+  if (quoteId) {
+    await crm(`quote_requests?id=eq.${quoteId}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ booking_id: booking.id }) });
+  }
+  return booking.id;
 }
 
 const FIELDS = ['name', 'email', 'phone', 'service', 'size', 'date', 'time', 'address', 'price', 'payment', 'notes'];
@@ -137,11 +189,14 @@ module.exports = async function handler(req, res) {
     return res.status(502).json({ ok: false, error: 'Could not send the email' });
   }
   let crmUpdated = false;
+  let jobCreated = false;
   try {
-    crmUpdated = await markBookedInCrm(d.phone);
+    const quoteId = await markBookedInCrm(d.phone);
+    crmUpdated = !!quoteId;
+    jobCreated = !!(await createCrmJob({ ...d, ref }, quoteId));
   } catch (e) {
     // The confirmation already went out; the owner can update the CRM by hand.
     console.error(e);
   }
-  return res.status(200).json({ ok: true, crmUpdated });
+  return res.status(200).json({ ok: true, crmUpdated, jobCreated });
 };
