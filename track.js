@@ -69,7 +69,11 @@
     else if (/facebook\.com|m\.me/.test(href)) label = 'Facebook';
     else if (/instagram\.com/.test(href)) label = 'Instagram';
     else if (/tiktok\.com/.test(href)) label = 'TikTok';
-    else if (a.classList.contains('btn')) label = 'Button: ' + (a.textContent || '').trim().slice(0, 60);
+    else if (a.classList.contains('btn')) {
+      // Use fixed English names, because browsers that translate the page change the button text.
+      var named = { 'bk-next': 'Continue', 'bk-back': 'Back', 'bk-submit': 'Submit request', 'bk-promo-apply': 'Apply promo code' };
+      label = 'Button: ' + (named[a.id] || a.getAttribute('data-track') || (a.textContent || '').trim().slice(0, 60));
+    }
     if (label) send([ev('click', label)]);
   });
 })();
