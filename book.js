@@ -144,6 +144,8 @@
     monthly: { rate: 0.05, label: '5% monthly discount' }
   };
 
+  var TRAVEL_FEE = 200;
+
   // Promo codes: amount off the first visit only.
   var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
   function promo() {
@@ -165,6 +167,11 @@
       // Rounded to the nearest ₱10.
       perVisit = Math.round(amount * (1 - discount.rate) / 10) * 10;
       notes.push(discount.label + ', regular ' + peso(amount));
+    }
+    // Outside Makati and BGC: a travel fee on every visit (not discounted).
+    if (value('area') === 'other') {
+      perVisit += TRAVEL_FEE;
+      notes.push(peso(TRAVEL_FEE) + ' travel fee');
     }
     var p = promo();
     if (!p) return peso(perVisit) + (notes.length ? ' (' + notes.join('; ') + ')' : '');

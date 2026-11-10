@@ -105,7 +105,13 @@ async function createCrmJob(d, quoteId) {
       price, subtotal: price, address_line1: d.address || null, city: 'Metro Manila',
       customer_notes: d.notes || null,
       notes: [d.size && `Size: ${d.size}`, d.payment && `Payment: ${d.payment}`, d.ref && `Ref: ${d.ref}`].filter(Boolean).join('\n') || null,
-      metadata: { ref: d.ref || null, payment: d.payment || null, from: 'website', quote_request_id: quoteId || null }
+      metadata: {
+        ref: d.ref || null, payment: d.payment || null, from: 'website', quote_request_id: quoteId || null,
+        // "₱200 travel fee" in the price note means the place is outside Makati and BGC.
+        travel_fee: (String(d.price).match(/₱\s*([\d,]+) travel fee/i) || [])[1] ? Number(String(d.price).match(/₱\s*([\d,]+) travel fee/i)[1].replace(/,/g, '')) : null,
+        // With a promo, the first visit is cheaper; regular visits after it use this price.
+        per_visit_price: (String(d.price).match(/then ₱\s*([\d,]+) per visit/i) || [])[1] ? Number(String(d.price).match(/then ₱\s*([\d,]+) per visit/i)[1].replace(/,/g, '')) : null
+      }
     })
   });
   if (quoteId) {
