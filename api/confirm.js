@@ -157,6 +157,7 @@ module.exports = async function handler(req, res) {
       ['Date', d.date], ['Time', d.time], ['Address', d.address], ['Service', d.service],
       ['Size', d.size], ['Price per visit', d.price], ['Payment', d.payment], ['Payment details and notes', d.notes]
     ]) +
+    mail.section('How to pay', mail.paymentBlock(d.payment, d.price, ref)) +
     (cal ? `<p style="margin:16px 0 0;">${mail.button(cal, 'Google Calendar')}&nbsp; ${mail.button(ics, 'Apple or Outlook calendar')}</p>` : '') +
     mail.section("What we'll clean", mail.list([
       '<strong>Living areas:</strong> dust shelves and surfaces, wipe tables, sweep and mop, tidy up, take out the trash',
@@ -193,7 +194,9 @@ module.exports = async function handler(req, res) {
   try {
     const quoteId = await markBookedInCrm(d.phone);
     crmUpdated = !!quoteId;
-    jobCreated = !!(await createCrmJob({ ...d, ref }, quoteId));
+    // Confirming the same booking again (e.g. to resend the email) must not make a second job.
+    const dup = ref ? await crm(`bookings?select=id&metadata->>ref=eq.${ref}&limit=1`) : [];
+    jobCreated = dup.length ? false : !!(await createCrmJob({ ...d, ref }, quoteId));
   } catch (e) {
     // The confirmation already went out; the owner can update the CRM by hand.
     console.error(e);
