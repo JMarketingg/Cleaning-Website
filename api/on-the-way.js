@@ -23,7 +23,7 @@ module.exports = async function handler(req, res) {
   if (!/^[0-9a-f-]{36}$/.test(id)) return res.status(400).json({ ok: false });
 
   try {
-    const [b] = await crm(`bookings?select=id,status,scheduled_at,address_line1,metadata,customer:customers(name,email),technician:technicians(name)&id=eq.${id}`);
+    const [b] = await crm(`bookings?select=id,status,scheduled_at,address_line1,metadata,customer:customers(name,email),technician:technicians!bookings_technician_id_fkey(name)&id=eq.${id}`);
     if (!b || b.status !== 'on_the_way') return res.status(200).json({ ok: true, sent: false });
     const meta = b.metadata || {};
     const email = b.customer && b.customer.email;
