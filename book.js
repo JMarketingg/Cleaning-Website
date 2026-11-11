@@ -139,9 +139,8 @@
 
   // Discount per visit for regular cleaning.
   var DISCOUNTS = {
-    weekly: { rate: 0.15, label: '15% weekly discount' },
-    biweekly: { rate: 0.10, label: '10% every-2-weeks discount' },
-    monthly: { rate: 0.05, label: '5% monthly discount' }
+    weekly: { off: 100, label: '₱100 weekly discount' },
+    biweekly: { off: 50, label: '₱50 every-2-weeks discount' }
   };
 
   var TRAVEL_FEE = 200;
@@ -164,8 +163,7 @@
     var perVisit = amount;
     var discount = DISCOUNTS[value('frequency')];
     if (discount) {
-      // Rounded to the nearest ₱10.
-      perVisit = Math.round(amount * (1 - discount.rate) / 10) * 10;
+      perVisit = amount - discount.off;
       notes.push(discount.label + ', regular ' + peso(amount));
     }
     // Outside Makati and BGC: a travel fee on every visit (not discounted).
