@@ -196,6 +196,7 @@
     ];
     if (value('building')) lines.push(['Building / street', value('building')]);
     if (value('email')) lines.push(['Email', value('email')]);
+    lines.push(['Equipment', label('equipment')]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
     lines.push(['Payment', label('payment')]);
     if (promo()) lines.push(['Promo code', promo().code]);
@@ -234,6 +235,7 @@
     if (value('email')) extra.push('Email: ' + value('email'));
     if (estimatedPrice()) extra.push('Price: ' + estimatedPrice());
     extra.push('Payment: ' + label('payment'));
+    extra.push('Equipment: ' + label('equipment'));
     if (promo()) extra.push('Promo: ' + promo().code);
     var body = {
       name: value('name'),
@@ -268,6 +270,11 @@
     window.location.href = 'sms:' + PHONE + '?&body=' + encodeURIComponent(text);
   }
 
+  // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
+  function notesWithEquipment() {
+    return ['Equipment: ' + label('equipment'), value('notes')].filter(Boolean).join('\n');
+  }
+
   var sending = false;
   submitBtn.addEventListener('click', function () {
     if (sending) return;
@@ -290,7 +297,7 @@
       phone: value('phone'),
       email: value('email'),
       building: value('building'),
-      notes: value('notes'),
+      notes: notesWithEquipment(),
       price: estimatedPrice(),
       website: value('website')
     };

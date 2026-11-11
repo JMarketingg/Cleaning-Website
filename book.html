@@ -166,6 +166,12 @@
       <label class="bk-field">Email <span class="bk-optional">(optional, for your confirmation)</span><input type="email" name="email" autocomplete="email" maxlength="120"></label>
       <label class="bk-hp" aria-hidden="true">Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
       <label class="bk-field">Building or street <span class="bk-optional">(optional)</span><input type="text" name="building" autocomplete="address-line1" maxlength="120"></label>
+      <div class="bk-field" role="radiogroup" aria-label="Cleaning equipment">Cleaning equipment
+        <div class="bk-options" style="margin-top:8px;">
+          <label class="bk-option"><input type="radio" name="equipment" value="ours" data-label="Bring your own equipment" checked><span>Bring your own (vacuum, mop, cloths)</span></label>
+          <label class="bk-option"><input type="radio" name="equipment" value="mine" data-label="Use my equipment"><span>Use my equipment</span></label>
+        </div>
+      </div>
       <label class="bk-field">Anything we should know? <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
       <p class="bk-hint">For safety, don't include door codes here. Give them in person or leave them with your building's guard or reception.</p>
     </fieldset>
