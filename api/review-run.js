@@ -41,17 +41,30 @@ function smsText(b, token, reminder) {
     : `Hi ${first(b.customer && b.customer.name)}, thanks for choosing ${BUSINESS}! If ${tech} did a great job, would you leave us a quick Google review? ${shortLink(token, 'sms')} To stop these messages: ${stopLink(token)}`;
 }
 
+// Plain, personal email (no logo, images or big buttons), so Gmail puts it in Primary, not Promotions.
 function emailHtml(b, token) {
   const tech = first(b.technician && b.technician.name);
-  const btn = `<table role="presentation" cellpadding="0" cellspacing="0" style="margin:8px 0 18px;"><tr><td align="center" bgcolor="#344B38" style="border-radius:999px;">` +
-    `<a href="${shortLink(token, 'email')}" style="display:inline-block;padding:16px 34px;font-family:Arial,Helvetica,sans-serif;font-size:17px;font-weight:bold;color:#ffffff;text-decoration:none;border-radius:999px;">Leave a review</a></td></tr></table>`;
-  return mail.layout({
-    preheader: `Thanks for choosing ${BUSINESS}! Would you leave us a quick Google review?`,
-    badge: 'Thank you',
-    title: `Thanks for choosing ${BUSINESS}, ${first(b.customer && b.customer.name)}!`,
-    intro: `If ${mail.esc(tech)} did a great job, would you leave us a quick Google review? It takes about a minute and helps other families in Makati and BGC find us.`,
-    body: btn + `<p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#4D5C50;margin:18px 0 0;">Don't want these emails? <a href="${stopLink(token)}" style="color:#4D5C50;">Stop review requests</a>.</p>`
-  });
+  const P = (t) => `<p style="margin:0 0 14px;">${t}</p>`;
+  return `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222;">` +
+    P(`Hi ${mail.esc(first(b.customer && b.customer.name))},`) +
+    P(`Thank you for choosing ${BUSINESS}! I hope you're happy with your clean.`) +
+    P(`If ${mail.esc(tech)} did a great job, would you mind leaving us a quick Google review? It only takes a minute and it really helps a small business like ours.`) +
+    P(`<a href="${shortLink(token, 'email')}">Leave a review on Google</a>`) +
+    P(`If anything wasn't right, just reply to this email and I'll make it right.`) +
+    P(`Thank you!<br>Jiyah<br>${BUSINESS} Home Cleaning`) +
+    `<p style="margin:24px 0 0;font-size:12px;color:#777;">Don't want these emails? <a href="${stopLink(token)}" style="color:#777;">Stop review requests</a></p></body></html>`;
+}
+function emailText(b, token) {
+  const tech = first(b.technician && b.technician.name);
+  return `Hi ${first(b.customer && b.customer.name)},\n\nThank you for choosing ${BUSINESS}! I hope you're happy with your clean.\n\n` +
+    `If ${tech} did a great job, would you mind leaving us a quick Google review? It only takes a minute and it really helps a small business like ours.\n\n` +
+    `${shortLink(token, 'email')}\n\nIf anything wasn't right, just reply to this email and I'll make it right.\n\nThank you!\nJiyah\n${BUSINESS} Home Cleaning\n\nStop review requests: ${stopLink(token)}\n`;
+}
+// Shows as "Jiyah from TidyHaus" in the inbox, using the same sending address.
+function fromPerson() {
+  const f = process.env.FROM_EMAIL || '';
+  const addr = (f.match(/<([^>]+)>/) || [null, f])[1].trim();
+  return `Jiyah from ${BUSINESS} <${addr}>`;
 }
 
 async function sendSms(to, text) {
@@ -64,10 +77,10 @@ async function sendSms(to, text) {
   if (!r.ok || !Array.isArray(j) || !j[0]) throw new Error(`Semaphore ${r.status}: ${JSON.stringify(j).slice(0, 200)}`);
   return String(j[0].status || 'queued').toLowerCase();
 }
-async function sendEmail(to, subject, html) {
+async function sendEmail(to, subject, html, text) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST', headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: process.env.FROM_EMAIL, to, reply_to: process.env.OWNER_EMAIL || undefined, subject, html })
+    body: JSON.stringify({ from: fromPerson(), to, reply_to: process.env.OWNER_EMAIL || undefined, subject, html, text })
   });
   if (!r.ok) throw new Error(`Resend ${r.status}: ${await r.text()}`);
   return 'sent';
@@ -109,7 +122,7 @@ module.exports = async function handler(req, res) {
     const token = sample.review_token || 'test';
     const phone = phMobile(process.env.OWNER_TEST_PHONE);
     out.sms = phone ? await sendSms(phone, '[TEST] ' + smsText(sample, token, false)).catch((e) => 'error: ' + e.message) : 'no OWNER_TEST_PHONE';
-    out.email = process.env.OWNER_EMAIL ? await sendEmail(process.env.OWNER_EMAIL, `[TEST] Thanks for choosing ${BUSINESS}!`, emailHtml(sample, token)).catch((e) => 'error: ' + e.message) : 'no OWNER_EMAIL';
+    out.email = process.env.OWNER_EMAIL ? await sendEmail(process.env.OWNER_EMAIL, `[TEST] Quick favor, ${first(sample.customer && sample.customer.name)}?`, emailHtml(sample, token), emailText(sample, token)).catch((e) => 'error: ' + e.message) : 'no OWNER_EMAIL';
     return res.status(200).json(out);
   }
 
@@ -137,7 +150,7 @@ module.exports = async function handler(req, res) {
     }
     const patch = {};
     if (phone) patch.review_req_sms_status = await sendSms(phone, smsText(b, token, false)).catch((e) => 'error: ' + e.message.slice(0, 120));
-    if (email) patch.review_req_email_status = await sendEmail(email, `Thanks for choosing ${BUSINESS}!`, emailHtml(b, token)).catch((e) => 'error: ' + e.message.slice(0, 120));
+    if (email) patch.review_req_email_status = await sendEmail(email, `Quick favor, ${first(c.name)}?`, emailHtml(b, token), emailText(b, token)).catch((e) => 'error: ' + e.message.slice(0, 120));
     await crm(`bookings?id=eq.${b.id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify(patch) });
     out.sent++;
   }

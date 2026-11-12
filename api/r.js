@@ -8,8 +8,10 @@ module.exports = async function handler(req, res) {
     try {
       const now = new Date().toISOString();
       const col = ch === 'sms' ? 'review_sms_clicked_at' : ch === 'email' ? 'review_email_clicked_at' : null;
-      if (col) await crm(`bookings?review_token=eq.${token}&${col}=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ [col]: now }) });
-      await crm(`bookings?review_token=eq.${token}&review_clicked_at=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ review_clicked_at: now, review_click_channel: ch }) });
+      // Save the click quickly (both writes at once, at most 1.2 seconds) so the customer isn't kept waiting.
+      const writes = [crm(`bookings?review_token=eq.${token}&review_clicked_at=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ review_clicked_at: now, review_click_channel: ch }) })];
+      if (col) writes.push(crm(`bookings?review_token=eq.${token}&${col}=is.null`, { method: 'PATCH', headers: { Prefer: 'return=minimal' }, body: JSON.stringify({ [col]: now }) }));
+      await Promise.race([Promise.all(writes), new Promise((r) => setTimeout(r, 1200))]);
     } catch (e) { console.error('[r]', e.message); }
   }
   res.setHeader('Cache-Control', 'no-store');
