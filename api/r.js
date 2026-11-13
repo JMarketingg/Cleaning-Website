@@ -6,7 +6,7 @@
 // Complaints are saved on the job, stop further review reminders, and alert the owner on Telegram.
 const { crm } = require('./_crm');
 const GOOGLE = 'https://g.page/r/CVupIA7gzCvJEBM/review';
-const ok = (t) => /^[A-Za-z0-9_-]{6,64}$/.test(t);
+const ok = (t) => /^[A-Za-z0-9_.-]{6,400}$/.test(t);
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
 async function telegram(text) {

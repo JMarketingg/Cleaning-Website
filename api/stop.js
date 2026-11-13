@@ -3,7 +3,7 @@ const { crm } = require('./_crm');
 module.exports = async function handler(req, res) {
   const token = String((req.query || {}).t || '');
   let ok = false;
-  if (/^[A-Za-z0-9_-]{6,64}$/.test(token) && process.env.SUPABASE_URL) {
+  if (/^[A-Za-z0-9_.-]{6,400}$/.test(token) && process.env.SUPABASE_URL) {
     try {
       const [b] = await crm(`bookings?select=id,customer:customers(phone,email)&review_token=eq.${token}&limit=1`);
       if (b && b.customer && (b.customer.phone || b.customer.email)) {
