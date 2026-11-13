@@ -82,7 +82,7 @@ label{display:block;text-align:left;font-weight:800;font-size:14px;margin:12px 0
 <label for="what">What happened, or what was wrong?</label><textarea id="what"></textarea>
 <label for="imp">How can we improve?</label><textarea id="imp"></textarea>
 <label>Is this an emergency?</label><div class="yn" id="em"><button data-v="1">Yes</button><button data-v="0" class="on">No</button></div>
-<div class="hint">For example: damage, a leak, a fallen TV, exposed wires, or a safety risk.</div>
+<div class="hint">For example: something broken or damaged, a water leak, a strong chemical smell, a missing item, or a safety risk.</div>
 <label class="chk"><input type="checkbox" id="anon"> Keep my name from the cleaner (submit anonymously)</label>
 <button class="b p" id="send">Send</button></div>
 <div class="c" id="s4" hidden><div class="logo">🏠 TidyHaus</div><h1>✓ We got your complaint</h1><p>Jiyah, the owner, will reach out to you soon to make it right.</p>
