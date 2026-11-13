@@ -265,7 +265,7 @@
   function textFallback() {
     var text = 'Hi TidyHaus! I would like a quote.\n' +
       summaryLines().map(function (l) { return l[0] + ': ' + l[1]; }).join('\n');
-    window.location.href = 'sms:' + PHONE + '?&body=' + encodeURIComponent(text);
+    window.location.href = 'https://wa.me/' + PHONE.replace(/\D/g, '') + '?text=' + encodeURIComponent(text);
   }
 
   // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
