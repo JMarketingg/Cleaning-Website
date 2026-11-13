@@ -7,8 +7,12 @@ module.exports = async function handler(req, res) {
     // Written 5-star reviews of at least 30 characters, newest first.
     const all = await crm(`site_reviews?select=reviewer,stars,text,review_date&text=not.is.null&stars=eq.5&order=review_date.desc,id.desc&limit=50`);
     const rows = (all || []).filter((r) => String(r.text || '').trim().length >= 30).slice(0, limit);
+    // Rating summary for the badge on the hero photo (all Google reviews we have, every rating).
+    const rated = await crm('site_reviews?select=stars');
+    const withStars = (rated || []).filter((r) => r.stars);
+    const summary = { count: (rated || []).length, average: withStars.length ? Math.round(withStars.reduce((t, r) => t + r.stars, 0) / withStars.length * 10) / 10 : null };
     res.setHeader('Cache-Control', 's-maxage=600, stale-while-revalidate=600');
-    return res.status(200).json({ reviews: rows || [] });
+    return res.status(200).json({ reviews: rows || [], summary });
   } catch (e) {
     console.error('[reviews]', e.message);
     return res.status(200).json({ reviews: [] });
