@@ -1,5 +1,5 @@
 // Reads Google Business Profile "new review" emails from the TidyHaus Gmail inbox and saves
-// each review in app.google_reviews (one row per email review; the email id stops duplicates).
+// each review in app.site_reviews (one row per email review; the email id stops duplicates).
 // A scheduler calls this every 15 minutes with the x-cron-secret header.
 // Settings (Vercel environment variables): GMAIL_USER, GMAIL_APP_PASSWORD (a Gmail app password,
 // never the normal password), REVIEW_CRON_SECRET, SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
@@ -60,7 +60,7 @@ module.exports = async function handler(req, res) {
   }
   let saved = 0;
   if (found.length) {
-    const rows = await crm('google_reviews?on_conflict=email_id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(found) });
+    const rows = await crm('site_reviews?on_conflict=email_id', { method: 'POST', headers: { Prefer: 'resolution=ignore-duplicates,return=representation' }, body: JSON.stringify(found) });
     saved = (rows || []).length;
   }
   return res.status(200).json({ ok: true, found: found.length, saved, ...(debug ? { samples, parsed: found.slice(0, 5) } : {}) });
