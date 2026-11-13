@@ -407,7 +407,16 @@
   var sec=document.getElementById('reviews'), grid=document.getElementById('reviewsGrid');
   function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
   fetch('/api/reviews?limit=3').then(function(r){return r.json();}).then(function(d){
-    var sm=d&&d.summary; if(sm&&sm.count&&sm.average){ document.getElementById('gAvg').textContent=sm.average.toFixed(1); document.getElementById('gCount').textContent=sm.count+' Google review'+(sm.count===1?'':'s'); document.getElementById('gBadge').hidden=false; }
+    var sm=d&&d.summary; if(sm&&sm.count&&sm.average){
+      var badge=document.getElementById('gBadge'), avgEl=document.getElementById('gAvg'), cntEl=document.getElementById('gCount');
+      var word=' Google review'+(sm.count===1?'':'s');
+      function show(a,c){ avgEl.textContent=a.toFixed(1); cntEl.textContent=Math.round(c)+word; }
+      // Count up from 0 when the badge comes into view (skipped for people who prefer less motion).
+      function countUp(){ var t0=null, dur=1400; function step(t){ if(!t0) t0=t; var k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3); show(sm.average*e, sm.count*e); if(k<1) requestAnimationFrame(step); } requestAnimationFrame(step); }
+      show(0,0); badge.hidden=false;
+      if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches||!('IntersectionObserver' in window)){ show(sm.average,sm.count); }
+      else { var io=new IntersectionObserver(function(en){ if(en[0].isIntersecting){ io.disconnect(); countUp(); } },{threshold:0.6}); io.observe(badge); }
+    }
     var list=(d&&d.reviews)||[]; if(!list.length) return;
     grid.innerHTML=list.map(function(r){ var n=Math.max(0,Math.min(5,r.stars||0));
       return '<figure class="review-card"><div class="review-stars" aria-label="'+n+' out of 5 stars">'+'★'.repeat(n)+'<span>'+'★'.repeat(5-n)+'</span></div>'+
