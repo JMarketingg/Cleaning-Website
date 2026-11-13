@@ -22,7 +22,9 @@ function parseReviews(text, emailId, date) {
   const start = t.search(/let customers know when you.?ve replied\.?/i);
   const body = start >= 0 ? t.slice(start).replace(/^[^\n]*\n/, '') : t;
   const out = [];
-  body.split(/\n\s*Reply to review[^\n]*/i).forEach((block, i) => {
+  // Only the parts that end in "Reply to review" are reviews; the text after the last one is Google's footer.
+  if (!/Reply to review/i.test(body)) return [];
+  body.split(/\n\s*Reply to review[^\n]*/i).slice(0, -1).forEach((block, i) => {
     const lines = block.split('\n').map((x) => x.trim()).filter(Boolean)
       .filter((x) => !/^(see all reviews|manage|unsubscribe|google llc|this email was sent|you've received|privacy|help center|©)/i.test(x));
     if (!lines.length || lines[0].length > 60) return;
@@ -45,17 +47,6 @@ module.exports = async function handler(req, res) {
   const found = [], samples = [];
   try {
     await client.connect();
-    if (debug) {
-      const boxes = (await client.list()).map((b) => b.path);
-      const lk = await client.getMailboxLock('INBOX');
-      const latest = [];
-      try {
-        const st = await client.status('INBOX', { messages: true });
-        const from = Math.max(1, (st.messages || 1) - 14);
-        for await (const m of client.fetch(`${from}:*`, { envelope: true })) latest.push({ subject: m.envelope.subject, from: (m.envelope.from || []).map((x) => x.address).join(',') });
-      } finally { lk.release(); }
-      samples.push({ boxes, latest });
-    }
     const lock = await client.getMailboxLock('[Gmail]/All Mail');
     try {
       const since = new Date(Date.now() - 120 * 86400000);
