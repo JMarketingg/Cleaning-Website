@@ -62,7 +62,7 @@ module.exports = async function handler(req, res) {
         const id = mail.messageId || `uid-${uid}`;
         const day = (mail.date || new Date()).toISOString().slice(0, 10);
         const body = mail.text || String(mail.html || '').replace(/<[^>]+>/g, '\n');
-        if (debug && samples.length < 2) samples.push({ subject: mail.subject, from: mail.from && mail.from.text, text: body.slice(0, 1500) });
+        if (debug && /review/i.test(mail.subject||'')) samples.push({ subject: mail.subject, from: mail.from && mail.from.text, text: body.slice(0, 1500) });
         found.push(...parseReviews(body, id, day));
       }
     } finally { lock.release(); }
