@@ -38,6 +38,17 @@ module.exports = async function handler(req, res) {
   const found = [], samples = [];
   try {
     await client.connect();
+    if (debug) {
+      const boxes = (await client.list()).map((b) => b.path);
+      const lk = await client.getMailboxLock('INBOX');
+      const latest = [];
+      try {
+        const st = await client.status('INBOX', { messages: true });
+        const from = Math.max(1, (st.messages || 1) - 14);
+        for await (const m of client.fetch(`${from}:*`, { envelope: true })) latest.push({ subject: m.envelope.subject, from: (m.envelope.from || []).map((x) => x.address).join(',') });
+      } finally { lk.release(); }
+      samples.push({ boxes, latest });
+    }
     const lock = await client.getMailboxLock('[Gmail]/All Mail');
     try {
       const since = new Date(Date.now() - 120 * 86400000);
