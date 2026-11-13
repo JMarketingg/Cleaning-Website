@@ -53,7 +53,7 @@ module.exports = async function handler(req, res) {
     try {
       const since = new Date(Date.now() - 120 * 86400000);
       // Google sends these from businessprofile-noreply@google.com (and similar); match on subject, then check the sender.
-      const uids = await client.search({ since, subject: 'review' }, { uid: true });
+      const uids = await client.search({ since, from: 'businessprofile-noreply@google.com' }, { uid: true });
       for (const uid of (uids || []).slice(-60)) {
         const msg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
         if (!msg) continue;
