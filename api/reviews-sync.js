@@ -8,24 +8,31 @@ const { ImapFlow } = require('imapflow');
 const { simpleParser } = require('mailparser');
 const { crm } = require('./_crm');
 
-// Pulls reviewer, stars and text out of one Google review email. Returns [] if it isn't one.
+// Pulls reviews out of one Google Business Profile email. The email lists each review as:
+//   <name>
+//   <review text>  (or "This user only left a rating")
+//   Reply to review <link>
+// Stars come from the summary line, e.g. "3 five-star reviews" or "1 four-star review".
+const WORD = { one: 1, two: 2, three: 3, four: 4, five: 5 };
 function parseReviews(text, emailId, date) {
-  const t = String(text || '').replace(/\r/g, '').replace(/[ \t]+/g, ' ');
+  const t = String(text || '').replace(/\r/g, '').replace(/<https?:\/\/[^>]+>/g, '').replace(/[ \t ]+/g, ' ');
+  if (!/review/i.test(t)) return [];
+  const summary = [...t.matchAll(/(\d+)\s+(one|two|three|four|five)-star reviews?/gi)].map((m) => ({ n: Number(m[1]), stars: WORD[m[2].toLowerCase()] }));
+  const singleStars = summary.length === 1 ? summary[0].stars : null;
+  const start = t.search(/let customers know when you.?ve replied\.?/i);
+  const body = start >= 0 ? t.slice(start).replace(/^[^\n]*\n/, '') : t;
   const out = [];
-  // Typical lines: "Stephen left a review" / "Stephen ★★★★★" / "Stephen rated you 5 stars".
-  const re = /(?:^|\n)\s*([^\n]{2,60}?)\s+(?:left a (?:new )?review|wrote a review|rated (?:your business|you)\s*(\d)\s*(?:stars?|out of 5)?|reviewed\b)[^\n]*\n([\s\S]*?)(?=\n\s*[^\n]{2,60}?\s+(?:left a (?:new )?review|wrote a review|rated)|\n\s*(?:Reply|See all reviews|Read review|View review|Respond)|$)/gi;
-  let m, i = 0;
-  while ((m = re.exec(t)) && i < 10) {
-    const block = m[3] || '';
-    const starChars = (block.match(/★/g) || []).length;
-    const starsNum = Number(m[2]) || (block.match(/(\d)\s*(?:\/\s*5|stars?|out of 5)/i) || [])[1];
-    const stars = Math.min(5, Number(starsNum) || starChars || 0) || null;
-    const body = block.replace(/[★☆]+/g, '').replace(/\b\d\s*(?:\/\s*5|stars?|out of 5)\b/gi, '').split('\n').map((s) => s.trim()).filter(Boolean)
-      .filter((s) => !/^(reply|see all|read|view|respond|manage|google|unsubscribe|business profile)/i.test(s)).join(' ').trim();
-    out.push({ reviewer: m[1].trim().replace(/^["“]|["”]$/g, ''), stars, text: body.slice(0, 1000) || null, review_date: date, email_id: `${emailId}#${i}` });
-    i++;
-  }
-  return out;
+  body.split(/\n\s*Reply to review[^\n]*/i).forEach((block, i) => {
+    const lines = block.split('\n').map((x) => x.trim()).filter(Boolean)
+      .filter((x) => !/^(see all reviews|manage|unsubscribe|google llc|this email was sent|you've received|privacy|help center|©)/i.test(x));
+    if (!lines.length || lines[0].length > 60) return;
+    const reviewer = lines[0];
+    const rest = lines.slice(1).join(' ').trim();
+    const text = /only left a rating/i.test(rest) ? null : (rest || null);
+    if (!text && !/only left a rating/i.test(rest)) return;
+    out.push({ reviewer, stars: singleStars, text: text ? text.slice(0, 1000) : null, review_date: date, email_id: `${emailId}#${i}` });
+  });
+  return out.slice(0, 20);
 }
 
 module.exports = async function handler(req, res) {
@@ -62,7 +69,7 @@ module.exports = async function handler(req, res) {
         const id = mail.messageId || `uid-${uid}`;
         const day = (mail.date || new Date()).toISOString().slice(0, 10);
         const body = mail.text || String(mail.html || '').replace(/<[^>]+>/g, '\n');
-        if (debug && /review/i.test(mail.subject||'')) samples.push({ subject: mail.subject, from: mail.from && mail.from.text, text: body.slice(0, 1500) });
+        if (debug && samples.length < 1 && /review/i.test(mail.subject||'')) samples.push({ subject: mail.subject, from: mail.from && mail.from.text, text: body.slice(0, 1500) });
         found.push(...parseReviews(body, id, day));
       }
     } finally { lock.release(); }
