@@ -2,4 +2,18 @@ User-agent: *
 Allow: /
 Disallow: /confirm
 
+# AI search assistants (ChatGPT search, Bing Copilot, Perplexity, Claude) may read the site.
+User-agent: OAI-SearchBot
+Allow: /
+User-agent: ChatGPT-User
+Allow: /
+User-agent: GPTBot
+Allow: /
+User-agent: bingbot
+Allow: /
+User-agent: PerplexityBot
+Allow: /
+User-agent: Claude-SearchBot
+Allow: /
+
 Sitemap: https://tidyhausph.com/sitemap.xml
