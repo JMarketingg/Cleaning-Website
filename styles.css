@@ -1086,5 +1086,6 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .g-all:hover { box-shadow: 0 6px 18px rgba(38,55,45,.12); transform: translateY(-1px); }
 
 /* Promo line under the hero booking box */
-.promo-line { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; font-size: 16px; color: #4D5C50; }
+.promo-line { display: flex; align-items: flex-start; gap: 8px; line-height: 1.4; margin: 14px 0 0; font-size: 16px; color: #4D5C50; }
 .promo-line b { color: var(--ink, #26372D); }
+.promo-line svg { flex: none; margin-top: 2px; }
