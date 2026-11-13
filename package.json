@@ -1,0 +1,8 @@
+{
+  "name": "tidyhaus-website",
+  "private": true,
+  "dependencies": {
+    "imapflow": "1.0.164",
+    "mailparser": "3.7.1"
+  }
+}

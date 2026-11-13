@@ -387,6 +387,31 @@
   </div>
 </section>
 
+<section id="reviews" class="section section-tint" hidden>
+  <div class="container">
+    <div class="section-head">
+      <p class="kicker">Google reviews</p>
+      <h2>What our customers say</h2>
+    </div>
+    <div class="reviews-grid" id="reviewsGrid"></div>
+    <p class="reviews-more"><a href="https://g.page/r/CVupIA7gzCvJEBM" target="_blank" rel="noopener noreferrer">See all reviews on Google</a></p>
+  </div>
+</section>
+<script>
+(function(){
+  var sec=document.getElementById('reviews'), grid=document.getElementById('reviewsGrid');
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];}); }
+  fetch('/api/reviews?limit=3').then(function(r){return r.json();}).then(function(d){
+    var list=(d&&d.reviews)||[]; if(!list.length) return;
+    grid.innerHTML=list.map(function(r){ var n=Math.max(0,Math.min(5,r.stars||0));
+      return '<figure class="review-card"><div class="review-stars" aria-label="'+n+' out of 5 stars">'+'★'.repeat(n)+'<span>'+'★'.repeat(5-n)+'</span></div>'+
+        (r.text?'<blockquote>'+esc(r.text)+'</blockquote>':'')+'<figcaption>'+esc(r.reviewer)+'</figcaption>'+
+        '<a class="review-full" href="https://g.page/r/CVupIA7gzCvJEBM" target="_blank" rel="noopener noreferrer">Read the full review on Google</a></figure>'; }).join('');
+    sec.hidden=false;
+  }).catch(function(){});
+})();
+</script>
+
 <section id="areas" class="section">
   <div class="container">
     <div class="section-head">
