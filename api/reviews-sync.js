@@ -41,11 +41,13 @@ module.exports = async function handler(req, res) {
     const lock = await client.getMailboxLock('[Gmail]/All Mail');
     try {
       const since = new Date(Date.now() - 120 * 86400000);
-      const uids = await client.search({ since, from: 'google.com', subject: 'review' }, { uid: true });
+      // Google sends these from businessprofile-noreply@google.com (and similar); match on subject, then check the sender.
+      const uids = await client.search({ since, subject: 'review' }, { uid: true });
       for (const uid of (uids || []).slice(-60)) {
         const msg = await client.fetchOne(uid, { source: true, envelope: true }, { uid: true });
         if (!msg) continue;
         const mail = await simpleParser(msg.source);
+        if (!/google\.com/i.test((mail.from && mail.from.text) || '')) continue;
         const id = mail.messageId || `uid-${uid}`;
         const day = (mail.date || new Date()).toISOString().slice(0, 10);
         const body = mail.text || String(mail.html || '').replace(/<[^>]+>/g, '\n');
