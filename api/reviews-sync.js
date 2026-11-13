@@ -27,12 +27,20 @@ function parseReviews(text, emailId, date) {
   body.split(/\n\s*Reply to review[^\n]*/i).slice(0, -1).forEach((block, i) => {
     const lines = block.split('\n').map((x) => x.trim()).filter(Boolean)
       .filter((x) => !/^(see all reviews|manage|unsubscribe|google llc|this email was sent|you've received|privacy|help center|©)/i.test(x));
+    // One-review emails start with "Great job, you got a new 5-star review ... Read review", then the name.
+    let blockStars = singleStars;
+    const head = lines.findIndex((x) => /you got a new (\d)-star review/i.test(x));
+    if (head >= 0) {
+      blockStars = Number(lines[head].match(/(\d)-star/i)[1]);
+      const rr = lines.findIndex((x) => /^read review$/i.test(x));
+      lines.splice(0, (rr >= 0 ? rr : head) + 1);
+    }
     if (!lines.length || lines[0].length > 60) return;
     const reviewer = lines[0];
     const rest = lines.slice(1).join(' ').trim();
     const text = /only left a rating/i.test(rest) ? null : (rest || null);
     if (!text && !/only left a rating/i.test(rest)) return;
-    out.push({ reviewer, stars: singleStars, text: text ? text.slice(0, 1000) : null, review_date: date, email_id: `${emailId}#${i}` });
+    out.push({ reviewer, stars: blockStars, text: text ? text.slice(0, 1000) : null, review_date: date, email_id: `${emailId}#${i}` });
   });
   return out.slice(0, 20);
 }
