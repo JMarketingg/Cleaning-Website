@@ -61,7 +61,9 @@
       var intl = /^\+(?!63)\d{8,15}$/.test(phone);
       if (!ph && !intl) return 'Enter a mobile number like 0917 123 4567, or an international number starting with +.';
       var email = value('email');
-      if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
+      if (!email) return 'Add your email so we can send your confirmation.';
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
+      if (!value('building')) return 'Add your building, unit and street.';
     }
   };
 
