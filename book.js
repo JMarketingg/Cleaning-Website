@@ -147,6 +147,16 @@
 
   var TRAVEL_FEE = 200;
 
+  // Optional add-ons, ₱300 each. Inside cabinets is already part of move-in/out.
+  var ADDON_PRICE = 300;
+  function addons() {
+    var moving = value('service') === 'move';
+    return Array.prototype.slice.call(form.querySelectorAll('input[name="addon"]:checked'))
+      .filter(function (el) { return !(moving && el.value === 'cabinets'); })
+      .map(function (el) { return el.dataset.label; });
+  }
+  function addonText() { return addons().length ? addons().join(', ') + ' (+' + peso(addons().length * ADDON_PRICE) + ')' : ''; }
+
   // Promo codes: amount off the first visit only.
   var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
   function promo() {
@@ -161,6 +171,7 @@
     var amount = table[value('bedrooms')];
     if (!amount) return '';
     amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
+    amount += addons().length * ADDON_PRICE;
     var notes = [];
     var perVisit = amount;
     var discount = DISCOUNTS[value('frequency')];
@@ -197,6 +208,7 @@
     if (value('building')) lines.push(['Building / street', value('building')]);
     if (value('email')) lines.push(['Email', value('email')]);
     lines.push(['Equipment', label('equipment')]);
+    if (addonText()) lines.push(['Add-ons', addonText()]);
     if (value('notes')) lines.push(['Notes', value('notes')]);
     lines.push(['Payment', label('payment')]);
     if (promo()) lines.push(['Promo code', promo().code]);
@@ -224,6 +236,16 @@
     });
   }
 
+  // Add-ons are for homes; inside cabinets is already part of move-in/out.
+  function syncAddons() {
+    var box = document.getElementById('bk-addons');
+    if (box) box.hidden = value('place') === 'office';
+    var cab = document.getElementById('bk-addon-cab');
+    if (cab) cab.hidden = value('service') === 'move';
+  }
+  form.addEventListener('change', syncAddons);
+  syncAddons();
+
   var submitBtn = document.getElementById('bk-submit');
   var statusBox = document.getElementById('bk-status');
   // Copy of the request for the CRM's Quote Requests list. It never blocks the
@@ -236,6 +258,7 @@
     if (estimatedPrice()) extra.push('Price: ' + estimatedPrice());
     extra.push('Payment: ' + label('payment'));
     extra.push('Equipment: ' + label('equipment'));
+    if (addonText()) extra.push('Add-ons: ' + addonText());
     if (promo()) extra.push('Promo: ' + promo().code);
     var body = {
       name: value('name'),
@@ -272,7 +295,7 @@
 
   // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
   function notesWithEquipment() {
-    return ['Equipment: ' + label('equipment'), value('notes')].filter(Boolean).join('\n');
+    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n');
   }
 
   var sending = false;

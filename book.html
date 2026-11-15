@@ -171,6 +171,13 @@
           <label class="bk-option"><input type="radio" name="equipment" value="mine" data-label="Use my equipment"><span>Use my equipment</span></label>
         </div>
       </div>
+      <div class="bk-field" id="bk-addons">Add-ons <span class="bk-optional">(optional, ₱300 each)</span>
+        <div class="bk-options" style="margin-top:8px;">
+          <label class="bk-option"><input type="checkbox" name="addon" value="fridge" data-label="Inside the fridge"><span>Inside the fridge <small class="bk-optional">&nbsp;· empty or nearly empty</small></span></label>
+          <label class="bk-option"><input type="checkbox" name="addon" value="oven" data-label="Inside the oven"><span>Inside the oven</span></label>
+          <label class="bk-option" id="bk-addon-cab"><input type="checkbox" name="addon" value="cabinets" data-label="Inside the cabinets"><span>Inside the cabinets <small class="bk-optional">&nbsp;· emptied first</small></span></label>
+        </div>
+      </div>
       <label class="bk-field">Anything we should know? <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
       <p class="bk-hint">For safety, don't include door codes here. Give them in person or leave them with your building's guard or reception.</p>
     </fieldset>
