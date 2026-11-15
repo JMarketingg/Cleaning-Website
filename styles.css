@@ -1095,3 +1095,12 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .jp-note strong { font-size: 1.05rem; }
 .jp-note span { color: var(--muted, #5b6b5f); font-size: .95rem; }
 .jp-note .jp-ja { font-size: .9rem; }
+
+/* Careers page form */
+.careers-form { background: var(--white, #fff); border: 1px solid var(--beige, #E6E3D5); border-radius: 18px; padding: 22px; margin-top: 8px; }
+.careers-check { display: flex; gap: 10px; align-items: center; font-weight: 600; margin: 6px 0; }
+.careers-check input { width: 18px; height: 18px; }
+.careers-note { font-size: .9rem; color: var(--muted, #5b6b5f); }
+.careers-status { font-weight: 700; margin-top: 12px; }
+.careers-status.is-ok { color: #2E7D32; }
+.careers-status.is-err { color: #B3261E; }
