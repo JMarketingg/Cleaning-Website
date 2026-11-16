@@ -141,7 +141,7 @@ module.exports = async function handler(req, res) {
             'We email your booking confirmation with your payment details.',
             'Our cleaner arrives and follows our room-by-room checklist.'
           ], true)) +
-          mail.section('Good to know', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Our prices are for homes in normal, lived-in condition. If your place is very cluttered or also used for storage or business, please tell us so we can confirm a custom price. If a cleaning takes longer because of the condition of the place, extra time is ₱300 per hour per cleaner, and we always ask you first.</p>`) +
+          mail.section('Good to know', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Our prices are for homes in normal, lived-in condition. If your place is very cluttered or also used for storage or business, please tell us so we can confirm a custom price. Your price includes the hours shown in your time slot. Going over them is ₱300 per hour per cleaner, and we always ask you first.</p>`) +
           mail.section('Need to change something?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)
         })
       });

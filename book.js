@@ -221,7 +221,7 @@
     var cut = price.indexOf(' (');
     document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
     document.getElementById('bk-total-note').textContent = price
-      ? (promo() ? 'first cleaning' : 'per visit') + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      ? (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
       : "Office prices depend on the space. We'll send your price with your confirmation.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
@@ -396,7 +396,7 @@
       input.value = String(s);
       input.disabled = !free;
       input.checked = free && picked === String(s);
-      input.setAttribute('data-label', text + ' (about ' + hoursText(len) + ')');
+      input.setAttribute('data-label', text + ' (includes up to ' + hoursText(len) + ' of cleaning)');
       var span = document.createElement('span');
       span.textContent = text;
       opt.appendChild(input);
@@ -404,7 +404,7 @@
       timesBox.appendChild(opt);
     }
     availBox.textContent = openStarts.length
-      ? 'Your clean takes about ' + hoursText(len) + '. Pick a start time.'
+      ? 'Your price includes up to ' + hoursText(len) + ' of cleaning (1 cleaner). Pick a start time.'
       : 'This date is fully booked. Please pick another date.';
   }
   function checkAvailability() {
