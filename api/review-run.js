@@ -34,8 +34,18 @@ const first = (n) => String(n || '').trim().split(/\s+/)[0] || 'there';
 const shortLink = (token, ch) => `${SITE}/r/${token}${ch ? '?c=' + ch : ''}`;
 const stopLink = (token) => `${SITE}/stop/${token}`;
 
+// First name, keeping Filipino double first names together ("Mary Joy", "Ma. Theresa", "John Paul").
+function crewFirst(n) {
+  const w = String(n || '').trim().split(/\s+/);
+  return /^(mary|ma\.?|maria|john|jean|anne|ann|rose|joy|mae)$/i.test(w[0] || '') && w.length >= 3 ? w[0] + ' ' + w[1] : w[0] || '';
+}
+// Every cleaner on the job, by first name: "Kristine", "Kristine and Joy".
+function crewNames(b) {
+  const names = [b.technician, b.second].filter((t) => t && t.name).map((t) => crewFirst(t.name)).filter(Boolean);
+  return names.length ? names.join(' and ') : 'our team';
+}
 function smsText(b, token, reminder) {
-  const tech = first(b.technician && b.technician.name);
+  const tech = crewNames(b);
   return reminder
     ? `Hi ${first(b.customer && b.customer.name)}, just a friendly reminder from ${BUSINESS}: if you have a minute, we'd love a quick Google review. ${shortLink(token, 'sms')} To stop these messages: ${stopLink(token)}`
     : `Hi ${first(b.customer && b.customer.name)}, thanks for choosing ${BUSINESS}! If ${tech} did a great job, would you leave us a quick Google review? ${shortLink(token, 'sms')} To stop these messages: ${stopLink(token)}`;
@@ -43,7 +53,7 @@ function smsText(b, token, reminder) {
 
 // Plain, personal email (no logo, images or big buttons), so Gmail puts it in Primary, not Promotions.
 function emailHtml(b, token) {
-  const tech = first(b.technician && b.technician.name);
+  const tech = crewNames(b);
   const P = (t) => `<p style="margin:0 0 14px;">${t}</p>`;
   return `<!doctype html><html><body style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.55;color:#222;">` +
     P(`Hi ${mail.esc(first(b.customer && b.customer.name))},`) +
@@ -55,7 +65,7 @@ function emailHtml(b, token) {
     `<p style="margin:24px 0 0;font-size:12px;color:#777;">Don't want these emails? <a href="${stopLink(token)}" style="color:#777;">Stop review requests</a></p></body></html>`;
 }
 function emailText(b, token) {
-  const tech = first(b.technician && b.technician.name);
+  const tech = crewNames(b);
   return `Hi ${first(b.customer && b.customer.name)},\n\nThank you for choosing ${BUSINESS}! I hope you're happy with your clean.\n\n` +
     `If ${tech} did a great job, would you mind leaving us a quick Google review? It only takes a minute and it really helps a small business like ours.\n\n` +
     `${shortLink(token, 'email')}\n\nIf anything wasn't right, just reply to this email and I'll make it right.\n\nThank you!\nJiyah\n${BUSINESS} Home Cleaning\n\nStop review requests: ${stopLink(token)}\n`;
@@ -104,7 +114,7 @@ async function claim(id, column) {
 }
 
 const SELECT = 'id,status,payment_status,completed_at,review_token,review_clicked_at,review_req_sent_at,review_req_reminder_at,review_req_complaint,metadata,' +
-  'customer:customers(name,phone,email),technician:technicians!bookings_technician_id_fkey(name),business:businesses!inner(slug)';
+  'customer:customers(name,phone,email),technician:technicians!bookings_technician_id_fkey(name),second:technicians!bookings_secondary_technician_id_fkey(name),business:businesses!inner(slug)';
 
 module.exports = async function handler(req, res) {
   const secret = process.env.REVIEW_CRON_SECRET;
