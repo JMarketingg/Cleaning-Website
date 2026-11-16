@@ -10,7 +10,7 @@ module.exports = async (req, res) => {
   const auth = { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, 'Content-Type': 'application/json' };
   // mode 'raw': CRM Email Marketing sends one finished email. Returns the Resend id.
   if (b.mode === 'raw') {
-    if (b.copy_only) { b.to = process.env.OWNER_EMAIL; b.subject = '[Copy] ' + b.subject; }
+    if (b.copy_only) { const o = String(process.env.OWNER_EMAIL || ''); b.to = ((o.match(/<([^>]+)>/) || [])[1] || o.split(',')[0]).trim(); b.subject = '[Copy] ' + b.subject; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.to || '') || !b.subject || !b.html) return res.status(400).json({ error: 'to, subject and html are required' });
     const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: auth,
       body: JSON.stringify({ from: process.env.FROM_EMAIL, to: b.to, reply_to: process.env.OWNER_EMAIL || undefined, subject: b.subject, html: b.html, text: b.text, headers: b.headers }) });
