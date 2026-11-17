@@ -1,7 +1,7 @@
 // Review link: tidyhausph.com/r/<token>. The customer rates the cleaning first.
 //  5 stars  -> big "Post on Google" button.
-//  1-4 stars -> "Sorry we missed the mark": offer the complaint form, and still offer Google
-//              (every customer can always post on Google; we never hide it).
+//  1-4 stars -> "Sorry we missed the mark": offer the complaint form only (owner's choice, Nov 17 2026;
+//              note: Google's policy discourages hiding the review option from unhappy customers).
 // Complaint form: what happened, how to improve, emergency (damage, leak, safety), anonymous.
 // Complaints are saved on the job, stop further review reminders, and alert the owner on Telegram.
 const { crm } = require('./_crm');
@@ -77,7 +77,7 @@ label{display:block;text-align:left;font-weight:800;font-size:14px;margin:12px 0
 <div class="c" id="s5" hidden><div class="logo">🏠 TidyHaus</div><h1>Thank you so much! 💚</h1><p>Would you share it on Google? It takes a minute and really helps a small business like ours.</p>
 <a class="b p" href="${GOOGLE}">Post on Google</a><button class="b t" onclick="done()">Maybe later</button></div>
 <div class="c" id="s2" hidden><div class="logo">🏠 TidyHaus</div><h1>Sorry we missed the mark</h1><p>Would you like to tell us what happened? We read every one, and we'll make it right.</p>
-<button class="b p" onclick="show('s3')">Submit a complaint</button><a class="b g" href="${GOOGLE}">Post on Google</a><button class="b t" onclick="done()">No thanks</button></div>
+<button class="b p" onclick="show('s3')">Submit a complaint</button><button class="b t" onclick="done()">No thanks</button></div>
 <div class="c" id="s3" hidden><div class="logo">🏠 TidyHaus</div><h1>Tell us what happened</h1>
 <label for="what">What happened, or what was wrong?</label><textarea id="what"></textarea>
 <label for="imp">How can we improve?</label><textarea id="imp"></textarea>
