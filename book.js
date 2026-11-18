@@ -67,6 +67,11 @@
     details: function () {
       if (!value('building')) return 'Add your building, unit and street.';
       if (photoBusy) return 'Wait a moment, your photos are still uploading.';
+      // Deep and move-in/out: ask for photos once; they can choose to send them later.
+      if (['deep', 'move'].indexOf(value('service')) !== -1 && !photoCount && !photosLater) {
+        var box = document.getElementById('bk-photo-ask'); if (box) box.hidden = false;
+        return 'Please add photos, or choose to send them later.';
+      }
     }
   };
 
@@ -272,7 +277,11 @@
   function readVid() { try { return localStorage.getItem('th_vid') || ''; } catch (e) { return ''; } }
 
   // Optional photos (up to 10), shrunk on the phone and uploaded to the CRM with the lead.
-  var photoBusy = 0, photoCount = 0;
+  var photoBusy = 0, photoCount = 0, photosLater = false;
+  var laterBtn = document.getElementById('bk-photo-later');
+  if (laterBtn) laterBtn.addEventListener('click', function () {
+    photosLater = true; document.getElementById('bk-photo-ask').hidden = true; errorBox.textContent = ''; move(1);
+  });
   var photoInput = document.getElementById('bk-photo-input');
   var photoGrid = document.getElementById('bk-photo-grid');
   function shrink(file) {
@@ -320,6 +329,7 @@
     extra.push('Equipment: ' + label('equipment'));
     if (addonText()) extra.push('Add-ons: ' + addonText());
     if (photoCount) extra.push('Photos: ' + photoCount + ' (in the CRM)');
+    else if (photosLater) extra.push('Photos: will send later (ask before confirming)');
     if (promo()) extra.push('Promo: ' + promo().code);
     var body = {
       name: value('name'),
@@ -357,7 +367,7 @@
 
   // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
   function notesWithEquipment() {
-    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', photoCount ? 'Photos: ' + photoCount + ' (in the CRM)' : '', value('notes')].filter(Boolean).join('\n');
+    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', photoCount ? 'Photos: ' + photoCount + ' (in the CRM)' : (photosLater ? 'Photos: will send later (ask before confirming)' : ''), value('notes')].filter(Boolean).join('\n');
   }
 
   var sending = false;
