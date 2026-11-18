@@ -81,6 +81,15 @@
       </div>
       <label class="bk-field">If somewhere else, which city or area?<input type="text" name="area_other" autocomplete="address-level2" maxlength="80"></label>
     </fieldset>
+    <fieldset class="bk-step" data-key="contact" data-auto="false" data-clarity-mask="true" hidden>
+      <legend class="bk-question" tabindex="-1">Where should we send your price?</legend>
+      <p class="bk-hint">Takes 10 seconds. You'll see your exact price in the next steps.</p>
+      <label class="bk-field">Your name<input type="text" name="name" autocomplete="name" maxlength="80" required></label>
+      <label class="bk-field">Mobile number<input type="tel" name="phone" autocomplete="tel" inputmode="tel" maxlength="20" required></label>
+      <label class="bk-field">Email <span class="bk-optional">(for your confirmation)</span><input type="email" name="email" autocomplete="email" maxlength="120" required></label>
+      <label class="bk-hp" aria-hidden="true">Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      <p class="bk-hint bk-consent">By continuing, you agree we can contact you by phone, text, WhatsApp or email about your booking and offers. You can opt out anytime.</p>
+    </fieldset>
     <fieldset class="bk-step" data-key="service" data-auto="true" hidden>
       <legend class="bk-question" tabindex="-1">Which service do you need?</legend>
       <p class="bk-hint">Not sure? Pick the closest one. You can explain in the notes later.</p>
@@ -158,12 +167,8 @@
       </div>
     </fieldset>
     <fieldset class="bk-step" data-key="details" data-auto="false" data-clarity-mask="true" hidden>
-      <legend class="bk-question" tabindex="-1">How can we reach you?</legend>
-      <p class="bk-hint">We'll use these to confirm your booking.</p>
-      <label class="bk-field">Your name<input type="text" name="name" autocomplete="name" maxlength="80" required></label>
-      <label class="bk-field">Mobile number<input type="tel" name="phone" autocomplete="tel" inputmode="tel" maxlength="20" required></label>
-      <label class="bk-field">Email <span class="bk-optional">(for your confirmation)</span><input type="email" name="email" autocomplete="email" maxlength="120" required></label>
-      <label class="bk-hp" aria-hidden="true">Leave this empty<input type="text" name="website" tabindex="-1" autocomplete="off"></label>
+      <legend class="bk-question" tabindex="-1">A few last details</legend>
+      <p class="bk-hint">So our cleaner can find your place and get ready.</p>
       <label class="bk-field">Building, unit and street<input type="text" name="building" autocomplete="address-line1" maxlength="120" required></label>
       <div class="bk-field" role="radiogroup" aria-label="Cleaning equipment">Cleaning equipment
         <div class="bk-options" style="margin-top:8px;">
@@ -177,6 +182,11 @@
           <label class="bk-option"><input type="checkbox" name="addon" value="oven" data-label="Inside the oven"><span>Inside the oven</span></label>
           <label class="bk-option" id="bk-addon-cab"><input type="checkbox" name="addon" value="cabinets" data-label="Inside the cabinets"><span>Inside the cabinets <small class="bk-optional">&nbsp;· emptied first</small></span></label>
         </div>
+      </div>
+      <div class="bk-field" id="bk-photos">Photos of your place <span class="bk-optional">(optional, up to 10)</span>
+        <p class="bk-hint" id="bk-photo-hint" style="margin:4px 0 8px;font-weight:500;">A few photos of the kitchen, bathroom and living room help us plan the right time.</p>
+        <div id="bk-photo-grid" class="bk-photo-grid"></div>
+        <label class="btn btn-secondary btn-small bk-photo-btn">Add photos<input type="file" id="bk-photo-input" accept="image/*" multiple hidden></label>
       </div>
       <label class="bk-field">Anything we should know? <span class="bk-optional">(optional)</span><textarea name="notes" rows="3" maxlength="500"></textarea></label>
       <p class="bk-hint">For safety, don't include door codes here. Give them in person or leave them with your building's guard or reception.</p>

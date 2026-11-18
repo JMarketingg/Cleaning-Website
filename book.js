@@ -53,7 +53,7 @@
       if (!value('time')) return 'Pick an open start time.';
       if (openStarts.indexOf(Number(value('time'))) === -1) return 'That time is taken. Pick another time or date.';
     },
-    details: function () {
+    contact: function () {
       if (!value('name')) return 'Enter your name.';
       var phone = value('phone').replace(/[\s()-]/g, '');
       // Philippine mobile, or an international number with + (expats, OFWs).
@@ -63,7 +63,10 @@
       var email = value('email');
       if (!email) return 'Add your email so we can send your confirmation.';
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
+    },
+    details: function () {
       if (!value('building')) return 'Add your building, unit and street.';
+      if (photoBusy) return 'Wait a moment, your photos are still uploading.';
     }
   };
 
@@ -103,6 +106,7 @@
       errorBox.textContent = problem;
       return;
     }
+    if (steps[current].dataset.key === 'contact') sendLead();
     move(1);
   });
   backBtn.addEventListener('click', function () { move(-1); });
@@ -251,6 +255,62 @@
   // Copy of the request for the CRM's Quote Requests list. It never blocks the
   // customer: the emails from /api/quote are the main record.
   var CRM_URL = 'https://tidyhaus-crm.vercel.app/api/quote';
+  // Step 2 (contact) saves a lead right away, so we can call back even if the rest isn't finished.
+  var leadId = null, leadSent = '';
+  function sendLead() {
+    var key = value('name') + '|' + value('phone') + '|' + value('email');
+    if (leadSent === key || value('website')) return;
+    leadSent = key;
+    var area = value('area') === 'other' ? value('area_other') : label('area');
+    try {
+      fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: 'lead', name: value('name'), phone: value('phone'), email: value('email'), area: area, channel: 'website', ref: document.referrer, vid: readVid() }) })
+        .then(function (r) { return r.json(); }).then(function (d) { if (d && d.id) leadId = d.id; }).catch(function () {});
+    } catch (e) {}
+    if (window.thTrack) window.thTrack('quote_step', 'lead_saved');
+  }
+  function readVid() { try { return localStorage.getItem('th_vid') || ''; } catch (e) { return ''; } }
+
+  // Optional photos (up to 10), shrunk on the phone and uploaded to the CRM with the lead.
+  var photoBusy = 0, photoCount = 0;
+  var photoInput = document.getElementById('bk-photo-input');
+  var photoGrid = document.getElementById('bk-photo-grid');
+  function shrink(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var max = 1600, w = img.width, h = img.height, k = Math.min(1, max / Math.max(w, h));
+        var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(url);
+        resolve(c.toDataURL('image/jpeg', 0.82));
+      };
+      img.onerror = function () { reject(new Error('That file is not a photo.')); };
+      img.src = url;
+    });
+  }
+  if (photoInput) photoInput.addEventListener('change', function () {
+    var files = Array.prototype.slice.call(photoInput.files || []).slice(0, Math.max(0, 10 - photoCount));
+    photoInput.value = '';
+    files.forEach(function (f) {
+      var tile = document.createElement('div');
+      tile.innerHTML = '<img alt="Your photo" src="' + URL.createObjectURL(f) + '"><span>Uploading…</span>';
+      photoGrid.appendChild(tile); photoBusy++; photoCount++;
+      shrink(f).then(function (data) {
+        return fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'photo', lead_id: leadId, phone: value('phone'), image: data }) })
+          .then(function (r) { return r.json().then(function (d) { if (!r.ok || !d.ok) throw new Error(d.error || 'Upload failed'); }); });
+      }).then(function () { tile.querySelector('span').textContent = '✓'; },
+        function (e) { tile.querySelector('span').textContent = 'Failed'; photoCount--; errorBox.textContent = e.message; })
+        .then(function () { photoBusy--; });
+    });
+  });
+  function syncPhotoHint() {
+    var h = document.getElementById('bk-photo-hint'); if (!h) return;
+    var big = ['deep', 'move'].indexOf(value('service')) !== -1;
+    h.textContent = big ? 'Recommended for deep cleaning: add a few photos of the kitchen, bathroom and living room so we can confirm your price.'
+      : 'A few photos of the kitchen, bathroom and living room help us plan the right time.';
+  }
+  form.addEventListener('change', syncPhotoHint);
   function sendToCrm() {
     var isOffice = value('place') === 'office';
     var extra = [];
@@ -259,6 +319,7 @@
     extra.push('Payment: ' + label('payment'));
     extra.push('Equipment: ' + label('equipment'));
     if (addonText()) extra.push('Add-ons: ' + addonText());
+    if (photoCount) extra.push('Photos: ' + photoCount + ' (in the CRM)');
     if (promo()) extra.push('Promo: ' + promo().code);
     var body = {
       name: value('name'),
@@ -275,6 +336,7 @@
       building: value('building'),
       notes: [value('notes')].concat(extra).filter(Boolean).join('\n'),
       channel: 'website',
+      stage: 'hot', lead_id: leadId, email: value('email'), vid: readVid(),
       ref: document.referrer
     };
     try {
@@ -295,7 +357,7 @@
 
   // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
   function notesWithEquipment() {
-    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n');
+    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', photoCount ? 'Photos: ' + photoCount + ' (in the CRM)' : '', value('notes')].filter(Boolean).join('\n');
   }
 
   var sending = false;
