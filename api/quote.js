@@ -127,21 +127,22 @@ module.exports = async function handler(req, res) {
         reply_to: OWNER_EMAIL,
         subject: `We got your booking request (${data.ref}) — TidyHaus`,
         html: mail.layout({
-          preheader: `Request ${data.ref}: ${data.service} on ${data.date}. We'll confirm soon.`,
+          preheader: `Request ${data.ref}: ${data.service} on ${data.date}. We'll send your price soon.`,
           badge: 'Booking request received',
           title: `Thanks, ${data.name.split(' ')[0]}! We got your request.`,
-          intro: `Your booking reference is <strong style="white-space:nowrap;">${mail.esc(data.ref)}</strong>. Keep it handy if you text or call us. This is a request, not a confirmed booking yet. We'll confirm your date and time soon.`,
+          intro: `Your booking reference is <strong style="white-space:nowrap;">${mail.esc(data.ref)}</strong>. Keep it handy if you text or call us. This is a request, not a confirmed booking yet. We'll send your price and confirm your date and time soon.`,
           body: mail.card([
             ['Date', data.date], ['Time', data.time], ['Service', data.service], ['Place', data.place], ['Size', data.size],
             ['How often', data.frequency], ['Address', [data.building, data.area].filter(Boolean).join(', ')],
-            ['Price per visit', data.price], ['Payment', data.payment]
+            ['Payment', data.payment]
           ]) +
           mail.section('What happens next', mail.list([
             'We check your date, time and address.',
-            'We email your booking confirmation with your payment details.',
+            'We send you your price.',
+            'Once you say yes, we email your booking confirmation with your payment details.',
             'Our cleaner arrives and follows our room-by-room checklist.'
           ], true)) +
-          mail.section('Good to know', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Our prices are for homes in normal, lived-in condition. If your place is very cluttered or also used for storage or business, please tell us so we can confirm a custom price. Your price includes the hours shown in your time slot. Going over them is ₱300 per hour per cleaner, and we always ask you first.</p>`) +
+          mail.section('Good to know', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Our prices are for homes in normal, lived-in condition. Your price will come from us personally, based on your place and what you need. If your place is very cluttered or also used for storage or business, please tell us so we can price it right.</p>`) +
           mail.section('Need to change something?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)
         })
       });

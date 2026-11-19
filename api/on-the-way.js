@@ -15,6 +15,8 @@ async function crm(path, opts = {}) {
 }
 
 module.exports = async function handler(req, res) {
+  // Turned off Nov 2026: customers get an on-the-way TEXT from the CRM instead of an email.
+  return res.status(200).json({ ok: true, sent: false, off: true });
   if (req.method !== 'POST') return res.status(405).json({ ok: false });
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, RESEND_API_KEY, OWNER_EMAIL, FROM_EMAIL } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY || !RESEND_API_KEY || !FROM_EMAIL) return res.status(503).json({ ok: false });
