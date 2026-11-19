@@ -19,13 +19,13 @@ module.exports = async (req, res) => {
   }
   // mode 'status': last event (delivered, opened, clicked, bounced, complained) for up to 20 Resend ids.
   if (b.mode === 'status') {
-    const statuses = {};
+    const statuses = {}, errors = {};
     for (const id of (b.ids || []).slice(0, 20)) {
       const r = await fetch('https://api.resend.com/emails/' + encodeURIComponent(id), { headers: auth });
       const j = await r.json().catch(() => ({}));
-      if (r.ok) statuses[id] = j.last_event || null;
+      if (r.ok) statuses[id] = j.last_event || null; else errors[id] = r.status + ' ' + String(j.message || j.name || '').slice(0, 120);
     }
-    return res.status(200).json({ statuses });
+    return res.status(200).json({ statuses, errors });
   }
   if (b.copy_only) { b.to = process.env.OWNER_EMAIL; b.subject = '[Copy] ' + b.subject; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.to || '')) return res.status(400).json({ error: 'Bad email' });
