@@ -125,11 +125,11 @@ module.exports = async function handler(req, res) {
         from: FROM_EMAIL,
         to: data.email,
         reply_to: OWNER_EMAIL,
-        subject: `We got your booking request (${data.ref}) — TidyHaus`,
+        subject: `Your quote is being worked on (${data.ref}) — TidyHaus`,
         html: mail.layout({
           preheader: `Request ${data.ref}: ${data.service} on ${data.date}. We'll send your price soon.`,
-          badge: 'Booking request received',
-          title: `Thanks, ${data.name.split(' ')[0]}! We got your request.`,
+          badge: 'Quote in progress',
+          title: `Thanks, ${data.name.split(' ')[0]}! Your quote is being worked on.`,
           intro: `Your booking reference is <strong style="white-space:nowrap;">${mail.esc(data.ref)}</strong>. Keep it handy if you text or call us. This is a request, not a confirmed booking yet. We'll send your price and confirm your date and time soon.`,
           body: mail.card([
             ['Date', data.date], ['Time', data.time], ['Service', data.service], ['Place', data.place], ['Size', data.size],
