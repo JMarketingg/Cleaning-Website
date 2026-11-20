@@ -525,8 +525,8 @@
       var word=' Google review'+(sm.count===1?'':'s');
       function show(a,c){ avgEl.textContent=a.toFixed(1); cntEl.textContent=Math.round(c)+word; }
       // Count up from 0 when the badge comes into view (skipped for people who prefer less motion).
-      function countUp(){ var t0=null, dur=1400; function step(t){ if(!t0) t0=t; var k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3); show(sm.average*e, sm.count*e); if(k<1) requestAnimationFrame(step); } requestAnimationFrame(step); }
-      show(0,0); badge.hidden=false;
+      function countUp(){ var t0=null, dur=1400; function step(t){ if(!t0) t0=t; var k=Math.min(1,(t-t0)/dur), e=1-Math.pow(1-k,3); show(sm.average, sm.count*e); if(k<1) requestAnimationFrame(step); } requestAnimationFrame(step); }
+      show(sm.average,0); badge.hidden=false; // the 5.0 stays still; only the number of reviews counts up
       if(window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches||!('IntersectionObserver' in window)){ show(sm.average,sm.count); }
       else { var io=new IntersectionObserver(function(en){ if(en[0].isIntersecting){ io.disconnect(); countUp(); } },{threshold:0.6}); io.observe(badge); }
     }
