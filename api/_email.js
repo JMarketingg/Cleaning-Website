@@ -113,12 +113,13 @@ function payKey(method) {
   if (/bank|instapay|qr ph/.test(m)) return 'bank';
   return 'gcash';
 }
-function paymentBlock(method, price, ref) {
+// lead (optional, HTML): replaces "Please pay ₱X before your visit", e.g. for a deposit.
+function paymentBlock(method, price, ref, lead) {
   const k = payKey(method), main = PAY[k];
   const P = (t, x) => `<p style="${FONT}margin:0 0 6px;font-size:15px;line-height:1.55;color:${C.ink};${x || ''}">${t}</p>`;
   const others = Object.keys(PAY).filter((x) => x !== k).map((x) => PAY[x].name).join(' or ');
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:${C.cream};border-radius:12px;"><tr><td style="padding:18px 20px;">` +
-    P(`Please pay <strong>${esc(price)}</strong> before your visit${ref ? `, with <strong>${esc(ref)}</strong> in the note` : ''}.`) +
+    P(`${lead || `Please pay <strong>${esc(price)}</strong> before your visit`}${ref ? `, with <strong>${esc(ref)}</strong> in the note` : ''}.`) +
     P(`<strong>${esc(main.name)}</strong>`, 'margin-top:10px;') +
     main.lines.map((l) => P(esc(l), `color:${C.muted};`)).join('') +
     `<img src="https://tidyhausph.com/images/pay/${main.qr}" width="260" alt="${esc(main.name)} QR code" style="display:block;width:260px;max-width:100%;height:auto;border:0;margin:12px 0;border-radius:10px;">` +

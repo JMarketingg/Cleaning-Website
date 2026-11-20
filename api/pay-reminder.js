@@ -24,8 +24,10 @@ module.exports = async function handler(req, res) {
   // Visits starting between 36 and 60 hours from now (run once a day, so each visit is caught once).
   const from = new Date(Date.now() + 36 * 3600000).toISOString();
   const to = new Date(Date.now() + 60 * 3600000).toISOString();
-  const rows = await crm(`bookings?select=id,scheduled_at,scheduled_end,price,address_line1,metadata,customer:customers(name,email)` +
-    `&status=eq.confirmed&payment_status=eq.unpaid&scheduled_at=gte.${from}&scheduled_at=lt.${to}`);
+  // Confirmed or assigned visits that still owe money: not paid at all, or only the deposit paid.
+  // (A deposit booking that hasn't paid its deposit is still "pending", so it isn't reminded here.)
+  const rows = await crm(`bookings?select=id,scheduled_at,scheduled_end,price,amount_paid,payment_status,address_line1,metadata,customer:customers(name,email)` +
+    `&status=in.(confirmed,assigned)&payment_status=in.(unpaid,deposit_paid)&scheduled_at=gte.${from}&scheduled_at=lt.${to}`);
 
   const sent = [];
   for (const b of rows || []) {
@@ -36,13 +38,16 @@ module.exports = async function handler(req, res) {
     const date = manila(b.scheduled_at, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     const time = manila(b.scheduled_at, { hour: 'numeric', minute: '2-digit' }) + (b.scheduled_end ? ' to ' + manila(b.scheduled_end, { hour: 'numeric', minute: '2-digit' }) : '');
     const ref = /^TH-[A-Z0-9]{6}$/.test(meta.ref || '') ? meta.ref : '';
+    const paidSoFar = b.payment_status === 'deposit_paid' ? (Number(b.amount_paid) || 0) : 0;
+    const due = Math.max(0, (Number(b.price) || 0) - paidSoFar);
+    if (!due) continue;
     const html = mail.layout({
-      preheader: `Your cleaning is on ${date}. Please pay ${peso(b.price)} before your visit.`,
+      preheader: `Your cleaning is on ${date}. Please pay ${peso(due)} before your visit.`,
       badge: 'Payment reminder',
       title: `See you soon, ${first}!`,
-      intro: `Your TidyHaus cleaning is on <strong>${mail.esc(date)}</strong>, ${mail.esc(time)}. If you haven't paid yet, please pay before your visit.`,
-      body: mail.card([['Date', date], ['Time', time], ['Address', b.address_line1], ['Amount', peso(b.price)], ['Reference', ref]]) +
-        mail.section('How to pay', mail.paymentBlock(meta.payment, peso(b.price), ref)) +
+      intro: `Your TidyHaus cleaning is on <strong>${mail.esc(date)}</strong>, ${mail.esc(time)}. ${paidSoFar ? `Thanks for your deposit! Please pay the rest, <strong>${peso(due)}</strong>, before your visit.` : 'If you haven\'t paid yet, please pay before your visit.'}`,
+      body: mail.card([['Date', date], ['Time', time], ['Address', b.address_line1], ['Price', peso(b.price)], paidSoFar ? ['Deposit paid', peso(paidSoFar)] : ['', ''], [paidSoFar ? 'Rest to pay' : 'Amount', peso(due)], ['Reference', ref]]) +
+        mail.section('How to pay', mail.paymentBlock(meta.payment, peso(due), ref)) +
         mail.section('Already paid?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Thank you! You can ignore this email. Need to change your date? Just reply, or text us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)
     });
     try {

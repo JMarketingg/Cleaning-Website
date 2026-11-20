@@ -4,6 +4,7 @@
 // and for the CRM: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY.
 const crypto = require('crypto');
 const mail = require('./_email');
+const bm = require('./_booking-mail');
 
 // Checks the signed link from the owner's email (see confirmLink in quote.js).
 // Returns the signed request details, or null if the link was changed or made up.
@@ -98,8 +99,10 @@ async function createCrmJob(d, quoteId) {
     method: 'POST', headers: { Prefer: 'return=representation' },
     body: JSON.stringify({
       business_id: biz.id, customer_id: customer.id, service_id: service ? service.id : null,
-      technician_id: cleaners.length === 1 ? cleaners[0].id : null,
-      status: cleaners.length === 1 ? 'assigned' : 'confirmed', source: 'website_form',
+      // Not reserved until the deposit is paid: the job stays "pending" and the cleaner is only
+      // assigned when the owner marks the deposit paid (so the cleaner app doesn't show it yet).
+      technician_id: null,
+      status: 'pending', source: 'website_form', payment_status: 'unpaid',
       scheduled_at: start, scheduled_end: end,
       duration_minutes: start && end ? Math.round((Date.parse(end) - Date.parse(start)) / 60000) : null,
       price, subtotal: price, address_line1: d.address || null, city: 'Metro Manila',
@@ -107,6 +110,8 @@ async function createCrmJob(d, quoteId) {
       notes: [d.size && `Size: ${d.size}`, d.payment && `Payment: ${d.payment}`, d.ref && `Ref: ${d.ref}`].filter(Boolean).join('\n') || null,
       metadata: {
         ref: d.ref || null, payment: d.payment || null, from: 'website', quote_request_id: quoteId || null,
+        deposit_required: true, deposit_amount: d.deposit ? d.deposit.deposit : null, deposit_full: !!(d.deposit && d.deposit.full),
+        deposit_requested_at: new Date().toISOString(), policy_version: '2026-11', planned_technician_id: cleaners.length === 1 ? cleaners[0].id : null,
         // "₱200 travel fee" in the price note means the place is outside Makati and BGC.
         travel_fee: (String(d.price).match(/₱\s*([\d,]+) travel fee/i) || [])[1] ? Number(String(d.price).match(/₱\s*([\d,]+) travel fee/i)[1].replace(/,/g, '')) : null,
         // With a promo, the first visit is cheaper; regular visits after it use this price.
@@ -151,36 +156,13 @@ module.exports = async function handler(req, res) {
   }
 
   const ref = /^TH-[A-Z0-9]{6}$/.test(signed.ref || '') ? signed.ref : '';
-  const cal = mail.calendarLink(d.date, d.time, d.address);
-  const ics = mail.icsLink(d.date, d.time, d.address);
-  const p = (t) => `<p style="font-family:Arial,Helvetica,sans-serif;margin:0 0 8px;font-size:15px;line-height:1.6;color:#26372D;">${t}</p>`;
-  const html = mail.layout({
-    preheader: `Confirmed: ${d.service} on ${d.date}, ${d.time}.`,
-    badge: 'Booking confirmed',
-    title: `You're all set, ${d.name.split(' ')[0]}!`,
-    intro: `Your cleaning is <strong>confirmed</strong>. We've saved your date and time${ref ? `. Your booking reference is <strong style="white-space:nowrap;">${mail.esc(ref)}</strong>` : ''}.`,
-    body: mail.card([
-      ['Date', d.date], ['Time', d.time], ['Address', d.address], ['Service', d.service],
-      ['Size', d.size], ['Price per visit', d.price], ['Payment', d.payment], ['Payment details and notes', d.notes]
-    ]) +
-    mail.section('How to pay', mail.paymentBlock(d.payment, d.price, ref)) +
-    (cal ? `<p style="margin:16px 0 0;">${mail.button(cal, 'Google Calendar')}&nbsp; ${mail.button(ics, 'Apple or Outlook calendar')}</p>` : '') +
-    mail.section("What we'll clean", mail.list([
-      '<strong>Living areas:</strong> dust shelves and surfaces, wipe tables, sweep and mop, tidy up, take out the trash',
-      '<strong>Kitchen:</strong> wipe the counters, clean the sink, wipe the outside of appliances, sweep and mop',
-      '<strong>Bedrooms:</strong> dust, make beds, wipe mirrors, sweep and mop',
-      '<strong>Bathrooms:</strong> clean the toilet, sink and shower, wipe mirrors and counters, sweep and mop'
-    ]) + p('See the full list at <a href="https://tidyhausph.com/#checklist" style="color:#344B38;font-weight:bold;">tidyhausph.com</a>.')) +
-    mail.section('Before we arrive', mail.list([
-      "If your building needs our cleaner's name or ID, we'll send it before the visit.",
-      "For safety, give door codes in person or leave them with your building's guard or reception, not by message.",
-      'Put away valuables and anything you don\'t want us to move.'
-    ])) +
-    mail.section('Our promise', p("If we miss anything on the checklist, tell us within 12 hours and we'll come back to fix it for free.")) +
-    mail.section('Happy with your clean?', p('A quick Google review helps other families in Makati and BGC find us. Thank you!') +
-      `<p style="margin:10px 0 0;">${mail.button('https://g.page/r/CVupIA7gzCvJEBM/review', 'Leave us a Google review')}</p>`) +
-    mail.section('Need to change something?', p('Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.'))
-  });
+  // Deposit policy (Nov 2026): this email asks for the 25% deposit (or the full amount if the
+  // cleaning is less than 24 hours away). "Confirmed" is sent later, when the deposit is marked paid in the CRM.
+  const times = mail.cleanTimes(d.date, d.time);
+  const startIso = times ? isoFromCompact(times.start) : null;
+  const price = Number((String(d.price).match(/₱?\s*([\d,]+)/) || [])[1]?.replace(/,/g, '') || 0);
+  if (!price) return res.status(400).json({ ok: false, error: 'Write the price as a number, like ₱1,500' });
+  const reqMail = bm.depositRequest({ ...d, price, start: startIso, ref });
 
   try {
     await sendEmail({
@@ -188,13 +170,14 @@ module.exports = async function handler(req, res) {
       to: d.email,
       bcc: OWNER_EMAIL,
       reply_to: OWNER_EMAIL,
-      subject: `Confirmed: your TidyHaus cleaning on ${d.date}`,
-      html
+      subject: reqMail.subject,
+      html: reqMail.html
     });
   } catch (e) {
     console.error(e);
     return res.status(502).json({ ok: false, error: 'Could not send the email' });
   }
+  d.deposit = reqMail.dep;
   let crmUpdated = false;
   let jobCreated = false;
   try {

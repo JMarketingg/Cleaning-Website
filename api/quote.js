@@ -5,11 +5,12 @@
 // and optionally TELEGRAM_BOT_TOKEN + TELEGRAM_CHAT_ID for a Telegram alert to the owner.
 const crypto = require('crypto');
 const mail = require('./_email');
+const bm = require('./_booking-mail');
 
 const FIELDS = {
   area: 'Area', service: 'Service', place: 'Place', size: 'Size', frequency: 'How often',
   date: 'Preferred date', time: 'Time', name: 'Name', phone: 'Mobile', email: 'Email',
-  building: 'Building / street', notes: 'Notes', price: 'Price', payment: 'Payment', promo: 'Promo code'
+  building: 'Building / street', notes: 'Notes', price: 'Price', payment: 'Payment', promo: 'Promo code', policy: 'Cancellation policy'
 };
 
 function escapeHtml(s) {
@@ -139,9 +140,11 @@ module.exports = async function handler(req, res) {
           mail.section('What happens next', mail.list([
             'We check your date, time and address.',
             'We send you your price.',
-            'Once you say yes, we email your booking confirmation with your payment details.',
+            'A 25% deposit reserves your date (GCash, Maya or bank transfer). We email the details.',
+            'Once the deposit is in, we email your booking confirmation.',
             'Our cleaner arrives and follows our room-by-room checklist.'
           ], true)) +
+          bm.policySection() +
           mail.section('Good to know', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Our prices are for homes in normal, lived-in condition. Your price will come from us personally, based on your place and what you need. If your place is very cluttered or also used for storage or business, please tell us so we can price it right.</p>`) +
           mail.section('Need to change something?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)
         })

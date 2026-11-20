@@ -227,13 +227,7 @@
   }
 
   function buildSummary() {
-    // The price goes in its own big box so it's the first thing people see.
-    var price = estimatedPrice();
-    var cut = price.indexOf(' (');
-    document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
-    document.getElementById('bk-total-note').textContent = price
-      ? (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
-      : "Office prices depend on the space. We'll send your price with your confirmation.";
+    // Prices are not shown to the customer: the owner sends the price (the estimate still goes to the CRM).
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
     list.innerHTML = '';
@@ -351,6 +345,7 @@
     if (photoCount) extra.push('Photos: ' + photoCount + ' (in the CRM)');
     else if (photosLater) extra.push('Photos: will send later (ask before confirming)');
     if (promo()) extra.push('Promo: ' + promo().code);
+    if (document.getElementById('bk-policy') && document.getElementById('bk-policy').checked) extra.push('Policy: agreed to the cancellation policy (25% deposit, 24-hour notice)');
     var body = {
       name: value('name'),
       phone: value('phone'),
@@ -393,6 +388,12 @@
   var sending = false;
   submitBtn.addEventListener('click', function () {
     if (sending) return;
+    var agree = document.getElementById('bk-policy');
+    if (agree && !agree.checked) {
+      statusBox.className = 'bk-status is-error';
+      statusBox.textContent = 'Please tick the box to agree to the cancellation policy.';
+      return;
+    }
     if (!serverReady) {
       textFallback();
       return;
@@ -414,6 +415,7 @@
       building: value('building'),
       notes: notesWithEquipment(),
       price: estimatedPrice(),
+      policy: 'Agreed to the cancellation policy (25% deposit, 24-hour notice) on the booking form',
       website: value('website')
     };
     sending = true;
@@ -427,8 +429,8 @@
         if (!ok) throw new Error('failed');
         statusBox.classList.add('is-ok');
         statusBox.textContent = payload.email
-          ? 'Thank you! We got your request and sent a confirmation to your email. We will reply soon.'
-          : 'Thank you! We got your request. We will reply soon.';
+          ? 'Thank you! We got your request and we\'re working on your quote. We\'ll send your price soon.'
+          : 'Thank you! We got your request and we\'re working on your quote. We\'ll send your price soon.';
         submitBtn.hidden = true;
         backBtn.hidden = true;
         if (window.thTrack) window.thTrack('quote_send', label('service'));
@@ -496,7 +498,7 @@
       timesBox.appendChild(opt);
     }
     availBox.textContent = openStarts.length
-      ? 'Your price includes up to ' + hoursText(len) + ' of cleaning (1 cleaner). Pick a start time.'
+      ? 'Each time slot includes up to ' + hoursText(len) + ' of cleaning (1 cleaner). Pick a start time.'
       : 'This date is fully booked. Please pick another date.';
   }
   function checkAvailability() {

@@ -17,6 +17,10 @@
     {
       "source": "/stop/:t",
       "destination": "/api/stop?t=:t"
+    },
+    {
+      "source": "/privacy-policy",
+      "destination": "/privacy"
     }
   ]
 }

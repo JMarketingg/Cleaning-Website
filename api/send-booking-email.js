@@ -27,6 +27,26 @@ module.exports = async (req, res) => {
     }
     return res.status(200).json({ statuses, errors });
   }
+  // mode 'booking': the CRM asks for one of the deposit-policy emails for a booking:
+  // kind 'deposit_request' | 'deposit_reminder' | 'confirmed'. The owner gets a BCC copy.
+  if (b.mode === 'booking') {
+    const bm = require('./_booking-mail');
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!/^[0-9a-f-]{36}$/i.test(String(b.id || ''))) return res.status(400).json({ error: 'Bad booking id' });
+    const r0 = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?id=eq.${b.id}&select=id,price,amount_paid,scheduled_at,scheduled_end,address_line1,notes,customer_notes,metadata,customer:customers(name,email),service:services(name)`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'app' } });
+    const [bk] = r0.ok ? await r0.json() : [];
+    if (!bk) return res.status(404).json({ error: 'Booking not found' });
+    const d = bm.fromBooking(bk);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(d.email || '')) return res.status(200).json({ ok: false, error: 'This customer has no email' });
+    const m = b.kind === 'confirmed' ? bm.confirmed(d) : b.kind === 'deposit_reminder' ? bm.depositReminder(d) : bm.depositRequest(d);
+    const to = b.copy_only ? (((String(process.env.OWNER_EMAIL || '').match(/<([^>]+)>/) || [])[1]) || String(process.env.OWNER_EMAIL || '').split(',')[0]).trim() : d.email;
+    const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: auth,
+      body: JSON.stringify({ from: process.env.FROM_EMAIL, to, bcc: (!b.copy_only && process.env.OWNER_EMAIL) ? [process.env.OWNER_EMAIL] : undefined,
+        reply_to: process.env.OWNER_EMAIL || undefined, subject: (b.copy_only ? '[Copy] ' : '') + m.subject, html: m.html }) });
+    const j = await r.json().catch(() => ({}));
+    return res.status(r.ok ? 200 : 502).json(r.ok ? { ok: true, id: j.id, deposit: m.dep || null } : { ok: false, error: j.message || ('Resend ' + r.status) });
+  }
   if (b.copy_only) { b.to = process.env.OWNER_EMAIL; b.subject = '[Copy] ' + b.subject; }
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.to || '')) return res.status(400).json({ error: 'Bad email' });
   const body = card(b.rows || []) + (b.sections || []).map((s) => section(s.title, list((s.items || []).map(esc)))).join('') + (b.outro ? `<p style="font-family:Arial,Helvetica,sans-serif;font-size:15px;line-height:1.6;color:#26372D;margin:24px 0 0;">${esc(b.outro)}</p>` : '');

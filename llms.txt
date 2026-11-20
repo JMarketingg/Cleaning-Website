@@ -1,11 +1,12 @@
 # TidyHaus Home Cleaning
 
-> House, condo, Airbnb, deep, move-in/move-out and office cleaning in Makati and BGC (Taguig), Metro Manila, Philippines. Prices are shown online and customers book in about 2 minutes at https://tidyhausph.com/book.
+> House, condo, Airbnb, deep, move-in/move-out and office cleaning in Makati and BGC (Taguig), Metro Manila, Philippines. Starting prices are shown online. Customers send a request in about 2 minutes at https://tidyhausph.com/book, and TidyHaus replies with the exact price.
 
 - Address: 21st Floor, Rockwell Center, 8 Rockwell Dr, Makati City, 1210 Metro Manila
 - Phone, WhatsApp and Viber: +63 992 309 5621
 - Hours: 8 AM to 6 PM, Monday to Sunday
-- Payment: GCash, Maya or bank transfer (InstaPay / QR Ph), paid before the visit
+- Payment: GCash, Maya or bank transfer (InstaPay / QR Ph). A 25% deposit reserves the date (full amount if booking less than 24 hours ahead); the rest is paid before the visit
+- Cancellation: free 24+ hours before (deposit refunded or kept as credit; one free date change). Less than 24 hours before or no one home: the deposit is not refunded. Full terms: https://tidyhausph.com/terms-of-service
 - Areas: Makati and BGC; other parts of Metro Manila have a ₱200 travel fee per visit
 
 ## Prices per visit (regular cleaning)

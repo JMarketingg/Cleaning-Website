@@ -55,8 +55,8 @@
 <section class="section bk-section">
   <div class="container narrow">
     <form id="confirm" class="bk-card" novalidate>
-      <h1 class="bk-question">Confirm a booking</h1>
-      <p class="bk-hint">Check the details, then send. The customer gets a confirmation email and you get a copy.</p>
+      <h1 class="bk-question">Send the price and deposit request</h1>
+      <p class="bk-hint">Check the details and write your price, then send. The customer gets an email asking for a 25% deposit (rounded up to the next ₱50) to reserve the date. If the cleaning is less than 24 hours away, they pay the full amount. You get a copy. When they pay, open the job in the CRM and tap <b>Deposit paid</b>: that sends the "Confirmed" email.</p>
       <label class="bk-field">Customer name<input type="text" name="name" placeholder="" maxlength="300" required></label>
       <label class="bk-field">Customer email<input type="email" name="email" placeholder="" maxlength="300" readonly required></label>
       <label class="bk-field">Mobile<input type="tel" name="phone" placeholder="" maxlength="300" readonly></label>
@@ -67,9 +67,9 @@
       <label class="bk-field">Address / building<input type="text" name="address" placeholder="" maxlength="300"></label>
       <label class="bk-field">Price<input type="text" name="price" placeholder="e.g. ₱1,500" maxlength="300" required></label>
       <label class="bk-field">Payment<input type="text" name="payment" placeholder="e.g. GCash" maxlength="300"></label>
-      <label class="bk-field">Payment details and notes for the customer <span class="bk-optional">(for example, your GCash or Maya number)</span><textarea name="notes" rows="3" maxlength="300"></textarea></label>
+      <label class="bk-field">Payment details and notes for the customer <span class="bk-optional">(optional, shown to the customer)</span><textarea name="notes" rows="3" maxlength="300"></textarea></label>
       <p id="cf-error" class="bk-error" role="alert"></p>
-      <div class="bk-send"><button id="cf-send" class="btn btn-primary btn-lg" type="submit">Send confirmation</button></div>
+      <div class="bk-send"><button id="cf-send" class="btn btn-primary btn-lg" type="submit">Send price and deposit request</button></div>
       <p id="cf-status" class="bk-status" role="status" aria-live="polite"></p>
     </form>
   </div>
@@ -116,7 +116,7 @@
       <p><a href="https://www.tiktok.com/@tidyhauscleaningph" target="_blank" rel="noopener noreferrer">TikTok<span class="visually-hidden"> (opens in a new tab)</span></a></p>
       <p><a href="https://g.page/r/CVupIA7gzCvJEBM/review" target="_blank" rel="noopener noreferrer">Leave us a Google review<span class="visually-hidden"> (opens in a new tab)</span></a></p>
       <p><a href="/careers">Careers</a>
-      <a href="/privacy">Privacy Notice</a></p>
+      <a href="/privacy">Privacy Notice</a> · <a href="/terms-of-service">Terms of Service</a></p>
     </div>
     <div class="footer-map map-facade">
       <iframe data-src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d3861.6254209645313!2d121.03669389999999!3d14.563400399999995!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x3397c971803a8a6b%3A0xc92bcce00e20a95b!2sTidyHaus%20Home%20Cleaning!5e0!3m2!1sen!2sph!4v1792939279736!5m2!1sen!2sph" title="TidyHaus Home Cleaning on Google Maps" allowfullscreen loading="lazy" referrerpolicy="strict-origin-when-cross-origin"></iframe>
@@ -166,7 +166,7 @@
 
   })();
 </script>
-<script src="confirm.js"></script>
+<script src="confirm.js?v=20261120"></script>
 <script src="/site.js" defer></script>
 </body>
 </html>
