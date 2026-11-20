@@ -22,12 +22,10 @@ const P = (t) => `<p style="font-family:Arial,Helvetica,sans-serif;margin:0 0 8p
 
 // The cancellation policy, written the same way everywhere (emails, website, terms).
 const POLICY = [
-  `A ${DEPOSIT_PCT}% deposit reserves your date. Your date is only held once the deposit is paid.`,
-  'Booking less than 24 hours before your cleaning? The full amount is paid to book.',
-  'Need to cancel or change your date? Tell us at least 24 hours before. You can move your date once for free, and we\'ll refund your deposit or keep it as credit.',
-  'Cancelling less than 24 hours before, or not being home for the cleaning: the deposit is not refunded.',
-  'If our cleaner can\'t get in on the day (for example, no gate pass), we\'ll talk with you and decide together.',
-  'If we have to cancel, you get your whole deposit back.'
+  `Pay ${DEPOSIT_PCT}% to reserve your date. Booking less than 24 hours ahead? Pay in full.`,
+  'Cancel or move your date 24 hours or more before: free.',
+  'Cancel less than 24 hours before, or not home: the deposit is not refunded.',
+  'If we cancel: full refund.'
 ];
 function policySection() {
   return mail.section('Cancellation policy', mail.list(POLICY.map(mail.esc)));
