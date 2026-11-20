@@ -1116,8 +1116,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-photo-ask { margin-top: 10px; background: #FBF3E2; border-radius: 12px; padding: 12px 14px; }
 .bk-photo-ask p { margin: 0 0 8px; font-weight: 500; }
 
-/* Home page bottom: Google reviews (centered), then the discount code, then the booking form. */
-.reviews-centered .section-head { text-align: center; margin-inline: auto; }
-.reviews-centered .reviews-grid { max-width: 1040px; margin-inline: auto; justify-content: center; }
-.promo-band { background: var(--tint, #F2EEE4); padding: 28px 0; }
-.promo-band .promo-line { justify-content: center; align-items: center; margin: 0; font-size: 19px; text-align: center; }
+/* Hero: under the area form, the Google badge and then the discount code, centered under the form. */
+.hero-proof { max-width: 520px; display: flex; flex-direction: column; align-items: center; text-align: center; }
+.hero-proof .g-badge { margin-top: 18px; }
+.hero-proof .promo-line { justify-content: center; margin-top: 12px; }
