@@ -89,6 +89,7 @@
     nextBtn.hidden = last;
     errorBox.textContent = '';
     if (last) buildSummary();
+    if (!first) saveProgressSoon();
     var heading = steps[i].querySelector('.bk-question');
     if (heading && !first) {
       heading.focus({ preventScroll: true });
@@ -109,6 +110,7 @@
     var problem = check && check();
     if (problem) {
       errorBox.textContent = problem;
+      try { errorBox.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
       return;
     }
     if (steps[current].dataset.key === 'contact') sendLead();
@@ -270,10 +272,28 @@
     try {
       fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ stage: 'lead', name: value('name'), phone: value('phone'), email: value('email'), area: area, channel: 'website', ref: document.referrer, vid: readVid() }) })
-        .then(function (r) { return r.json(); }).then(function (d) { if (d && d.id) leadId = d.id; }).catch(function () {});
+        .then(function (r) { return r.json(); }).then(function (d) { if (d && d.id) { leadId = d.id; saveProgressSoon(); } }).catch(function () {});
     } catch (e) {}
     if (window.thTrack) window.thTrack('quote_step', 'lead_saved');
   }
+  // After step 2, save each answer as they go, so a customer who stops still leaves what they picked.
+  var STEP_NAMES = { area: 'area', contact: 'contact', service: 'service', place: 'type of place', size: 'size', office: 'office size',
+    frequency: 'how often', when: 'date and time', payment: 'payment', details: 'address and details', review: 'review (last step, did not press Send)' };
+  function sendProgress(useBeacon) {
+    if (!leadId || value('website')) return;
+    var visible = steps.filter(applies), pos = visible.indexOf(steps[current]) + 1;
+    var isOffice = value('place') === 'office';
+    var body = { stage: 'lead', progress: true, lead_id: leadId, phone: value('phone'), name: value('name'),
+      last_step: 'step ' + pos + ' of ' + visible.length + ' (' + (STEP_NAMES[steps[current].dataset.key] || steps[current].dataset.key) + ')',
+      service: label('service'), place: label('place'),
+      bedrooms: isOffice ? '' : label('bedrooms'), bathrooms: isOffice ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
+      frequency: label('frequency'), date: value('date'), time: label('time'), building: value('building'),
+      notes: [value('payment') ? 'Payment: ' + label('payment') : '', addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n') };
+    try { fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {}); } catch (e) {}
+  }
+  var progressTimer = null;
+  function saveProgressSoon() { clearTimeout(progressTimer); progressTimer = setTimeout(sendProgress, 800); }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'hidden') sendProgress(); });
   function readVid() { try { return localStorage.getItem('th_vid') || ''; } catch (e) { return ''; } }
 
   // Optional photos (up to 10), shrunk on the phone and uploaded to the CRM with the lead.
@@ -498,6 +518,15 @@
     if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size'].indexOf(e.target.name) !== -1) renderTimes();
   });
   form.elements.date.addEventListener('change', checkAvailability);
+  // iPhone Safari can skip the change event and ignores the earliest-date limit, so check on input and blur too.
+  var lastDate = '';
+  function dateChanged() {
+    var d = value('date'); if (d === lastDate) return; lastDate = d;
+    if (d && d < form.elements.date.min) { errorBox.textContent = 'We\'re booked for today. Please pick a date from tomorrow onward.'; busy = []; renderTimes(); availBox.textContent = ''; return; }
+    errorBox.textContent = ''; checkAvailability();
+  }
+  form.elements.date.addEventListener('input', dateChanged);
+  form.elements.date.addEventListener('blur', dateChanged);
 
   form.addEventListener('submit', function (e) { e.preventDefault(); });
 
