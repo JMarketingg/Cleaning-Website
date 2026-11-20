@@ -44,7 +44,7 @@ function payBox(d, amount, lead) {
 
 function depositRequest(d) {
   const dep = depositFor(d.price, d.start);
-  const first = String(d.name || '').split(' ')[0] || 'there';
+  const first = mail.firstName(d.name);
   const subject = dep.full ? `Pay to book your TidyHaus cleaning on ${d.date}` : `Reserve your date: ${peso(dep.deposit)} deposit for ${d.date}`;
   const html = mail.layout({
     preheader: dep.full ? `Your cleaning is less than 24 hours away, so the full ${peso(dep.price)} is paid to book.` : `Pay ${peso(dep.deposit)} to reserve ${d.date}. The rest is paid before your visit.`,
@@ -66,7 +66,7 @@ function depositRequest(d) {
 
 function depositReminder(d) {
   const dep = depositFor(d.price, d.start, Date.parse(d.requested_at || '') || Date.now());
-  const first = String(d.name || '').split(' ')[0] || 'there';
+  const first = mail.firstName(d.name);
   const html = mail.layout({
     preheader: `Your date isn't reserved yet. Pay ${peso(dep.deposit)} to keep it.`,
     badge: 'Your date is not reserved yet',
@@ -81,7 +81,7 @@ function depositReminder(d) {
 
 function confirmed(d) {
   const paid = Number(d.amount_paid) || 0, rest = Math.max(0, (Number(d.price) || 0) - paid);
-  const first = String(d.name || '').split(' ')[0] || 'there';
+  const first = mail.firstName(d.name);
   const cal = mail.calendarLink(d.date, d.time, d.address), ics = mail.icsLink(d.date, d.time, d.address);
   const html = mail.layout({
     preheader: `Confirmed: ${d.service} on ${d.date}, ${d.time}.`,

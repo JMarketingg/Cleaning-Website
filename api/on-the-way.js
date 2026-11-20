@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
     const email = b.customer && b.customer.email;
     if (meta.otw_email_sent_at || !email) return res.status(200).json({ ok: true, sent: false });
 
-    const first = String((b.customer && b.customer.name) || '').split(' ')[0] || 'there';
+    const first = mail.firstName(b.customer && b.customer.name);
     const cleaner = String((b.technician && b.technician.name) || 'Your cleaner').split(' ')[0];
     const time = new Date(b.scheduled_at).toLocaleTimeString('en-US', { timeZone: 'Asia/Manila', hour: 'numeric', minute: '2-digit' });
     const p = (t) => `<p style="font-family:Arial,Helvetica,sans-serif;margin:0 0 8px;font-size:15px;line-height:1.6;color:#26372D;">${t}</p>`;

@@ -17,6 +17,12 @@ function bookingRef() {
   return 'TH-' + s;
 }
 
+// First name with a capital first letter: "alan" or "ALAN" -> "Alan".
+function firstName(n, fallback = 'there') {
+  const w = String(n || '').trim().split(/\s+/)[0];
+  return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : fallback;
+}
+
 function card(rows) {
   return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;background:${C.cream};border-radius:12px;">` +
     rows.filter(([, v]) => v).map(([k, v], i) =>
@@ -128,4 +134,4 @@ function paymentBlock(method, price, ref, lead) {
     '</td></tr></table>';
 }
 
-module.exports = { paymentBlock, esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile, cleanTimes };
+module.exports = { firstName, paymentBlock, esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile, cleanTimes };

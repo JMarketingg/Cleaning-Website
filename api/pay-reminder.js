@@ -34,7 +34,7 @@ module.exports = async function handler(req, res) {
     const meta = b.metadata || {};
     const email = b.customer && b.customer.email;
     if (meta.pay_reminder_sent_at || !email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) continue;
-    const first = String((b.customer && b.customer.name) || '').split(' ')[0] || 'there';
+    const first = mail.firstName(b.customer && b.customer.name);
     const date = manila(b.scheduled_at, { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
     const time = manila(b.scheduled_at, { hour: 'numeric', minute: '2-digit' }) + (b.scheduled_end ? ' to ' + manila(b.scheduled_end, { hour: 'numeric', minute: '2-digit' }) : '');
     const ref = /^TH-[A-Z0-9]{6}$/.test(meta.ref || '') ? meta.ref : '';

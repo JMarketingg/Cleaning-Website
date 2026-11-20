@@ -30,7 +30,7 @@ function phMobile(p) {
   if (/^09\d{9}$/.test(d)) return d;
   return null; // only Philippine mobiles get texts
 }
-const first = (n) => String(n || '').trim().split(/\s+/)[0] || 'there';
+const first = (n) => { const w = String(n || '').trim().split(/\s+/)[0]; return w ? w.charAt(0).toUpperCase() + w.slice(1).toLowerCase() : 'there'; };
 const shortLink = (token, ch) => `${SITE}/r/${token}${ch ? '?c=' + ch : ''}`;
 const stopLink = (token) => `${SITE}/stop/${token}`;
 
