@@ -99,6 +99,7 @@
         <label class="bk-option"><input type="radio" name="service" value="deep" data-label="Deep Cleaning"><span>Deep Cleaning</span></label>
         <label class="bk-option"><input type="radio" name="service" value="move" data-label="Move-in / Move-out Cleaning"><span>Move-in / Move-out Cleaning</span></label>
         <label class="bk-option"><input type="radio" name="service" value="airbnb" data-label="Airbnb &amp; Rental Cleaning"><span>Airbnb &amp; Rental Cleaning</span></label>
+        <label class="bk-option"><input type="radio" name="service" value="party" data-label="Party Cleaning (before or after)"><span>Party Cleaning <small class="bk-optional">&nbsp;· before or after</small></span></label>
         <label class="bk-option"><input type="radio" name="service" value="office" data-label="Office Cleaning"><span>Office Cleaning</span></label>
       </div>
     </fieldset>
@@ -176,12 +177,23 @@
           <label class="bk-option"><input type="radio" name="equipment" value="mine" data-label="Use my equipment"><span>Use my equipment</span></label>
         </div>
       </div>
-      <div class="bk-field" id="bk-addons">Add-ons <span class="bk-optional">(optional, ₱300 each)</span>
+      <div class="bk-field" id="bk-addons">Add-ons <span class="bk-optional">(optional)</span>
         <div class="bk-options" style="margin-top:8px;">
-          <label class="bk-option"><input type="checkbox" name="addon" value="fridge" data-label="Inside the fridge"><span>Inside the fridge <small class="bk-optional">&nbsp;· empty or nearly empty</small></span></label>
-          <label class="bk-option"><input type="checkbox" name="addon" value="oven" data-label="Inside the oven"><span>Inside the oven</span></label>
-          <label class="bk-option" id="bk-addon-cab"><input type="checkbox" name="addon" value="cabinets" data-label="Inside the cabinets"><span>Inside the cabinets <small class="bk-optional">&nbsp;· emptied first</small></span></label>
+          <label class="bk-option"><input type="checkbox" name="addon" value="fridge" data-price="300" data-label="Inside the fridge"><span>Inside the fridge <small class="bk-optional">&nbsp;· ₱300 · empty or nearly empty</small></span></label>
+          <label class="bk-option"><input type="checkbox" name="addon" value="oven" data-price="300" data-label="Inside the oven"><span>Inside the oven <small class="bk-optional">&nbsp;· ₱300</small></span></label>
+          <label class="bk-option" id="bk-addon-cab"><input type="checkbox" name="addon" value="cabinets" data-price="300" data-label="Inside the cabinets"><span>Inside the cabinets <small class="bk-optional">&nbsp;· ₱300 · emptied first</small></span></label>
+          <label class="bk-option"><input type="checkbox" name="addon" value="windows" data-price="300" data-label="Balcony and inside windows"><span>Balcony and inside windows <small class="bk-optional">&nbsp;· ₱300 · within reach, no ladders</small></span></label>
+          <label class="bk-option"><input type="checkbox" name="addon" value="pets" data-price="200" data-label="Pet hair cleanup"><span>Pet hair cleanup <small class="bk-optional">&nbsp;· ₱200 · sofa, beds and floors</small></span></label>
         </div>
+        <label class="bk-field" style="margin-top:10px;">Organizing and decluttering <span class="bk-optional">(optional, ₱300 per hour)</span>
+          <select name="organize_hours">
+            <option value="0">No, thanks</option>
+            <option value="1">1 hour (₱300)</option>
+            <option value="2">2 hours (₱600)</option>
+            <option value="3">3 hours (₱900)</option>
+            <option value="4">4 hours (₱1,200)</option>
+          </select>
+        </label>
       </div>
       <div class="bk-field" id="bk-photos">Photos of your place <span class="bk-optional">(optional, up to 10)</span>
         <p class="bk-hint" id="bk-photo-hint" style="margin:4px 0 8px;font-weight:500;">A few photos of the kitchen, bathroom and living room help us plan the right time.</p>
@@ -324,7 +336,7 @@
 
   })();
 </script>
-<script src="book.js?v=20261121"></script>
+<script src="book.js?v=20261121b"></script>
 <script src="/track.js" defer></script>
 <script src="/site.js" defer></script>
 </body>

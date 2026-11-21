@@ -145,7 +145,8 @@
     deep: { studio: 1900, '1': 2400, '2': 3000, '3': 3800, '4+': 4600 },
     move: { studio: 2500, '1': 3000, '2': 3800, '3': 4800, '4+': 5800 }
   };
-  var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'move' };
+  // Party cleaning (before or after) is priced like a deep clean.
+  var PRICE_TABLE = { standard: 'standard', condo: 'standard', airbnb: 'standard', deep: 'deep', move: 'move', party: 'deep' };
 
   // Added for each bathroom after the first.
   var EXTRA_BATHROOM = { '2': 300, '3+': 600 };
@@ -158,15 +159,21 @@
 
   var TRAVEL_FEE = 200;
 
-  // Optional add-ons, ₱300 each. Inside cabinets is already part of move-in/out.
-  var ADDON_PRICE = 300;
-  function addons() {
+  // Optional add-ons; each checkbox has its own price (data-price). Inside cabinets is already part of move-in/out.
+  // Organizing and decluttering is ₱300 per hour.
+  var ORGANIZE_RATE = 300;
+  function addonItems() {
     var moving = value('service') === 'move';
-    return Array.prototype.slice.call(form.querySelectorAll('input[name="addon"]:checked'))
+    var items = Array.prototype.slice.call(form.querySelectorAll('input[name="addon"]:checked'))
       .filter(function (el) { return !(moving && el.value === 'cabinets'); })
-      .map(function (el) { return el.dataset.label; });
+      .map(function (el) { return { label: el.dataset.label, price: Number(el.dataset.price) || 300 }; });
+    var h = Number(value('organize_hours')) || 0;
+    if (h) items.push({ label: 'Organizing and decluttering (' + h + (h === 1 ? ' hour' : ' hours') + ')', price: h * ORGANIZE_RATE });
+    return items;
   }
-  function addonText() { return addons().length ? addons().join(', ') + ' (+' + peso(addons().length * ADDON_PRICE) + ')' : ''; }
+  function addons() { return addonItems().map(function (a) { return a.label; }); }
+  function addonTotal() { return addonItems().reduce(function (t, a) { return t + a.price; }, 0); }
+  function addonText() { return addons().length ? addons().join(', ') + ' (+' + peso(addonTotal()) + ')' : ''; }
 
   // Promo codes: amount off the first visit only.
   var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
@@ -182,7 +189,7 @@
     var amount = table[value('bedrooms')];
     if (!amount) return '';
     amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
-    amount += addons().length * ADDON_PRICE;
+    amount += addonTotal();
     var notes = [];
     var perVisit = amount;
     var discount = DISCOUNTS[value('frequency')];
@@ -460,6 +467,7 @@
     var kind = PRICE_TABLE[value('service')] === 'standard' ? 'standard' : 'deep';
     var h = HOURS[kind][value('bedrooms')] || 3;
     h += (EXTRA_BATHROOMS[value('bathrooms')] || 0) * EXTRA_BATHROOM_HOURS[kind];
+    h += Number(value('organize_hours')) || 0; // organizing time is on top of the cleaning
     return h * 60;
   }
   function clock(m) {
@@ -518,7 +526,7 @@
   }
   // The length of the clean depends on earlier answers, so redraw when they change.
   form.addEventListener('change', function (e) {
-    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size'].indexOf(e.target.name) !== -1) renderTimes();
+    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours'].indexOf(e.target.name) !== -1) renderTimes();
   });
   form.elements.date.addEventListener('change', checkAvailability);
   // iPhone Safari can skip the change event and ignores the earliest-date limit, so check on input and blur too.
