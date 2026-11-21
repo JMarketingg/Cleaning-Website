@@ -235,7 +235,13 @@
   }
 
   function buildSummary() {
-    // Prices are not shown to the customer: the owner sends the price (the estimate still goes to the CRM).
+    // Estimated price in its own box. The owner confirms the final price before the customer pays the deposit.
+    var price = estimatedPrice();
+    var cut = price.indexOf(' (');
+    document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
+    document.getElementById('bk-total-note').textContent = price
+      ? (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      : "Office prices depend on the space. We'll send your price.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
     list.innerHTML = '';
@@ -339,7 +345,7 @@
     var h = document.getElementById('bk-photo-hint'); if (!h) return;
     var big = ['deep', 'move'].indexOf(value('service')) !== -1;
     h.textContent = big ? 'Recommended for deep cleaning: add a few photos of the kitchen, bathroom and living room so we can confirm your price.'
-      : 'A few photos of the kitchen, bathroom and living room help us plan the right time.';
+      : 'A few photos of the kitchen, bathroom and living room help us confirm your price, especially if your place hasn\'t been cleaned in a while.';
   }
   form.addEventListener('change', syncPhotoHint);
   function sendToCrm() {
@@ -437,8 +443,8 @@
         if (!ok) throw new Error('failed');
         statusBox.classList.add('is-ok');
         statusBox.textContent = payload.email
-          ? 'Thank you! We got your request and we\'re working on your quote. We\'ll send your price soon.'
-          : 'Thank you! We got your request and we\'re working on your quote. We\'ll send your price soon.';
+          ? 'Thank you! We got your request. We\'ll check your details and confirm your final price soon.'
+          : 'Thank you! We got your request. We\'ll check your details and confirm your final price soon.';
         submitBtn.hidden = true;
         backBtn.hidden = true;
         if (window.thTrack) window.thTrack('quote_send', label('service'));
@@ -507,7 +513,7 @@
       timesBox.appendChild(opt);
     }
     availBox.textContent = openStarts.length
-      ? 'Each time slot includes up to ' + hoursText(len) + ' of cleaning (1 cleaner). Pick a start time.'
+      ? 'Your price includes up to ' + hoursText(len) + ' of cleaning (1 cleaner). Pick a start time.'
       : 'This date is fully booked. Please pick another date.';
   }
   function checkAvailability() {
