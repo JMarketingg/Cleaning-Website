@@ -169,10 +169,12 @@
   function addonText() { return addons().length ? addons().join(', ') + ' (+' + peso(addons().length * ADDON_PRICE) + ')' : ''; }
 
   // Promo codes: amount off the first visit only.
-  var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
+  // CLEAN10 comes from the "Left without booking" coupon emails (CRM), 10% off the first visit.
+  var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' },
+    CLEAN10: { pct: 10, label: 'CLEAN10: 10% off your first cleaning' } };
   function promo() {
     var code = (form.elements.promo && form.elements.promo.value || '').trim().toUpperCase();
-    return PROMOS[code] ? { code: code, off: PROMOS[code].off, label: PROMOS[code].label } : null;
+    return PROMOS[code] ? { code: code, off: PROMOS[code].off || 0, pct: PROMOS[code].pct || 0, label: PROMOS[code].label } : null;
   }
 
   // Price text like "₱1,500" or "₱1,300 (FIRSTCLEAN: ₱200 off your first cleaning, then ₱1,500 per visit)".
@@ -198,7 +200,8 @@
     var p = promo();
     if (!p) return peso(perVisit) + (notes.length ? ' (' + notes.join('; ') + ')' : '');
     notes.unshift(p.label + ', then ' + peso(perVisit) + ' per visit');
-    return peso(Math.max(0, perVisit - p.off)) + ' (' + notes.join('; ') + ')';
+    var off = p.pct ? Math.round(perVisit * p.pct / 100) : p.off;
+    return peso(Math.max(0, perVisit - off)) + ' (' + notes.join('; ') + ')';
   }
   function peso(n) { return '₱' + n.toLocaleString('en-PH'); }
 
