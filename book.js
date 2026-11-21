@@ -169,9 +169,7 @@
   function addonText() { return addons().length ? addons().join(', ') + ' (+' + peso(addons().length * ADDON_PRICE) + ')' : ''; }
 
   // Promo codes: amount off the first visit only.
-  // CLEAN10 comes from the "Left without booking" coupon emails (CRM), 10% off the first visit.
-  var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' },
-    CLEAN10: { pct: 10, label: 'CLEAN10: 10% off your first cleaning' } };
+  var PROMOS = { FIRSTCLEAN: { off: 200, label: 'FIRSTCLEAN: ₱200 off your first cleaning' } };
   function promo() {
     var code = (form.elements.promo && form.elements.promo.value || '').trim().toUpperCase();
     return PROMOS[code] ? { code: code, off: PROMOS[code].off || 0, pct: PROMOS[code].pct || 0, label: PROMOS[code].label } : null;
