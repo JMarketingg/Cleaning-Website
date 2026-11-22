@@ -1122,3 +1122,6 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .hero-proof .promo-line { justify-content: center; margin-top: 12px; }
 .hero-proof .promo-line { display: block; }
 .hero-proof .promo-line svg { display: inline-block; vertical-align: -3px; margin-right: 6px; }
+
+/* Option text with bold words inside: keep it one flowing sentence (the option box is a flex row). */
+.bk-option .bk-txt { font-style: normal; display: block; }
