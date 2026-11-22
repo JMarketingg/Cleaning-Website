@@ -874,7 +874,7 @@ html:not(.js) .checklist-panels { display: grid; gap: 24px; }
 .bk-option input:focus-visible + span { outline: 3px solid var(--forest); outline-offset: 3px; }
 .bk-field { display: grid; gap: 6px; font-weight: 700; color: var(--evergreen); margin-bottom: 16px; }
 .bk-optional { font-weight: 500; color: var(--muted); }
-.bk-field input, .bk-field textarea, .bk-promo-row input {
+.bk-field input, .bk-field select, .bk-field textarea, .bk-promo-row input {
   font: inherit;
   font-weight: 400;
   color: var(--evergreen);
