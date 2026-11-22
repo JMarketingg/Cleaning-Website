@@ -102,7 +102,7 @@ function confirmed(d) {
       ])) +
       policySection() +
       mail.section('Our promise', P("If we miss anything on the checklist, tell us within 12 hours and we'll come back to fix it for free.")) +
-      (d.ref_code ? mail.section('Give ₱200, get ₱200', P(`Share your code <strong style="font-size:18px;letter-spacing:1px;">${mail.esc(d.ref_code)}</strong> with friends. They get ₱200 off their first cleaning, and you get ₱200 off your next cleaning after theirs is done. Every 10th cleaning is also ₱500 off.`)) : '') +
+      (d.ref_code ? mail.section('Give ₱200, get ₱100', P(`Share your code <strong style="font-size:18px;letter-spacing:1px;">${mail.esc(d.ref_code)}</strong> with friends. They get ₱200 off their first cleaning, and you get ₱100 off your next cleaning after theirs is done. Every 10th cleaning is also ₱500 off.`)) : '') +
       mail.section('Happy with your clean?', P('A quick Google review helps other families in Makati and BGC find us. Thank you!') +
         `<p style="margin:10px 0 0;">${mail.button('https://g.page/r/CVupIA7gzCvJEBM/review', 'Leave us a Google review')}</p>`) +
       mail.section('Need to change something?', P('Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.'))
