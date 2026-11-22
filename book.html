@@ -101,9 +101,10 @@
         <label class="bk-option"><input type="radio" name="service" value="airbnb" data-label="Airbnb &amp; Rental Cleaning"><span>Airbnb &amp; Rental Cleaning</span></label>
         <label class="bk-option"><input type="radio" name="service" value="party" data-label="Party Cleaning (before or after)"><span>Party Cleaning <small class="bk-optional">&nbsp;· before or after</small></span></label>
         <label class="bk-option"><input type="radio" name="service" value="office" data-label="Office Cleaning"><span>Office Cleaning</span></label>
+        <label class="bk-option"><input type="radio" name="service" value="aircon" data-label="Aircon Cleaning"><span>Aircon Cleaning <small class="bk-optional">&nbsp;· window and split type</small></span></label>
       </div>
     </fieldset>
-    <fieldset class="bk-step" data-key="place" data-auto="true" hidden>
+    <fieldset class="bk-step" data-key="place" data-auto="true" data-skip-aircon="true" hidden>
       <legend class="bk-question" tabindex="-1">What type of place is it?</legend>
       <p class="bk-hint"></p>
       <div class="bk-options bk-two">
@@ -140,7 +141,24 @@
         <label class="bk-option"><input type="radio" name="office_size" value="large" data-label="Large (over 150 sq m)"><span>Large (over 150 sq m)</span></label>
       </div>
     </fieldset>
-    <fieldset class="bk-step" data-key="frequency" data-auto="true" hidden>
+    <fieldset class="bk-step" data-key="aircon" data-auto="false" data-only="aircon" hidden>
+      <legend class="bk-question" tabindex="-1">Tell us about your aircon</legend>
+      <p class="bk-hint">Prices per unit: window type ₱800, split type ₱1,500 (indoor and outdoor unit), or ₱1,200 if the outdoor unit can't be reached safely. Inverter or over 1.5HP: +₱200 per unit.</p>
+      <div class="bk-two" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <label class="bk-field">Window type units<select name="ac_window"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+        <label class="bk-field">Split type units<select name="ac_split"><option value="0">0</option><option value="1" selected>1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+      </div>
+      <label class="bk-field">How many are inverter or over 1.5HP? <span class="bk-optional">(not sure? leave 0)</span><select name="ac_big"><option value="0">0</option><option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option></select></label>
+      <p class="bk-sub">Where is the outdoor unit of your split type aircon?</p>
+      <div class="bk-options bk-two">
+        <label class="bk-option"><input type="radio" name="ac_outdoor" value="balcony" data-label="On the balcony"><span>On the balcony</span></label>
+        <label class="bk-option"><input type="radio" name="ac_outdoor" value="service" data-label="In a service area or utility room"><span>In a service area or utility room</span></label>
+        <label class="bk-option"><input type="radio" name="ac_outdoor" value="ledge" data-label="Outside the window (ledge)"><span>Outside the window (ledge)</span></label>
+        <label class="bk-option"><input type="radio" name="ac_outdoor" value="unsure" data-label="Not sure"><span>Not sure</span></label>
+      </div>
+      <p class="bk-hint">For safety, we only clean an outdoor unit we can reach from the floor of a balcony or service area. If it's outside the window, we clean the indoor unit only (₱1,200), and your building may have an accredited contractor for the outdoor unit. Please arrange a work permit with your building if needed.</p>
+    </fieldset>
+    <fieldset class="bk-step" data-key="frequency" data-auto="true" data-skip-aircon="true" hidden>
       <legend class="bk-question" tabindex="-1">How often would you like cleaning?</legend>
       <p class="bk-hint"></p>
       <div class="bk-options bk-two">
@@ -342,7 +360,7 @@
 
   })();
 </script>
-<script src="book.js?v=20261122"></script>
+<script src="book.js?v=20261122b"></script>
 <script src="/track.js" defer></script>
 <script src="/site.js" defer></script>
 </body>

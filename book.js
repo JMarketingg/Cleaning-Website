@@ -25,11 +25,28 @@
   }
 
   // Steps that only apply to some answers are skipped.
+  function isAircon() { return value('service') === 'aircon'; }
   function applies(step) {
+    // Aircon cleaning has its own step and skips the place, size and how-often questions.
+    if (isAircon()) return step.dataset.skipAircon !== 'true' && (!step.dataset.only || step.dataset.only === 'aircon');
     var only = step.dataset.only;
     if (!only) return true;
+    if (only === 'aircon') return false;
     var isOffice = value('place') === 'office';
     return only === 'office' ? isOffice : !isOffice;
+  }
+  // Aircon: units, prices and a short summary like "1 split, 1 window (1 inverter or over 1.5HP); outdoor unit: On the balcony".
+  var AC = { window: 800, split: 1500, splitIndoorOnly: 1200, big: 200 };
+  function acCounts() { return { w: Number(value('ac_window')) || 0, s: Number(value('ac_split')) || 0, b: Number(value('ac_big')) || 0 }; }
+  function acPrice() {
+    var c = acCounts(), reach = ['balcony', 'service'].indexOf(value('ac_outdoor')) !== -1;
+    return c.w * AC.window + c.s * (reach ? AC.split : AC.splitIndoorOnly) + Math.min(c.b, c.w + c.s) * AC.big;
+  }
+  function acText() {
+    var c = acCounts(), bits = [];
+    if (c.s) bits.push(c.s + ' split type');
+    if (c.w) bits.push(c.w + ' window type');
+    return bits.join(', ') + (c.b ? ' (' + c.b + ' inverter or over 1.5HP)' : '') + (c.s ? '; outdoor unit: ' + label('ac_outdoor') : '');
   }
 
   var validators = {
@@ -46,6 +63,11 @@
     office: function () { if (!value('office_size')) return 'Pick the size of the office.'; },
     frequency: function () { if (!value('frequency')) return 'Pick how often.'; },
     payment: function () { if (!value('payment')) return 'Pick how you want to pay.'; },
+    aircon: function () {
+      var c = acCounts();
+      if (!c.w && !c.s) return 'Pick how many aircon units.';
+      if (c.s && !value('ac_outdoor')) return 'Tell us where the outdoor unit is.';
+    },
     when: function () {
       var d = value('date');
       if (!d) return 'Pick a date.';
@@ -169,6 +191,7 @@
     var items = Array.prototype.slice.call(form.querySelectorAll('input[name="addon"]:checked'))
       .filter(function (el) { return !(moving && el.value === 'cabinets'); })
       .map(function (el) { return { label: el.dataset.label, price: Number(el.dataset.price) || 300 }; });
+    if (isAircon()) return [];
     var h = Number(value('organize_hours')) || 0;
     if (h) items.push({ label: 'Organizing and decluttering (' + h + (h === 1 ? ' hour' : ' hours') + ')', price: h * ORGANIZE_RATE });
     return items;
@@ -186,6 +209,7 @@
 
   // Price text like "₱1,500" or "₱1,300 (FIRSTCLEAN: ₱200 off your first cleaning, then ₱1,500 per visit)".
   function estimatedPrice() {
+    if (isAircon()) { var acp = acPrice(); return acp ? peso(acp) + ' (' + acText() + ')' : ''; }
     var table = PRICES[PRICE_TABLE[value('service')]];
     if (!table || value('place') === 'office') return '';
     var amount = table[value('bedrooms')];
@@ -219,8 +243,8 @@
       ['Area', area],
       ['Service', label('service')],
       ['Place', label('place')],
-      isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
-      ['How often', label('frequency')],
+      isAircon() ? ['Aircon', acText()] : isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
+      ['How often', isAircon() ? 'One time' : label('frequency')],
       ['Date', formatDate(value('date'))],
       ['Time', label('time')],
       ['Name', value('name')],
@@ -260,7 +284,7 @@
   // Add-ons are for homes; inside cabinets is already part of move-in/out.
   function syncAddons() {
     var box = document.getElementById('bk-addons');
-    if (box) box.hidden = value('place') === 'office';
+    if (box) box.hidden = value('place') === 'office' || isAircon();
     var cab = document.getElementById('bk-addon-cab');
     if (cab) cab.hidden = value('service') === 'move';
   }
@@ -289,7 +313,7 @@
     if (window.thTrack) window.thTrack('quote_step', 'lead_saved');
   }
   // After step 2, save each answer as they go, so a customer who stops still leaves what they picked.
-  var STEP_NAMES = { area: 'area', contact: 'contact', service: 'service', place: 'type of place', size: 'size', office: 'office size',
+  var STEP_NAMES = { aircon: 'aircon details', area: 'area', contact: 'contact', service: 'service', place: 'type of place', size: 'size', office: 'office size',
     frequency: 'how often', when: 'date and time', payment: 'payment', details: 'address and details', review: 'review (last step, did not press Send)' };
   function sendProgress(useBeacon) {
     if (!leadId || value('website')) return;
@@ -297,8 +321,8 @@
     var isOffice = value('place') === 'office';
     var body = { stage: 'lead', progress: true, lead_id: leadId, phone: value('phone'), name: value('name'),
       last_step: 'step ' + pos + ' of ' + visible.length + ' (' + (STEP_NAMES[steps[current].dataset.key] || steps[current].dataset.key) + ')',
-      service: label('service'), place: label('place'),
-      bedrooms: isOffice ? '' : label('bedrooms'), bathrooms: isOffice ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
+      service: label('service'), place: isAircon() ? 'Aircon: ' + acText() : label('place'),
+      bedrooms: isOffice || isAircon() ? '' : label('bedrooms'), bathrooms: isOffice || isAircon() ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
       frequency: label('frequency'), date: value('date'), time: label('time'), building: value('building'),
       notes: [value('payment') ? 'Payment: ' + label('payment') : '', addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n') };
     try { fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {}); } catch (e) {}
@@ -371,9 +395,9 @@
       phone: value('phone'),
       area: value('area') === 'other' ? value('area_other') : label('area'),
       service: label('service'),
-      place: label('place'),
-      bedrooms: isOffice ? '' : label('bedrooms'),
-      bathrooms: isOffice ? '' : label('bathrooms'),
+      place: isAircon() ? 'Aircon: ' + acText() : label('place'),
+      bedrooms: isOffice || isAircon() ? '' : label('bedrooms'),
+      bathrooms: isOffice || isAircon() ? '' : label('bathrooms'),
       office_size: isOffice ? label('office_size') : '',
       frequency: label('frequency'),
       date: value('date'),
@@ -423,7 +447,7 @@
       area: value('area') === 'other' ? value('area_other') : label('area'),
       service: label('service'),
       place: label('place'),
-      size: isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
+      size: isAircon() ? acText() : isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
       frequency: label('frequency'),
       payment: label('payment'),
       promo: promo() ? promo().code : '',
@@ -482,6 +506,7 @@
   var DAY_START = 8 * 60, DAY_END = 18 * 60, GAP = 60; // Minutes; GAP is the break and travel between jobs.
 
   function durationMinutes() {
+    if (isAircon()) { var c = acCounts(); return Math.max(60, Math.ceil((c.s * 60 + c.w * 45) / 30) * 30); }
     if (value('place') === 'office') return (OFFICE_HOURS[value('office_size')] || 4) * 60;
     // Move-in/out takes about as long as a deep clean.
     var kind = PRICE_TABLE[value('service')] === 'standard' ? 'standard' : 'deep';
@@ -547,7 +572,7 @@
   }
   // The length of the clean depends on earlier answers, so redraw when they change.
   form.addEventListener('change', function (e) {
-    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours'].indexOf(e.target.name) !== -1) renderTimes();
+    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours', 'ac_window', 'ac_split', 'ac_big'].indexOf(e.target.name) !== -1) renderTimes();
   });
   form.elements.date.addEventListener('change', checkAvailability);
   // iPhone Safari can skip the change event and ignores the earliest-date limit, so check on input and blur too.
