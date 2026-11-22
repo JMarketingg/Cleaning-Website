@@ -49,7 +49,7 @@
     when: function () {
       var d = value('date');
       if (!d) return 'Pick a date.';
-      if (d < form.elements.date.min) return 'Pick a date from tomorrow onward.';
+      if (d < form.elements.date.min) return nowManila.hour < 12 ? 'Pick today or a later date.' : 'Same-day booking closes at 12 noon. Please pick tomorrow or later.';
       if (!value('time')) return 'Pick an open start time.';
       if (openStarts.indexOf(Number(value('time'))) === -1) return 'That time is taken. Pick another time or date.';
     },
@@ -126,6 +126,8 @@
       form.elements.area_other.focus();
       return;
     }
+    // Weekly or every 2 weeks: stay on this step so they can see the prepaid package option.
+    if (e.target.name === 'frequency' && ['weekly', 'biweekly'].indexOf(e.target.value) !== -1) { syncPackage(); return; }
     if (!validators[step.dataset.key]()) move(1);
   });
   form.elements.area_other.addEventListener('input', function () {
@@ -263,6 +265,8 @@
     if (cab) cab.hidden = value('service') === 'move';
   }
   form.addEventListener('change', syncAddons);
+  function syncPackage() { var b = document.getElementById('bk-pkg'); if (b) b.hidden = ['weekly', 'biweekly'].indexOf(value('frequency')) === -1; }
+  form.addEventListener('change', syncPackage);
   syncAddons();
 
   var submitBtn = document.getElementById('bk-submit');
@@ -358,7 +362,9 @@
     if (addonText()) extra.push('Add-ons: ' + addonText());
     if (photoCount) extra.push('Photos: ' + photoCount + ' (in the CRM)');
     else if (photosLater) extra.push('Photos: will send later (ask before confirming)');
-    if (promo()) extra.push('Promo: ' + promo().code);
+    if (promo()) extra.push('Promo: ' + promo().code + (promo().referral ? ' (referral)' : ''));
+    if (form.elements.same_cleaner && form.elements.same_cleaner.checked) extra.push('Same cleaner: yes, if possible (returning customer)');
+    if (form.elements.package && form.elements.package.checked && !document.getElementById('bk-pkg').hidden) extra.push('Package: 4 visits prepaid (5% off)');
     if (document.getElementById('bk-policy') && document.getElementById('bk-policy').checked) extra.push('Policy: agreed to the cancellation policy (25% deposit, 24-hour notice)');
     var body = {
       name: value('name'),
@@ -396,7 +402,7 @@
 
   // The equipment choice rides along in the notes, so it reaches the owner, the CRM and the cleaner.
   function notesWithEquipment() {
-    return ['Equipment: ' + label('equipment'), addonText() ? 'Add-ons: ' + addonText() : '', photoCount ? 'Photos: ' + photoCount + ' (in the CRM)' : (photosLater ? 'Photos: will send later (ask before confirming)' : ''), value('notes')].filter(Boolean).join('\n');
+    return ['Equipment: ' + label('equipment'), (form.elements.same_cleaner && form.elements.same_cleaner.checked) ? 'Same cleaner: yes, if possible (returning customer)' : '', (form.elements.package && form.elements.package.checked && !document.getElementById('bk-pkg').hidden) ? 'Package: 4 visits prepaid (5% off)' : '', addonText() ? 'Add-ons: ' + addonText() : '', photoCount ? 'Photos: ' + photoCount + ' (in the CRM)' : (photosLater ? 'Photos: will send later (ask before confirming)' : ''), value('notes')].filter(Boolean).join('\n');
   }
 
   var sending = false;
@@ -465,6 +471,14 @@
   var EXTRA_BATHROOM_HOURS = { standard: 0.5, deep: 1 };
   var EXTRA_BATHROOMS = { '2': 1, '3+': 2 };
   var OFFICE_HOURS = { small: 3, medium: 5, large: 8 };
+  // Manila date and time, for same-day booking (today until noon, start at least 2 hours from now).
+  var nowManila = (function () {
+    var p = {}; new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Manila', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' })
+      .formatToParts(new Date()).forEach(function (x) { p[x.type] = x.value; });
+    var today = p.year + '-' + p.month + '-' + p.day;
+    var tm = new Date(Date.UTC(+p.year, +p.month - 1, +p.day + 1));
+    return { today: today, tomorrow: tm.toISOString().slice(0, 10), hour: +p.hour, minutes: +p.hour * 60 + +p.minute };
+  })();
   var DAY_START = 8 * 60, DAY_END = 18 * 60, GAP = 60; // Minutes; GAP is the break and travel between jobs.
 
   function durationMinutes() {
@@ -494,7 +508,8 @@
     openStarts = [];
     if (!value('date')) return;
     for (var s = DAY_START; s + len <= DAY_END; s += 60) {
-      var free = busy.every(function (b) { return s + len + GAP <= b[0] || s >= b[1] + GAP; });
+      var tooSoon = value('date') === nowManila.today && s < nowManila.minutes + 120;
+      var free = !tooSoon && busy.every(function (b) { return s + len + GAP <= b[0] || s >= b[1] + GAP; });
       if (free) openStarts.push(s);
       var text = clock(s) + ' to ' + clock(s + len);
       var opt = document.createElement('label');
@@ -539,7 +554,7 @@
   var lastDate = '';
   function dateChanged() {
     var d = value('date'); if (d === lastDate) return; lastDate = d;
-    if (d && d < form.elements.date.min) { errorBox.textContent = 'We\'re booked for today. Please pick a date from tomorrow onward.'; busy = []; renderTimes(); availBox.textContent = ''; return; }
+    if (d && d < form.elements.date.min) { errorBox.textContent = 'Same-day booking closes at 12 noon. Please pick tomorrow or later.'; busy = []; renderTimes(); availBox.textContent = ''; return; }
     errorBox.textContent = ''; checkAvailability();
   }
   form.elements.date.addEventListener('input', dateChanged);
@@ -550,8 +565,18 @@
   // Promo code box on the review step. Links like /book?promo=FIRSTCLEAN fill it in.
   var promoInput = form.elements.promo;
   var promoMsg = document.getElementById('bk-promo-msg');
+  // Referral codes (a customer's code, like SHIORI590) are checked with the server: ₱200 off the first cleaning.
+  var promoChecked = {};
   function applyPromo() {
     var typed = promoInput.value.trim();
+    var up = typed.toUpperCase();
+    if (typed && !PROMOS[up] && !promoChecked[up] && /^[A-Z]{1,8}[A-F0-9]{3}$/.test(up)) {
+      promoChecked[up] = true;
+      promoMsg.textContent = 'Checking…';
+      fetch('/api/availability?promo=' + encodeURIComponent(up)).then(function (r) { return r.json(); })
+        .then(function (d) { if (d && d.ok) PROMOS[up] = { off: d.off, label: d.label, referral: true }; applyPromo(); }, function () { applyPromo(); });
+      return;
+    }
     promoMsg.textContent = !typed ? '' : promo()
       ? promo().label + '. For first-time customers; we check this when we confirm.'
       : "That code doesn't work. Check the spelling and try again.";
@@ -563,11 +588,8 @@
   var linkPromo = new URLSearchParams(window.location.search).get('promo');
   if (linkPromo) { promoInput.value = linkPromo.toUpperCase(); applyPromo(); }
 
-  // Earliest date is tomorrow, in the visitor's own time zone.
-  var t = new Date();
-  t.setDate(t.getDate() + 1);
-  var pad = function (n) { return String(n).padStart(2, '0'); };
-  form.elements.date.min = t.getFullYear() + '-' + pad(t.getMonth() + 1) + '-' + pad(t.getDate());
+  // Same-day booking: today can be picked until 12 noon (Manila time); otherwise the earliest date is tomorrow.
+  form.elements.date.min = nowManila.hour < 12 ? nowManila.today : nowManila.tomorrow;
 
   // Links like /book?area=bgc&service=deep start with those answers picked.
   var params = new URLSearchParams(window.location.search);

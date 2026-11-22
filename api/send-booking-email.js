@@ -33,7 +33,7 @@ module.exports = async (req, res) => {
     const bm = require('./_booking-mail');
     const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
     if (!/^[0-9a-f-]{36}$/i.test(String(b.id || ''))) return res.status(400).json({ error: 'Bad booking id' });
-    const r0 = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?id=eq.${b.id}&select=id,price,amount_paid,scheduled_at,scheduled_end,address_line1,notes,customer_notes,metadata,customer:customers(name,email),service:services(name)`,
+    const r0 = await fetch(`${process.env.SUPABASE_URL}/rest/v1/bookings?id=eq.${b.id}&select=id,price,amount_paid,scheduled_at,scheduled_end,address_line1,notes,customer_notes,metadata,customer:customers(name,email,metadata),service:services(name)`,
       { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'app' } });
     const [bk] = r0.ok ? await r0.json() : [];
     if (!bk) return res.status(404).json({ error: 'Booking not found' });

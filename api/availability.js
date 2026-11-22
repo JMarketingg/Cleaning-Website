@@ -21,6 +21,17 @@ function rangeOf(time) {
 }
 
 module.exports = async function handler(req, res) {
+  // ?promo=CODE: is this a customer's referral code? (Each TidyHaus customer has one, like SHIORI590.)
+  const promo = String((req.query || {}).promo || '').trim().toUpperCase();
+  if (promo) {
+    if (!/^[A-Z]{1,8}[A-F0-9]{3}$/.test(promo) || !process.env.SUPABASE_URL) return res.status(200).json({ ok: false });
+    const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    const r = await fetch(`${process.env.SUPABASE_URL}/rest/v1/customers?select=name&business_id=eq.b607db7a-3b63-4f14-9de3-f86d0029a572&metadata->>ref_code=eq.${promo}&limit=1`,
+      { headers: { apikey: key, Authorization: `Bearer ${key}`, 'Accept-Profile': 'app' } });
+    const [c] = r.ok ? await r.json() : [];
+    const first = c ? String(c.name || '').trim().split(/\s+/)[0] : '';
+    return res.status(200).json(c ? { ok: true, code: promo, off: 200, label: `Referral from ${first.charAt(0).toUpperCase() + first.slice(1).toLowerCase()}: ₱200 off your first cleaning` } : { ok: false });
+  }
   const date = String((req.query || {}).date || '');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ error: 'Use ?date=YYYY-MM-DD' });
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;

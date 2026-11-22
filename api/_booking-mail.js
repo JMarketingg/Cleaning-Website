@@ -102,6 +102,7 @@ function confirmed(d) {
       ])) +
       policySection() +
       mail.section('Our promise', P("If we miss anything on the checklist, tell us within 12 hours and we'll come back to fix it for free.")) +
+      (d.ref_code ? mail.section('Give ₱200, get ₱200', P(`Share your code <strong style="font-size:18px;letter-spacing:1px;">${mail.esc(d.ref_code)}</strong> with friends. They get ₱200 off their first cleaning, and you get ₱200 off your next cleaning after theirs is done. Every 10th cleaning is also ₱500 off.`)) : '') +
       mail.section('Happy with your clean?', P('A quick Google review helps other families in Makati and BGC find us. Thank you!') +
         `<p style="margin:10px 0 0;">${mail.button('https://g.page/r/CVupIA7gzCvJEBM/review', 'Leave us a Google review')}</p>`) +
       mail.section('Need to change something?', P('Reply to this email, or text or call us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.'))
@@ -122,7 +123,8 @@ function fromBooking(b) {
     time: b.scheduled_at ? tm(b.scheduled_at) + (b.scheduled_end ? ' to ' + tm(b.scheduled_end) : '') : '',
     start: b.scheduled_at, address: b.address_line1, size, price: Number(b.price) || 0, amount_paid: Number(b.amount_paid) || 0,
     payment: m.payment || '', notes: b.customer_notes || '', ref: /^TH-[A-Z0-9]{6}$/.test(m.ref || '') ? m.ref : '',
-    requested_at: m.deposit_requested_at || null
+    requested_at: m.deposit_requested_at || null,
+    ref_code: (b.customer && b.customer.metadata && b.customer.metadata.ref_code) || ''
   };
 }
 
