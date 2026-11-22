@@ -89,7 +89,7 @@ async function createCrmJob(d, quoteId) {
   const service = services.find((s) => s.name.toLowerCase().startsWith(first)) ||
     (first === 'standard' ? services.find((s) => /^house|^standard/i.test(s.name)) : null);
 
-  // Aircon jobs go to the aircon technician (bio says "Aircon"); cleaning jobs to the cleaners. If exactly one fits, plan them.
+  // Aircon jobs go to the AC cleaner (bio says "Aircon cleaner"); cleaning jobs to the cleaners. If exactly one fits, plan them.
   const allTechs = await crm(`technicians?select=id,bio_blurb&business_id=eq.${biz.id}&active=eq.true`);
   const isAc = /aircon/i.test(String(d.service));
   const cleaners = allTechs.filter((t) => /aircon/i.test(String(t.bio_blurb || '')) === isAc);
