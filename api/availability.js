@@ -37,7 +37,10 @@ module.exports = async function handler(req, res) {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return res.status(200).json({ date, busy: [] });
 
-  const url = `${SUPABASE_URL}/rest/v1/quote_requests?select=preferred_time,status,created_at` +
+  // Two separate schedules: aircon cleaning (Arman) and house cleaning (the cleaners). ?service=aircon asks for the aircon one.
+  const wantAc = /aircon/i.test(String((req.query || {}).service || ''));
+  const sameTeam = (serviceName) => /aircon/i.test(String(serviceName || '')) === wantAc;
+  const url = `${SUPABASE_URL}/rest/v1/quote_requests?select=preferred_time,status,created_at,service` +
     `&preferred_date=eq.${date}&status=in.(new,contacted,booked)`;
   try {
     const r = await fetch(url, {
@@ -49,17 +52,19 @@ module.exports = async function handler(req, res) {
     for (const row of await r.json()) {
       const range = rangeOf(row.preferred_time);
       const holding = row.status === 'booked' || now - new Date(row.created_at).getTime() < HOLD_MS;
-      if (range && holding) busy.push(range);
+      if (range && holding && sameTeam(row.service)) busy.push(range);
     }
     // Jobs already in the CRM (for example the next visit of a regular customer).
     const from = new Date(`${date}T00:00:00+08:00`).toISOString(), to = new Date(`${date}T23:59:59+08:00`).toISOString();
-    const jr = await fetch(`${SUPABASE_URL}/rest/v1/bookings?select=scheduled_at,scheduled_end,duration_minutes,status` +
+    // TidyHaus jobs only (the CRM also holds other businesses' jobs).
+    const jr = await fetch(`${SUPABASE_URL}/rest/v1/bookings?select=scheduled_at,scheduled_end,duration_minutes,status,service:services(name)&business_id=eq.b607db7a-3b63-4f14-9de3-f86d0029a572` +
       `&scheduled_at=gte.${from}&scheduled_at=lte.${to}&status=not.in.(cancelled,no_show)`, {
       headers: { apikey: SUPABASE_SERVICE_ROLE_KEY, Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`, 'Accept-Profile': 'app' }
     });
     if (jr.ok) {
       const mins = (t) => { const d = new Date(new Date(t).getTime() + 8 * 3600000); return d.getUTCHours() * 60 + d.getUTCMinutes(); };
       for (const j of await jr.json()) {
+        if (!sameTeam(j.service && j.service.name)) continue;
         const start = mins(j.scheduled_at);
         const end = j.scheduled_end ? mins(j.scheduled_end) : start + (Number(j.duration_minutes) || 180);
         busy.push([start, end]);

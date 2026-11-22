@@ -562,7 +562,7 @@
     renderTimes();
     if (!d) { availBox.textContent = ''; return; }
     availBox.textContent = 'Checking open times…';
-    fetch('/api/availability?date=' + encodeURIComponent(d))
+    fetch('/api/availability?date=' + encodeURIComponent(d) + (isAircon() ? '&service=aircon' : ''))
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (value('date') !== d) return;
@@ -575,6 +575,7 @@
     if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours', 'ac_window', 'ac_split', 'ac_big'].indexOf(e.target.name) !== -1) renderTimes();
   });
   form.elements.date.addEventListener('change', checkAvailability);
+  form.addEventListener('change', function (e) { if (e.target.name === 'service' && value('date')) checkAvailability(); });
   // iPhone Safari can skip the change event and ignores the earliest-date limit, so check on input and blur too.
   var lastDate = '';
   function dateChanged() {
