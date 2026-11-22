@@ -420,7 +420,7 @@
     .then(function (d) { serverReady = Boolean(d && d.ready); }, function () {});
   function textFallback() {
     var text = 'Hi TidyHaus! I would like a quote.\n' +
-      summaryLines().map(function (l) { return l[0] + ': ' + l[1]; }).join('\n');
+      summaryLines().filter(function (l) { return l[0]; }).map(function (l) { return l[0] + ': ' + l[1]; }).join('\n');
     window.location.href = 'https://wa.me/' + PHONE.replace(/\D/g, '') + '?text=' + encodeURIComponent(text);
   }
 
