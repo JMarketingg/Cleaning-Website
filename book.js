@@ -242,7 +242,7 @@
     var lines = [
       ['Area', area],
       ['Service', label('service')],
-      ['Place', label('place')],
+      isAircon() ? ['', ''] : ['Place', label('place')],
       isAircon() ? ['Aircon', acText()] : isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
       ['How often', isAircon() ? 'One time' : label('frequency')],
       ['Date', formatDate(value('date'))],
@@ -266,12 +266,12 @@
     var cut = price.indexOf(' (');
     document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
     document.getElementById('bk-total-note').textContent = price
-      ? (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning' + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      ? (isAircon() ? 'about ' + hoursText(durationMinutes()) : (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning') + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
       : "Office prices depend on the space. We'll send your price.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
     list.innerHTML = '';
-    lines.forEach(function (l) {
+    lines.filter(function (l) { return l[0]; }).forEach(function (l) {
       var dt = document.createElement('dt');
       dt.textContent = l[0];
       var dd = document.createElement('dd');
@@ -284,7 +284,7 @@
   // Add-ons are for homes; inside cabinets is already part of move-in/out.
   function syncAddons() {
     var box = document.getElementById('bk-addons');
-    if (box) box.hidden = value('place') === 'office' || isAircon();
+    if (box) { box.hidden = value('place') === 'office' || isAircon(); box.style.display = box.hidden ? 'none' : ''; }
     var cab = document.getElementById('bk-addon-cab');
     if (cab) cab.hidden = value('service') === 'move';
   }
