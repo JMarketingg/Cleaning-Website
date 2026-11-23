@@ -164,6 +164,7 @@
 
   // Estimated price per visit, by service and number of bedrooms.
   // Condo and Airbnb use standard prices. Move-in/out costs more than deep (empty unit, inside cabinets). Offices are quoted by hand.
+  var OFFICE_PRICES = { small: 1500, medium: 2500, large: 3800 };
   var PRICES = {
     standard: { studio: 1300, '1': 1500, '2': 1900, '3': 2500, '4+': 3100 },
     deep: { studio: 1900, '1': 2400, '2': 3000, '3': 3800, '4+': 4600 },
@@ -210,12 +211,19 @@
   // Price text like "₱1,500" or "₱1,300 (FIRSTCLEAN: ₱200 off your first cleaning, then ₱1,500 per visit)".
   function estimatedPrice() {
     if (isAircon()) { var acp = acPrice(); return acp ? peso(acp) + ' (' + acText() + ')' : ''; }
-    var table = PRICES[PRICE_TABLE[value('service')]];
-    if (!table || value('place') === 'office') return '';
-    var amount = table[value('bedrooms')];
-    if (!amount) return '';
-    amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
-    amount += addonTotal();
+    var amount;
+    if (value('place') === 'office') {
+      // Office prices (owner, Nov 24 2026): small ₱1,500, medium ₱2,500, large ₱3,800.
+      amount = OFFICE_PRICES[value('office_size')];
+      if (!amount) return '';
+    } else {
+      var table = PRICES[PRICE_TABLE[value('service')]];
+      if (!table) return '';
+      amount = table[value('bedrooms')];
+      if (!amount) return '';
+      amount += EXTRA_BATHROOM[value('bathrooms')] || 0;
+      amount += addonTotal();
+    }
     var notes = [];
     var perVisit = amount;
     var discount = DISCOUNTS[value('frequency')];
