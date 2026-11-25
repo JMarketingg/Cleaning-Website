@@ -37,9 +37,11 @@ module.exports = async function handler(req, res) {
   const { SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY } = process.env;
   if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) return res.status(200).json({ date, busy: [] });
 
-  // Two separate schedules: aircon cleaning (Arman) and house cleaning (the cleaners). ?service=aircon asks for the aircon one.
-  const wantAc = /aircon/i.test(String((req.query || {}).service || ''));
-  const sameTeam = (serviceName) => /aircon/i.test(String(serviceName || '')) === wantAc;
+  // Separate schedules: aircon cleaning (Arman) and house cleaning (the cleaners). ?service=aircon asks for the aircon one.
+  // Third schedule: sofa, mattress and carpet (partner). ?service=sofa
+  const team = (s) => /aircon/i.test(String(s || '')) ? 'aircon' : /sofa|mattress|carpet|upholster/i.test(String(s || '')) ? 'sofa' : 'house';
+  const want = team((req.query || {}).service);
+  const sameTeam = (serviceName) => team(serviceName) === want;
   const url = `${SUPABASE_URL}/rest/v1/quote_requests?select=preferred_time,status,created_at,service` +
     `&preferred_date=eq.${date}&status=in.(new,contacted,booked)`;
   try {

@@ -91,8 +91,10 @@ async function createCrmJob(d, quoteId) {
 
   // Aircon jobs go to the AC cleaner (bio says "Aircon cleaner"); cleaning jobs to the cleaners. If exactly one fits, plan them.
   const allTechs = await crm(`technicians?select=id,bio_blurb&business_id=eq.${biz.id}&active=eq.true`);
-  const isAc = /aircon/i.test(String(d.service));
-  const cleaners = allTechs.filter((t) => /aircon/i.test(String(t.bio_blurb || '')) === isAc);
+  // Sofa, mattress and carpet jobs go to the upholstery partner (bio says "Upholstery").
+  const team = (s) => /aircon/i.test(String(s || '')) ? 'aircon' : /sofa|mattress|carpet|upholster/i.test(String(s || '')) ? 'sofa' : 'house';
+  const isAc = team(d.service) === 'aircon';
+  const cleaners = allTechs.filter((t) => team(t.bio_blurb) === team(d.service));
   const times = mail.cleanTimes(d.date, d.time);
   const price = Number((String(d.price).match(/₱?\s*([\d,]+)/) || [])[1]?.replace(/,/g, '') || 0);
   const start = times ? isoFromCompact(times.start) : null;

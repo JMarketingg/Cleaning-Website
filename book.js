@@ -26,12 +26,15 @@
 
   // Steps that only apply to some answers are skipped.
   function isAircon() { return value('service') === 'aircon'; }
+  function isSofa() { return value('service') === 'sofa'; }
+  // Services priced per item (aircon units; sofas, mattresses and carpets) have their own step.
+  function isItems() { return isAircon() || isSofa(); }
   function applies(step) {
-    // Aircon cleaning has its own step and skips the place, size and how-often questions.
-    if (isAircon()) return step.dataset.skipAircon !== 'true' && (!step.dataset.only || step.dataset.only === 'aircon');
+    // Item services skip the place, size and how-often questions.
+    if (isItems()) return step.dataset.skipAircon !== 'true' && (!step.dataset.only || step.dataset.only === value('service'));
     var only = step.dataset.only;
     if (!only) return true;
-    if (only === 'aircon') return false;
+    if (only === 'aircon' || only === 'sofa') return false;
     var isOffice = value('place') === 'office';
     return only === 'office' ? isOffice : !isOffice;
   }
@@ -49,7 +52,30 @@
     return bits.join(', ') + (c.b ? ' (' + c.b + ' inverter or over 1.5HP)' : '') + (c.s ? '; outdoor unit: ' + label('ac_outdoor') : '');
   }
 
+  // Sofa, mattress and carpet (partner prices, owner Nov 25 2026). Minimum ₱2,000 per booking.
+  var SOFA = { sf_2: ['2-seater sofa', 1500], sf_3: ['3-seater sofa', 2200], sf_4: ['4-seater sofa', 2900], sf_5: ['5-seater sofa', 3600], sf_6: ['6-seater sofa', 4200],
+    ch_dining: ['dining chair', 500], ch_office: ['office chair', 600], ch_accent: ['accent chair', 850], ch_recliner: ['reclining chair', 1200],
+    mt_single: ['single mattress', 1000], mt_double: ['double mattress', 1800], mt_queen: ['queen mattress', 2400], mt_king: ['king mattress', 3000],
+    cp_small: ['small carpet', 1000], cp_medium: ['medium carpet', 1800], cp_large: ['large carpet', 2800], pet_bed: ['pet bed', 600] };
+  var SOFA_MIN = 2000, FLOOR_CARPET_SQFT = 40;
+  function sofaSqft() { return Math.max(0, Math.min(5000, Math.round(Number(value('cp_floor_sqft')) || 0))); }
+  function sofaSubtotal() {
+    var t = 0;
+    Object.keys(SOFA).forEach(function (k) { t += (Number(value(k)) || 0) * SOFA[k][1]; });
+    return t + sofaSqft() * FLOOR_CARPET_SQFT;
+  }
+  function sofaPrice() { var t = sofaSubtotal(); return t ? Math.max(SOFA_MIN, t) : 0; }
+  function sofaText() {
+    var bits = [];
+    Object.keys(SOFA).forEach(function (k) { var n = Number(value(k)) || 0; if (n) bits.push(n + ' ' + SOFA[k][0] + (n > 1 ? 's' : '')); });
+    if (sofaSqft()) bits.push(sofaSqft() + ' sq ft floor carpet');
+    return bits.join(', ');
+  }
+  function itemPrice() { return isSofa() ? sofaPrice() : acPrice(); }
+  function itemText() { return isSofa() ? sofaText() : acText(); }
+
   var validators = {
+    sofa: function () { if (!sofaSubtotal()) return 'Pick at least one item to clean.'; },
     area: function () {
       if (!value('area')) return 'Pick your area.';
       if (value('area') === 'other' && !value('area_other')) return 'Tell us your city or area.';
@@ -192,7 +218,7 @@
     var items = Array.prototype.slice.call(form.querySelectorAll('input[name="addon"]:checked'))
       .filter(function (el) { return !(moving && el.value === 'cabinets'); })
       .map(function (el) { return { label: el.dataset.label, price: Number(el.dataset.price) || 300 }; });
-    if (isAircon()) return [];
+    if (isItems()) return [];
     var h = Number(value('organize_hours')) || 0;
     if (h) items.push({ label: 'Organizing and decluttering (' + h + (h === 1 ? ' hour' : ' hours') + ')', price: h * ORGANIZE_RATE });
     return items;
@@ -210,7 +236,7 @@
 
   // Price text like "₱1,500" or "₱1,300 (FIRSTCLEAN: ₱200 off your first cleaning, then ₱1,500 per visit)".
   function estimatedPrice() {
-    if (isAircon()) { var acp = acPrice(); return acp ? peso(acp) + ' (' + acText() + ')' : ''; }
+    if (isItems()) { var ip = itemPrice(); return ip ? peso(ip) + ' (' + itemText() + (isSofa() && sofaSubtotal() < SOFA_MIN ? '; minimum booking ' + peso(SOFA_MIN) : '') + ')' : ''; }
     var amount;
     if (value('place') === 'office') {
       // Office prices (owner, Nov 24 2026): small ₱1,500, medium ₱2,500, large ₱3,800.
@@ -250,9 +276,9 @@
     var lines = [
       ['Area', area],
       ['Service', label('service')],
-      isAircon() ? ['', ''] : ['Place', label('place')],
-      isAircon() ? ['Aircon', acText()] : isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
-      ['How often', isAircon() ? 'One time' : label('frequency')],
+      isItems() ? ['', ''] : ['Place', label('place')],
+      isItems() ? [isSofa() ? 'Items' : 'Aircon', itemText()] : isOffice ? ['Size', label('office_size')] : ['Size', label('bedrooms') + ', ' + label('bathrooms')],
+      ['How often', isItems() ? 'One time' : label('frequency')],
       ['Date', formatDate(value('date'))],
       ['Time', label('time')],
       ['Name', value('name')],
@@ -274,7 +300,7 @@
     var cut = price.indexOf(' (');
     document.getElementById('bk-total-amount').textContent = price ? (cut === -1 ? price : price.slice(0, cut)) : 'Quote by message';
     document.getElementById('bk-total-note').textContent = price
-      ? (isAircon() ? 'about ' + hoursText(durationMinutes()) : (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning') + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
+      ? (isItems() ? 'about ' + hoursText(durationMinutes()) : (promo() ? 'first cleaning' : 'per visit') + ' · includes up to ' + hoursText(durationMinutes()) + ' of cleaning') + (cut === -1 ? '' : ' · ' + price.slice(cut + 2, -1))
       : "Office prices depend on the space. We'll send your price.";
     var lines = summaryLines();
     var list = document.getElementById('bk-summary');
@@ -292,7 +318,7 @@
   // Add-ons are for homes; inside cabinets is already part of move-in/out.
   function syncAddons() {
     var box = document.getElementById('bk-addons');
-    if (box) { box.hidden = value('place') === 'office' || isAircon(); box.style.display = box.hidden ? 'none' : ''; }
+    if (box) { box.hidden = value('place') === 'office' || isItems(); box.style.display = box.hidden ? 'none' : ''; }
     var cab = document.getElementById('bk-addon-cab');
     if (cab) cab.hidden = value('service') === 'move';
   }
@@ -321,7 +347,7 @@
     if (window.thTrack) window.thTrack('quote_step', 'lead_saved');
   }
   // After step 2, save each answer as they go, so a customer who stops still leaves what they picked.
-  var STEP_NAMES = { aircon: 'aircon details', area: 'area', contact: 'contact', service: 'service', place: 'type of place', size: 'size', office: 'office size',
+  var STEP_NAMES = { aircon: 'aircon details', sofa: 'sofa, mattress and carpet items', area: 'area', contact: 'contact', service: 'service', place: 'type of place', size: 'size', office: 'office size',
     frequency: 'how often', when: 'date and time', payment: 'payment', details: 'address and details', review: 'review (last step, did not press Send)' };
   function sendProgress(useBeacon) {
     if (!leadId || value('website')) return;
@@ -329,8 +355,8 @@
     var isOffice = value('place') === 'office';
     var body = { stage: 'lead', progress: true, lead_id: leadId, phone: value('phone'), name: value('name'),
       last_step: 'step ' + pos + ' of ' + visible.length + ' (' + (STEP_NAMES[steps[current].dataset.key] || steps[current].dataset.key) + ')',
-      service: label('service'), place: isAircon() ? 'Aircon: ' + acText() : label('place'),
-      bedrooms: isOffice || isAircon() ? '' : label('bedrooms'), bathrooms: isOffice || isAircon() ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
+      service: label('service'), place: isItems() ? (isSofa() ? 'Items: ' : 'Aircon: ') + itemText() : label('place'),
+      bedrooms: isOffice || isItems() ? '' : label('bedrooms'), bathrooms: isOffice || isItems() ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
       frequency: label('frequency'), date: value('date'), time: label('time'), building: value('building'),
       notes: [value('payment') ? 'Payment: ' + label('payment') : '', addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n') };
     try { fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {}); } catch (e) {}
@@ -403,9 +429,9 @@
       phone: value('phone'),
       area: value('area') === 'other' ? value('area_other') : label('area'),
       service: label('service'),
-      place: isAircon() ? 'Aircon: ' + acText() : label('place'),
-      bedrooms: isOffice || isAircon() ? '' : label('bedrooms'),
-      bathrooms: isOffice || isAircon() ? '' : label('bathrooms'),
+      place: isItems() ? (isSofa() ? 'Items: ' : 'Aircon: ') + itemText() : label('place'),
+      bedrooms: isOffice || isItems() ? '' : label('bedrooms'),
+      bathrooms: isOffice || isItems() ? '' : label('bathrooms'),
       office_size: isOffice ? label('office_size') : '',
       frequency: label('frequency'),
       date: value('date'),
@@ -455,7 +481,7 @@
       area: value('area') === 'other' ? value('area_other') : label('area'),
       service: label('service'),
       place: label('place'),
-      size: isAircon() ? acText() : isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
+      size: isItems() ? itemText() : isOffice ? label('office_size') : label('bedrooms') + ', ' + label('bathrooms'),
       frequency: label('frequency'),
       payment: label('payment'),
       promo: promo() ? promo().code : '',
@@ -515,6 +541,7 @@
 
   function durationMinutes() {
     if (isAircon()) { var c = acCounts(); return Math.max(60, Math.ceil((c.s * 60 + c.w * 45) / 30) * 30); }
+    if (isSofa()) return Math.min(480, Math.max(120, Math.ceil(sofaSubtotal() / 1000) * 60));
     if (value('place') === 'office') return (OFFICE_HOURS[value('office_size')] || 4) * 60;
     // Move-in/out takes about as long as a deep clean.
     var kind = PRICE_TABLE[value('service')] === 'standard' ? 'standard' : 'deep';
@@ -570,7 +597,7 @@
     renderTimes();
     if (!d) { availBox.textContent = ''; return; }
     availBox.textContent = 'Checking open times…';
-    fetch('/api/availability?date=' + encodeURIComponent(d) + (isAircon() ? '&service=aircon' : ''))
+    fetch('/api/availability?date=' + encodeURIComponent(d) + (isAircon() ? '&service=aircon' : isSofa() ? '&service=sofa' : ''))
       .then(function (r) { return r.json(); })
       .then(function (res) {
         if (value('date') !== d) return;
