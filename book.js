@@ -25,6 +25,8 @@
   }
 
   // Steps that only apply to some answers are skipped.
+  // Unit number + building, e.g. "Unit 12B, Joya South Tower, Rockwell".
+  function fullAddress() { var u = value('unit'), b = value('building'); return u && b ? 'Unit ' + u.replace(/^unit\s*/i, '') + ', ' + b : b; }
   function isAircon() { return value('service') === 'aircon'; }
   function isSofa() { return value('service') === 'sofa'; }
   // Services priced per item (aircon units; sofas, mattresses and carpets) have their own step.
@@ -113,7 +115,8 @@
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return 'Check your email address.';
     },
     details: function () {
-      if (!value('building')) return 'Add your building, unit and street.';
+      if (!value('unit')) return 'Add your unit or floor number.';
+      if (!value('building')) return 'Add your building and street.';
       if (photoBusy) return 'Wait a moment, your photos are still uploading.';
       // Deep and move-in/out: ask for photos once; they can choose to send them later.
       if (['deep', 'move'].indexOf(value('service')) !== -1 && !photoCount && !photosLater) {
@@ -284,7 +287,7 @@
       ['Name', value('name')],
       ['Mobile', value('phone')]
     ];
-    if (value('building')) lines.push(['Building / street', value('building')]);
+    if (value('building')) lines.push(['Address', fullAddress()]);
     if (value('email')) lines.push(['Email', value('email')]);
     lines.push(['Equipment', label('equipment')]);
     if (addonText()) lines.push(['Add-ons', addonText()]);
@@ -357,7 +360,7 @@
       last_step: 'step ' + pos + ' of ' + visible.length + ' (' + (STEP_NAMES[steps[current].dataset.key] || steps[current].dataset.key) + ')',
       service: label('service'), place: isItems() ? (isSofa() ? 'Items: ' : 'Aircon: ') + itemText() : label('place'),
       bedrooms: isOffice || isItems() ? '' : label('bedrooms'), bathrooms: isOffice || isItems() ? '' : label('bathrooms'), office_size: isOffice ? label('office_size') : '',
-      frequency: label('frequency'), date: value('date'), time: label('time'), building: value('building'),
+      frequency: label('frequency'), date: value('date'), time: label('time'), building: fullAddress(),
       notes: [value('payment') ? 'Payment: ' + label('payment') : '', addonText() ? 'Add-ons: ' + addonText() : '', value('notes')].filter(Boolean).join('\n') };
     try { fetch(CRM_URL, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), keepalive: true }).catch(function () {}); } catch (e) {}
   }
@@ -436,7 +439,7 @@
       frequency: label('frequency'),
       date: value('date'),
       time: label('time'),
-      building: value('building'),
+      building: fullAddress(),
       notes: [value('notes')].concat(extra).filter(Boolean).join('\n'),
       channel: 'website',
       stage: 'hot', lead_id: leadId, email: value('email'), vid: readVid(),
@@ -490,7 +493,7 @@
       name: value('name'),
       phone: value('phone'),
       email: value('email'),
-      building: value('building'),
+      building: fullAddress(),
       notes: notesWithEquipment(),
       price: estimatedPrice(),
       policy: 'Agreed to the cancellation policy (25% deposit, 24-hour notice) on the booking form',

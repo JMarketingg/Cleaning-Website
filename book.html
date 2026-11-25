@@ -196,7 +196,7 @@
     <fieldset class="bk-step" data-key="details" data-auto="false" data-clarity-mask="true" hidden>
       <legend class="bk-question" tabindex="-1">A few last details</legend>
       <p class="bk-hint">So our cleaner can find your place and get ready.</p>
-      <label class="bk-field">Building, unit and street<input type="text" name="building" autocomplete="address-line1" maxlength="120" required></label>
+      <div class="bk-two" style="display:grid;grid-template-columns:1fr 2fr;gap:10px;"><label class="bk-field">Unit / floor<input type="text" name="unit" autocomplete="address-line2" maxlength="30" placeholder="e.g. 12B" required></label><label class="bk-field">Building and street<input type="text" name="building" autocomplete="address-line1" maxlength="120" required></label></div>
       <div class="bk-field" role="radiogroup" aria-label="Cleaning equipment">Cleaning equipment
         <div class="bk-options" style="margin-top:8px;">
           <label class="bk-option"><input type="radio" name="equipment" value="ours" data-label="Bring your own equipment" checked><span>Bring your own</span></label>
@@ -366,7 +366,7 @@
 
   })();
 </script>
-<script src="book.js?v=20261125a"></script>
+<script src="book.js?v=20261126a"></script>
 <script src="/track.js" defer></script>
 <script src="/site.js" defer></script>
 </body>
