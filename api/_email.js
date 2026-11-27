@@ -112,12 +112,14 @@ const PAY = {
   gcash: { name: 'GCash', qr: 'th-gcash-q7m2.png', lines: ['Account name: TidyHaus (JI**H M.)', 'Number: 0992 309 5621'] },
   maya: { name: 'Maya', qr: 'th-maya-p3v8.png', lines: ['Account name: Jiyah Monahan', 'Number: 0992 309 5621'] },
   wise: { name: 'Wise', link: 'https://wise.com/pay/me/jiyahalejandrom', lines: ['Wisetag: @jiyahalejandrom', 'Account name: Jiyah Monahan (TidyHaus)', 'Pay in PHP using the Wise app or the link below'] },
+  paypal: { name: 'PayPal', link: 'https://www.paypal.me/JiyahMonahan/', lines: ['PayPal: paypal.me/JiyahMonahan', 'Account name: Jiyah Monahan (TidyHaus)', 'Pay in PHP using the PayPal link below'] },
   bank: { name: 'Bank transfer (InstaPay / QR Ph)', qr: 'th-maribank-k4x9.png', lines: ['Bank: MariBank', 'Account name: Jiyah Monahan', 'Scan the QR from any bank or e-wallet app'] }
 };
 function payKey(method) {
   const m = String(method || '').toLowerCase();
   if (/maya/.test(m)) return 'maya';
   if (/wise/.test(m)) return 'wise';
+  if (/paypal/.test(m)) return 'paypal';
   if (/bank|instapay|qr ph/.test(m)) return 'bank';
   return 'gcash';
 }
@@ -131,7 +133,7 @@ function paymentBlock(method, price, ref, lead) {
     P(`<strong>${esc(main.name)}</strong>`, 'margin-top:10px;') +
     main.lines.map((l) => P(esc(l), `color:${C.muted};`)).join('') +
     (main.qr ? `<img src="https://tidyhausph.com/images/pay/${main.qr}" width="260" alt="${esc(main.name)} QR code" style="display:block;width:260px;max-width:100%;height:auto;border:0;margin:12px 0;border-radius:10px;">` : '') +
-    (main.link ? `<p style="margin:12px 0;">${button(main.link, 'Pay with Wise')}</p>` : '') +
+    (main.link ? `<p style="margin:12px 0;">${button(main.link, 'Pay with ' + main.name)}</p>` : '') +
     P('After paying, reply to this email with a screenshot of your payment. That\'s it!') +
     P(`Prefer ${esc(others)}? Just reply and we'll send those details.`, `font-size:13px;color:${C.muted};margin-top:8px;`) +
     '</td></tr></table>';
