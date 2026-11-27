@@ -42,10 +42,10 @@ module.exports = async function handler(req, res) {
     const due = Math.max(0, (Number(b.price) || 0) - paidSoFar);
     if (!due) continue;
     const html = mail.layout({
-      preheader: `Your cleaning is on ${date}. Please pay ${peso(due)} before your visit.`,
+      preheader: `Your cleaning is on ${date}. The rest, ${peso(due)}, is paid on the day.`,
       badge: 'Payment reminder',
       title: `See you soon, ${first}!`,
-      intro: `Your TidyHaus cleaning is on <strong>${mail.esc(date)}</strong>, ${mail.esc(time)}. ${paidSoFar ? `Thanks for your deposit! Please pay the rest, <strong>${peso(due)}</strong>, before your visit.` : 'If you haven\'t paid yet, please pay before your visit.'}`,
+      intro: `Your TidyHaus cleaning is on <strong>${mail.esc(date)}</strong>, ${mail.esc(time)}. ${paidSoFar ? `Thanks for your deposit! The rest, <strong>${peso(due)}</strong>, can be paid on the day, before or after the cleaning.` : 'You can pay on the day, before or after the cleaning.'}`,
       body: mail.card([['Date', date], ['Time', time], ['Address', b.address_line1], ['Price', peso(b.price)], paidSoFar ? ['Deposit paid', peso(paidSoFar)] : ['', ''], [paidSoFar ? 'Rest to pay' : 'Amount', peso(due)], ['Reference', ref]]) +
         mail.section('How to pay', mail.paymentBlock(meta.payment, peso(due), ref)) +
         mail.section('Already paid?', `<p style="font-family:Arial,Helvetica,sans-serif;margin:0;font-size:15px;line-height:1.6;color:#26372D;">Thank you! You can ignore this email. Need to change your date? Just reply, or text us at <a href="tel:+639923095621" style="color:#344B38;font-weight:bold;">+63 992 309 5621</a>.</p>`)

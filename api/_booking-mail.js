@@ -45,14 +45,14 @@ function depositRequest(d) {
   const first = mail.firstName(d.name);
   const subject = dep.full ? `Pay to book your TidyHaus cleaning on ${d.date}` : `Reserve your date: ${peso(dep.deposit)} deposit for ${d.date}`;
   const html = mail.layout({
-    preheader: dep.full ? `Your cleaning is less than 24 hours away, so the full ${peso(dep.price)} is paid to book.` : `Pay ${peso(dep.deposit)} to reserve ${d.date}. The rest is paid before your visit.`,
+    preheader: dep.full ? `Your cleaning is less than 24 hours away, so the full ${peso(dep.price)} is paid to book.` : `Pay ${peso(dep.deposit)} to reserve ${d.date}. The rest is paid on the day, before or after the cleaning.`,
     badge: 'Almost booked',
     title: `Your price is ready, ${first}!`,
     intro: dep.full
       ? `Your cleaning is less than 24 hours away, so the <strong>full amount (${peso(dep.price)})</strong> is paid to book it. <strong>Your date is reserved once we receive it.</strong>`
-      : `To reserve your date, please pay a <strong>${DEPOSIT_PCT}% deposit of ${peso(dep.deposit)}</strong>. <strong>Your date is only held once the deposit is paid.</strong> The rest (${peso(dep.rest)}) is paid before your visit.`,
+      : `To reserve your date, please pay a <strong>${DEPOSIT_PCT}% deposit of ${peso(dep.deposit)}</strong>. <strong>Your date is only held once the deposit is paid.</strong> The rest (${peso(dep.rest)}) is paid on the day, before or after the cleaning.`,
     body: mail.card([...qty(d), ['Price', peso(dep.price)], [dep.full ? 'Pay now (full amount)' : `Deposit now (${DEPOSIT_PCT}%)`, peso(dep.deposit)],
-      dep.full ? ['', ''] : ['Rest, before your visit', peso(dep.rest)], ['Reference', d.ref], ['Notes', d.notes]]) +
+      dep.full ? ['', ''] : ['Rest, on the day', peso(dep.rest)], ['Reference', d.ref], ['Notes', d.notes]]) +
       mail.section(dep.full ? 'How to pay' : 'How to pay your deposit', payBox(d, dep.deposit,
         dep.full ? `Please pay <strong>${mail.esc(peso(dep.deposit))}</strong> to book` : `Please pay your <strong>${mail.esc(peso(dep.deposit))} deposit within 24 hours</strong> to reserve your date`)) +
       policySection() +
@@ -86,8 +86,8 @@ function confirmed(d) {
     badge: 'Booking confirmed',
     title: `You're all set, ${first}!`,
     intro: `We received your ${rest ? 'deposit' : 'payment'}, so your cleaning is <strong>confirmed</strong>${d.ref ? `. Your booking reference is <strong style="white-space:nowrap;">${mail.esc(d.ref)}</strong>` : ''}.`,
-    body: mail.card([...qty(d), ['Price', peso(d.price)], ['Paid', peso(paid)], rest ? ['Rest, before your visit', peso(rest)] : ['', ''], ['Payment', d.payment], ['Notes', d.notes]]) +
-      (rest ? mail.section('Paying the rest', payBox(d, rest, `Please pay the rest, <strong>${mail.esc(peso(rest))}</strong>, before your visit`)) : '') +
+    body: mail.card([...qty(d), ['Price', peso(d.price)], ['Paid', peso(paid)], rest ? ['Rest, on the day', peso(rest)] : ['', ''], ['Payment', d.payment], ['Notes', d.notes]]) +
+      (rest ? mail.section('Paying the rest', payBox(d, rest, `Please pay the rest, <strong>${mail.esc(peso(rest))}</strong>, on the day (before or after the cleaning)`)) : '') +
       (cal ? `<p style="margin:16px 0 0;">${mail.button(cal, 'Google Calendar')}&nbsp; ${mail.button(ics, 'Apple or Outlook calendar')}</p>` : '') +
       mail.section("What we'll clean", mail.list([
         '<strong>Living areas:</strong> dust shelves and surfaces, wipe tables, sweep and mop, tidy up, take out the trash',
