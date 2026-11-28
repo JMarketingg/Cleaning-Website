@@ -13,7 +13,7 @@ module.exports = async (req, res) => {
     if (b.copy_only) { const o = String(process.env.OWNER_EMAIL || ''); b.to = ((o.match(/<([^>]+)>/) || [])[1] || o.split(',')[0]).trim(); b.subject = '[Copy] ' + b.subject; }
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(b.to || '') || !b.subject || !b.html) return res.status(400).json({ error: 'to, subject and html are required' });
     const r = await fetch('https://api.resend.com/emails', { method: 'POST', headers: auth,
-      body: JSON.stringify({ from: (b.headers && b.headers['List-Unsubscribe']) ? process.env.FROM_EMAIL : personalFrom(process.env.FROM_EMAIL), to: b.to, reply_to: process.env.OWNER_EMAIL || undefined, subject: b.subject, html: b.html, text: b.text, headers: b.headers }) });
+      body: JSON.stringify({ from: personalFrom(process.env.FROM_EMAIL), to: b.to, reply_to: process.env.OWNER_EMAIL || undefined, subject: b.subject, html: b.html, text: b.text, headers: b.headers }) });
     const j = await r.json().catch(() => ({}));
     return res.status(r.ok ? 200 : 502).json(r.ok ? { id: j.id } : { error: j.message || ('Resend ' + r.status) });
   }
