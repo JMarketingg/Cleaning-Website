@@ -223,7 +223,7 @@
       .map(function (el) { return { label: el.dataset.label, price: Number(el.dataset.price) || 300 }; });
     if (isItems()) return [];
     var cw = Number(value('curtain_windows')) || 0;
-    if (cw) items.push({ label: 'Curtain dusting (' + cw + (cw === 1 ? ' window' : ' windows') + ')', price: cw * 300 });
+    if (cw) items.push({ label: 'Curtain vacuuming (' + cw + (cw === 1 ? ' window' : ' windows') + ')', price: cw * 300 });
     var h = Number(value('organize_hours')) || 0;
     if (h) items.push({ label: 'Organizing and decluttering (' + h + (h === 1 ? ' hour' : ' hours') + ')', price: h * ORGANIZE_RATE });
     return items;
