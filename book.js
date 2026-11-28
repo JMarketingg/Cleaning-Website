@@ -222,6 +222,8 @@
       .filter(function (el) { return !(moving && el.value === 'cabinets'); })
       .map(function (el) { return { label: el.dataset.label, price: Number(el.dataset.price) || 300 }; });
     if (isItems()) return [];
+    var cw = Number(value('curtain_windows')) || 0;
+    if (cw) items.push({ label: 'Curtain dusting (' + cw + (cw === 1 ? ' window' : ' windows') + ')', price: cw * 300 });
     var h = Number(value('organize_hours')) || 0;
     if (h) items.push({ label: 'Organizing and decluttering (' + h + (h === 1 ? ' hour' : ' hours') + ')', price: h * ORGANIZE_RATE });
     return items;
@@ -551,6 +553,7 @@
     var h = HOURS[kind][value('bedrooms')] || 3;
     h += (EXTRA_BATHROOMS[value('bathrooms')] || 0) * EXTRA_BATHROOM_HOURS[kind];
     h += Number(value('organize_hours')) || 0; // organizing time is on top of the cleaning
+    h += (Number(value('curtain_windows')) || 0) * 0.25; // about 15 minutes per window of curtains
     return h * 60;
   }
   function clock(m) {
@@ -610,7 +613,7 @@
   }
   // The length of the clean depends on earlier answers, so redraw when they change.
   form.addEventListener('change', function (e) {
-    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours', 'ac_window', 'ac_split', 'ac_big'].indexOf(e.target.name) !== -1) renderTimes();
+    if (['service', 'place', 'bedrooms', 'bathrooms', 'office_size', 'organize_hours', 'curtain_windows', 'ac_window', 'ac_split', 'ac_big'].indexOf(e.target.name) !== -1) renderTimes();
   });
   form.elements.date.addEventListener('change', checkAvailability);
   form.addEventListener('change', function (e) { if (e.target.name === 'service' && value('date')) checkAvailability(); });
