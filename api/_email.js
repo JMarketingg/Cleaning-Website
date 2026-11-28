@@ -139,11 +139,11 @@ function paymentBlock(method, price, ref, lead) {
     '</td></tr></table>';
 }
 
-// Booking emails come "from a person" (Jiyah from TidyHaus) so Gmail is more likely to put them in Primary, not Promotions.
+// Sender name for all emails: "TidyHaus Home Cleaning" (owner, Nov 28 2026; no personal name).
 function personalFrom(from) {
   const f = String(from || '');
   const addr = (f.match(/<([^>]+)>/) || [])[1] || f.trim();
-  return addr ? `Jiyah from TidyHaus <${addr}>` : f;
+  return addr ? `TidyHaus Home Cleaning <${addr}>` : f;
 }
 
 module.exports = { personalFrom, firstName, paymentBlock, esc, bookingRef, card, section, list, button, layout, calendarLink, icsLink, icsFile, cleanTimes };
