@@ -48,7 +48,7 @@ module.exports = async function handler(req, res) {
     });
     const r = await fetch('https://api.resend.com/emails', {
       method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from: FROM_EMAIL, to: email, reply_to: OWNER_EMAIL || undefined, subject: `${cleaner} is on the way to your TidyHaus cleaning`, html })
+      body: JSON.stringify({ from: mail.personalFrom(FROM_EMAIL), to: email, reply_to: OWNER_EMAIL || undefined, subject: `${cleaner} is on the way to your TidyHaus cleaning`, html })
     });
     if (!r.ok) throw new Error(`Resend ${r.status}: ${await r.text()}`);
     await crm(`bookings?id=eq.${id}`, { method: 'PATCH', headers: { Prefer: 'return=minimal' },

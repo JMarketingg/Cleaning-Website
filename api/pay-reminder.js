@@ -53,7 +53,7 @@ module.exports = async function handler(req, res) {
     try {
       const r = await fetch('https://api.resend.com/emails', {
         method: 'POST', headers: { Authorization: `Bearer ${RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: FROM_EMAIL, to: email, bcc: OWNER_EMAIL || undefined, reply_to: OWNER_EMAIL || undefined,
+        body: JSON.stringify({ from: mail.personalFrom(FROM_EMAIL), to: email, bcc: OWNER_EMAIL || undefined, reply_to: OWNER_EMAIL || undefined,
           subject: `Reminder: your TidyHaus cleaning on ${date}`, html })
       });
       if (!r.ok) throw new Error(`Resend ${r.status}: ${await r.text()}`);
